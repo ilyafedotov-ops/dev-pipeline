@@ -1,9 +1,10 @@
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
+
+from .codex import run_process
 
 # Map of target paths -> template paths (relative to repo root of this starter)
 BASE_FILES = {
@@ -39,48 +40,36 @@ PLACEHOLDER = (
 )
 
 
-def run(
-    cmd: list[str],
-    cwd: Optional[Path] = None,
-    check: bool = True,
-    capture: bool = True,
-    input_text: Optional[str] = None,
-) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd) if cwd else None,
-        check=check,
-        capture_output=capture,
-        text=True,
-        input=input_text,
-    )
-
-
 def ensure_git_repo(base_branch: str, init_if_needed: bool) -> Path:
     try:
-        out = run(["git", "rev-parse", "--show-toplevel"])
+        out = run_process(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
         return Path(out.stdout.strip())
-    except subprocess.CalledProcessError:
+    except Exception:
         if not init_if_needed:
             print("Not a git repository. Re-run with --init-if-needed to git init.")
             sys.exit(1)
         print(f"Initializing git repository with base branch {base_branch}...")
-        run(["git", "init", "-b", base_branch], capture=False)
-        out = run(["git", "rev-parse", "--show-toplevel"])
+        run_process(["git", "init", "-b", base_branch], capture_output=False, text=True)
+        out = run_process(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
         return Path(out.stdout.strip())
 
 
 def ensure_remote_origin(repo_root: Path) -> None:
     try:
-        run(["git", "remote", "get-url", "origin"], cwd=repo_root)
-    except subprocess.CalledProcessError:
+        run_process(["git", "remote", "get-url", "origin"], cwd=repo_root, capture_output=True, text=True)
+    except Exception:
         print("Warning: no remote 'origin' configured. Add one with `git remote add origin <url>`.")
 
 
 def ensure_base_branch(repo_root: Path, base_branch: str) -> None:
     try:
-        run(["git", "show-ref", "--verify", f"refs/heads/{base_branch}"], cwd=repo_root)
-    except subprocess.CalledProcessError:
+        run_process(
+            ["git", "show-ref", "--verify", f"refs/heads/{base_branch}"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
         print(f"Warning: base branch '{base_branch}' does not exist locally. Create it or fetch it before running pipelines.")
 
 
@@ -123,35 +112,62 @@ def clone_repo(url: str, target_dir: Path) -> Path:
         return target_dir
     target_dir.parent.mkdir(parents=True, exist_ok=True)
     print(f"Cloning {url} into {target_dir} ...")
-    run(["git", "clone", url, str(target_dir)], capture=False)
+    run_process(["git", "clone", url, str(target_dir)], capture_output=False, text=True)
     return target_dir
 
 
-def run_codex_discovery(repo_root: Path, model: str) -> None:
+def run_codex_discovery(
+    repo_root: Path,
+    model: str,
+    prompt_file: Optional[Path] = None,
+    sandbox: str = "workspace-write",
+    skip_git_check: bool = True,
+    strict: bool = False,
+) -> None:
+    """
+    Run Codex discovery (repo analysis + CI suggestions) with the repo-discovery prompt.
+
+    strict=False (default) matches the setup script behavior: if codex or the prompt
+    is missing, print a warning and return. strict=True raises FileNotFoundError in
+    those cases so CLIs can fail fast.
+    """
     if shutil.which("codex") is None:
-        print("codex CLI not found; skipping discovery.")
+        msg = "codex CLI not found; skipping discovery."
+        if strict:
+            raise FileNotFoundError(msg)
+        print(msg)
         return
-    prompt_file = repo_root / "prompts" / "repo-discovery.prompt.md"
-    if not prompt_file.is_file():
-        print("repo-discovery.prompt.md not found; skipping discovery.")
+
+    prompt_path = prompt_file if prompt_file else repo_root / "prompts" / "repo-discovery.prompt.md"
+    if not prompt_path.is_file():
+        msg = f"repo-discovery prompt not found at {prompt_path}; skipping discovery."
+        if strict:
+            raise FileNotFoundError(msg)
+        print(msg)
         return
+
     print(f"Running discovery with codex model {model} ...")
-    prompt_text = prompt_file.read_text(encoding="utf-8")
-    run(
-        [
-            "codex",
-            "exec",
-            "-m",
-            model,
-            "--cd",
-            str(repo_root),
-            "--sandbox",
-            "workspace-write",
-            "--skip-git-repo-check",
-            "-",
-        ],
+    prompt_text = prompt_path.read_text(encoding="utf-8")
+
+    cmd = [
+        "codex",
+        "exec",
+        "-m",
+        model,
+        "--cd",
+        str(repo_root),
+        "--sandbox",
+        sandbox,
+    ]
+    if skip_git_check:
+        cmd.append("--skip-git-repo-check")
+    cmd.append("-")
+
+    run_process(
+        cmd,
         cwd=repo_root,
-        capture=False,
+        capture_output=False,
+        text=True,
         check=True,
         input_text=prompt_text,
     )

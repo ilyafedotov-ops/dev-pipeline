@@ -1,8 +1,9 @@
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from .codex import run_process, enforce_token_budget
 
 
 @dataclass
@@ -10,24 +11,6 @@ class QualityResult:
     report_path: Path
     verdict: str
     output: str
-
-
-def run(cmd, cwd=None, check=True, capture=True, input_text=None):
-    """
-    Run a subprocess with optional text input.
-
-    When capture=True (default), text mode is enabled and input_text should be
-    a string. When capture=False, callers may pass bytes via input_text if they
-    need to stream raw data.
-    """
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd) if cwd else None,
-        input=input_text if input_text is not None else None,
-        check=check,
-        capture_output=capture,
-        text=capture,
-    )
 
 
 def read_file(path: Path) -> str:
@@ -40,16 +23,18 @@ def build_prompt(protocol_root: Path, step_file: Path) -> str:
     log = read_file(protocol_root / "log.md")
     step = read_file(step_file)
 
-    git_status = run(
-        ["git", "status", "--porcelain"], cwd=protocol_root.parent.parent
+    git_status = run_process(
+        ["git", "status", "--porcelain"], cwd=protocol_root.parent.parent, capture_output=True, text=True
     ).stdout.strip()
     last_commit = ""
     try:
-        last_commit = run(
+        last_commit = run_process(
             ["git", "log", "-1", "--pretty=format:%s"],
             cwd=protocol_root.parent.parent,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
-    except subprocess.CalledProcessError:
+    except Exception:
         last_commit = "(no commits yet)"
 
     return f"""You are a QA orchestrator. Validate the current protocol step. Follow the checklist and output Markdown only (no fences).
@@ -92,6 +77,8 @@ def run_quality_check(
     prompt_file: Path,
     sandbox: str = "read-only",
     report_file: Optional[Path] = None,
+    max_tokens: Optional[int] = None,
+    token_budget_mode: str = "strict",
 ) -> QualityResult:
     if shutil.which("codex") is None:
         raise FileNotFoundError("codex CLI not found in PATH")
@@ -118,11 +105,11 @@ def run_quality_check(
         "-",
     ]
 
-    result = run(cmd, input_text=full_prompt, capture=True, check=False)
+    enforce_token_budget(full_prompt, max_tokens, f"qa:{step_file.name}", mode=token_budget_mode)
+
+    result = run_process(cmd, input_text=full_prompt, capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        raise subprocess.CalledProcessError(
-            result.returncode, cmd, output=result.stdout, stderr=result.stderr
-        )
+        raise RuntimeError(f"codex exec failed with code {result.returncode}: {result.stderr}")
 
     report_text = result.stdout.strip()
     report_path.write_text(report_text, encoding="utf-8")

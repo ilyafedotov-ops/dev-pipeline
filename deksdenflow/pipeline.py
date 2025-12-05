@@ -7,7 +7,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .codex import run_codex_exec, run_command
+from .codex import run_codex_exec, run_command, enforce_token_budget
+from .config import load_config
 
 
 def prompt(text: str, default: str = "") -> str:
@@ -300,8 +301,12 @@ def open_draft_pr_or_mr(
 
 
 def run_pipeline(args) -> None:
+    config = load_config()
     repo_root = detect_repo_root()
     print(f"Detected repo root: {repo_root}")
+
+    # Use the stricter of per-step or per-protocol budgets when present.
+    budget_limit = config.max_tokens_per_step or config.max_tokens_per_protocol
 
     base_branch = args.base_branch or prompt("Base branch to branch from", "main")
     task_short_name_input = args.short_name or prompt(
@@ -340,10 +345,7 @@ def run_pipeline(args) -> None:
     tmp_dir.mkdir(parents=True, exist_ok=True)
     planning_output = tmp_dir / "planning.json"
 
-    planning_model = (
-        args.planning_model
-        or os.environ.get("PROTOCOL_PLANNING_MODEL", "gpt-5.1-high")
-    )
+    planning_model = args.planning_model or config.planning_model or os.environ.get("PROTOCOL_PLANNING_MODEL", "gpt-5.1-high")
     planning_text = planning_prompt(
         protocol_name=protocol_name,
         protocol_number=protocol_number,
@@ -353,6 +355,8 @@ def run_pipeline(args) -> None:
         worktree_root=worktree_root,
         templates_section=templates_section,
     )
+
+    enforce_token_budget(planning_text, budget_limit, "planning", mode=config.token_budget_mode)
 
     print("Running Codex planning step with model:", planning_model)
     run_codex_exec(
@@ -369,10 +373,7 @@ def run_pipeline(args) -> None:
     print(f"Wrote protocol files into {protocol_root}")
 
     plan_md = (protocol_root / "plan.md").read_text(encoding="utf-8")
-    decomposition_model = (
-        args.decompose_model
-        or os.environ.get("PROTOCOL_DECOMPOSE_MODEL", "gpt-5.1-high")
-    )
+    decomposition_model = args.decompose_model or config.decompose_model or os.environ.get("PROTOCOL_DECOMPOSE_MODEL", "gpt-5.1-high")
 
     for step_file in protocol_root.glob("*.md"):
         if step_file.name.lower().startswith("00-setup"):
@@ -387,6 +388,8 @@ def run_pipeline(args) -> None:
             step_filename=step_file.name,
             step_content=step_content,
         )
+
+        enforce_token_budget(decompose_text, budget_limit, f"decompose:{step_file.name}", mode=config.token_budget_mode)
 
         print(f"Decomposing step file {step_file.name} with model {decomposition_model}")
         run_codex_exec(
@@ -416,10 +419,7 @@ def run_pipeline(args) -> None:
 
     # Optionally auto-run a specific step
     if args.run_step:
-        exec_model = (
-            args.exec_model
-            or os.environ.get("PROTOCOL_EXEC_MODEL", "codex-5.1-max-xhigh")
-        )
+        exec_model = args.exec_model or config.exec_model or os.environ.get("PROTOCOL_EXEC_MODEL", "codex-5.1-max-xhigh")
         step_path = protocol_root / args.run_step
         if not step_path.is_file():
             print(f"Requested step file {step_path} not found; skipping auto-run.")
@@ -435,6 +435,7 @@ def run_pipeline(args) -> None:
                 step_filename=step_path.name,
                 step_content=step_content,
             )
+            enforce_token_budget(exec_prompt, budget_limit, f"exec:{step_path.name}", mode=config.token_budget_mode)
             run_codex_exec(
                 model=exec_model,
                 cwd=worktree_root,

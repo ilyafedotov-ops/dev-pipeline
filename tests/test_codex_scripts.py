@@ -10,7 +10,7 @@ SCRIPT_DIR = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import codex_ci_bootstrap  # type: ignore  # noqa: E402
-from deksdenflow import pipeline, project_setup, qa  # noqa: E402
+from deksdenflow import pipeline, project_setup, qa, codex  # noqa: E402
 
 
 class DummyResult:
@@ -30,11 +30,20 @@ class CodexScriptTests(unittest.TestCase):
 
             captured = {}
 
-            def fake_run(cmd, cwd=None, check=True, input_text=None):
-                captured["cmd"] = cmd
-                captured["cwd"] = cwd
-                captured["input_text"] = input_text
-                return DummyResult(cmd)
+            def fake_run_discovery(
+                repo_root,
+                model,
+                prompt_file,
+                sandbox,
+                skip_git_check,
+                strict,
+            ):
+                captured["repo_root"] = repo_root
+                captured["model"] = model
+                captured["prompt_file"] = prompt_file
+                captured["sandbox"] = sandbox
+                captured["skip_git_check"] = skip_git_check
+                captured["strict"] = strict
 
             argv = [
                 "codex_ci_bootstrap.py",
@@ -49,14 +58,16 @@ class CodexScriptTests(unittest.TestCase):
                 "--skip-git-check",
             ]
 
-            with mock.patch.object(codex_ci_bootstrap.shutil, "which", return_value="/usr/bin/codex"), \
-                mock.patch.object(codex_ci_bootstrap, "run", side_effect=fake_run), \
+            with mock.patch.object(codex_ci_bootstrap, "run_codex_discovery", side_effect=fake_run_discovery), \
                 mock.patch.object(sys, "argv", argv):
                 codex_ci_bootstrap.main()
 
-            self.assertEqual(captured["cmd"][:4], ["codex", "exec", "-m", "test-model"])
-            self.assertIsNone(captured["cwd"])
-            self.assertEqual(captured["input_text"], "hello from prompt")
+            self.assertEqual(captured["model"], "test-model")
+            self.assertEqual(captured["repo_root"], tmp_path.resolve())
+            self.assertEqual(captured["prompt_file"], prompt_file.resolve())
+            self.assertEqual(captured["sandbox"], "workspace-write")
+            self.assertTrue(captured["skip_git_check"])
+            self.assertTrue(captured["strict"])
 
     def test_run_codex_exec_builds_command_with_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -101,7 +112,14 @@ class CodexScriptTests(unittest.TestCase):
 
             codex_calls = []
 
-            def fake_run(cmd, cwd=None, check=True, capture=True, input_text=None):
+            def fake_run_process(
+                cmd,
+                cwd=None,
+                capture_output=False,
+                text=True,
+                input_text=None,
+                check=True,
+            ):
                 if cmd[:2] == ["git", "status"]:
                     return DummyResult(cmd, stdout=" M file\n")
                 if cmd[:2] == ["git", "log"]:
@@ -112,7 +130,7 @@ class CodexScriptTests(unittest.TestCase):
                 raise AssertionError(f"Unexpected command: {cmd}")
 
             with mock.patch.object(qa.shutil, "which", return_value="/usr/bin/codex"), \
-                mock.patch.object(qa, "run", side_effect=fake_run):
+                mock.patch.object(codex, "run_process", side_effect=fake_run_process):
                 result = qa.run_quality_check(
                     protocol_root=proto_root,
                     step_file=step,
@@ -137,14 +155,24 @@ class CodexScriptTests(unittest.TestCase):
 
             captured = {}
 
-            def fake_run(cmd, cwd=None, check=True, capture=True, input_text=None):
+            def fake_run_process(
+                cmd,
+                cwd=None,
+                capture_output=False,
+                text=True,
+                input_text=None,
+                check=True,
+            ):
                 captured["cmd"] = cmd
                 captured["cwd"] = cwd
                 captured["input_text"] = input_text
+                captured["capture_output"] = capture_output
+                captured["text"] = text
+                captured["check"] = check
                 return DummyResult(cmd)
 
             with mock.patch.object(project_setup.shutil, "which", return_value="/usr/bin/codex"), \
-                mock.patch.object(project_setup, "run", side_effect=fake_run):
+                mock.patch.object(codex, "run_process", side_effect=fake_run_process):
                 project_setup.run_codex_discovery(repo_root, "gpt-5.1-codex-max")
 
             self.assertEqual(captured["cmd"][:4], ["codex", "exec", "-m", "gpt-5.1-codex-max"])

@@ -1,40 +1,18 @@
 #!/usr/bin/env python3
 """
-Trigger CI pipelines for a protocol branch.
-Uses gh or glab if available; otherwise prints a message.
+Trigger CI pipelines for a protocol branch via gh or glab.
+This script is a thin wrapper over deksdenflow.ci.trigger_ci.
 """
 
 import argparse
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-def run(cmd, cwd: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=str(cwd), check=True, capture_output=True, text=True)
-
-
-def trigger_github(repo_root: Path, branch: str) -> None:
-    if shutil.which("gh") is None:
-        print("gh not available; cannot trigger GitHub Actions manually.")
-        return
-    try:
-        run(["gh", "workflow", "run", "--ref", branch], cwd=repo_root)
-        print(f"Triggered GitHub workflow for branch {branch}")
-    except subprocess.CalledProcessError as exc:
-        print(f"Failed to trigger GitHub workflow: {exc}")
-
-
-def trigger_gitlab(repo_root: Path, branch: str) -> None:
-    if shutil.which("glab") is None:
-        print("glab not available; cannot trigger GitLab pipeline manually.")
-        return
-    try:
-        run(["glab", "pipeline", "run", "--ref", branch], cwd=repo_root)
-        print(f"Triggered GitLab pipeline for branch {branch}")
-    except subprocess.CalledProcessError as exc:
-        print(f"Failed to trigger GitLab pipeline: {exc}")
+from deksdenflow.ci import trigger_ci  # noqa: E402
 
 
 def main() -> None:
@@ -45,10 +23,9 @@ def main() -> None:
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
-    if args.platform == "github":
-        trigger_github(repo_root, args.branch)
-    else:
-        trigger_gitlab(repo_root, args.branch)
+    triggered = trigger_ci(args.platform, repo_root, args.branch)
+    if not triggered:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

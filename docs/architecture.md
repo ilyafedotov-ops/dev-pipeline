@@ -2,6 +2,11 @@
 
 This repository is a starter kit for DeksdenFlow_Ilyas_Edition_1.0: a protocol-driven way to ship work in parallel streams. The codebase is mostly orchestration around the Codex CLI, Git worktrees, and shared CI stubs for GitHub and GitLab.
 
+For deeper design and delivery detail, see:
+- `docs/solution-design.md` — current-state review and target orchestrator architecture.
+- `docs/implementation-plan.md` — phased plan from refactors to console/CI integration.
+- `Makefile` — convenience targets: `orchestrator-setup` (venv + deps + migrations) using Alembic and the Postgres/SQLite adapters.
+
 ## Repository layout (current state)
 - `README.md`: quickstart and high-level Mermaid diagrams.
 - `docs/`: deep dive on DeksdenFlow (`deksdenflow.md`), CI notes (`ci.md`), TerraformManager demo workflow plan, and this architecture doc.

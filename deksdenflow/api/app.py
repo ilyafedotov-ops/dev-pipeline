@@ -12,7 +12,7 @@ from deksdenflow.config import load_config
 from deksdenflow.domain import ProtocolStatus, StepStatus
 from deksdenflow.logging import RequestIdFilter, get_logger, setup_logging
 from deksdenflow.metrics import metrics
-from deksdenflow.storage import Database
+from deksdenflow.storage import BaseDatabase, create_database
 from deksdenflow.worker_runtime import BackgroundWorker
 from hmac import compare_digest
 import hmac
@@ -27,8 +27,9 @@ auth_scheme = HTTPBearer(auto_error=False)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = load_config()
+    logger.setLevel(config.log_level.upper())
     logger.info("Starting API", extra={"request_id": "-", "env": config.environment})
-    db = Database(config.db_path)
+    db = create_database(db_path=config.db_path, db_url=config.db_url)
     db.init_schema()
     queue = jobs.create_queue(config.redis_url)
     app.state.config = config  # type: ignore[attr-defined]
@@ -51,7 +52,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="DeksdenFlow Orchestrator API", version="0.1.0", lifespan=lifespan)
 
 
-def get_db(request: Request) -> Database:
+def get_db(request: Request) -> BaseDatabase:
     return request.app.state.db  # type: ignore[attr-defined]
 
 
@@ -63,7 +64,7 @@ def get_worker(request: Request) -> BackgroundWorker:
     return request.app.state.worker  # type: ignore[attr-defined]
 
 
-def get_protocol_project(protocol_run_id: int, db: Database) -> int:
+def get_protocol_project(protocol_run_id: int, db: BaseDatabase) -> int:
     run = db.get_protocol_run(protocol_run_id)
     return run.project_id
 
@@ -80,7 +81,7 @@ def require_auth(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-def require_project_access(project_id: int, request: Request, db: Database) -> None:
+def require_project_access(project_id: int, request: Request, db: BaseDatabase) -> None:
     """Optional per-project token check (secrets.api_token)."""
     try:
         project = db.get_project(project_id)
@@ -143,7 +144,7 @@ def metrics_endpoint():
 
 
 @app.post("/projects", response_model=schemas.ProjectOut, dependencies=[Depends(require_auth)])
-def create_project(payload: schemas.ProjectCreate, db: Database = Depends(get_db)) -> schemas.ProjectOut:
+def create_project(payload: schemas.ProjectCreate, db: BaseDatabase = Depends(get_db)) -> schemas.ProjectOut:
     project = db.create_project(
         name=payload.name,
         git_url=payload.git_url,
@@ -156,13 +157,13 @@ def create_project(payload: schemas.ProjectCreate, db: Database = Depends(get_db
 
 
 @app.get("/projects", response_model=list[schemas.ProjectOut], dependencies=[Depends(require_auth)])
-def list_projects(db: Database = Depends(get_db)) -> list[schemas.ProjectOut]:
+def list_projects(db: BaseDatabase = Depends(get_db)) -> list[schemas.ProjectOut]:
     projects = db.list_projects()
     return [schemas.ProjectOut(**p.__dict__) for p in projects]
 
 
 @app.get("/projects/{project_id}", response_model=schemas.ProjectOut, dependencies=[Depends(require_auth)])
-def get_project(project_id: int, db: Database = Depends(get_db), request: Request = None) -> schemas.ProjectOut:
+def get_project(project_id: int, db: BaseDatabase = Depends(get_db), request: Request = None) -> schemas.ProjectOut:
     if request:
         require_project_access(project_id, request, db)
     try:
@@ -176,7 +177,7 @@ def get_project(project_id: int, db: Database = Depends(get_db), request: Reques
 def create_protocol_run(
     project_id: int,
     payload: schemas.ProtocolRunCreate,
-    db: Database = Depends(get_db),
+    db: BaseDatabase = Depends(get_db),
     request: Request = None,
 ) -> schemas.ProtocolRunOut:
     if request:
@@ -198,7 +199,7 @@ def create_protocol_run(
 
 
 @app.get("/projects/{project_id}/protocols", response_model=list[schemas.ProtocolRunOut], dependencies=[Depends(require_auth)])
-def list_protocol_runs(project_id: int, db: Database = Depends(get_db), request: Request = None) -> list[schemas.ProtocolRunOut]:
+def list_protocol_runs(project_id: int, db: BaseDatabase = Depends(get_db), request: Request = None) -> list[schemas.ProtocolRunOut]:
     if request:
         require_project_access(project_id, request, db)
     runs = db.list_protocol_runs(project_id)
@@ -206,7 +207,7 @@ def list_protocol_runs(project_id: int, db: Database = Depends(get_db), request:
 
 
 @app.get("/protocols/{protocol_run_id}", response_model=schemas.ProtocolRunOut, dependencies=[Depends(require_auth)])
-def get_protocol(protocol_run_id: int, db: Database = Depends(get_db), request: Request = None) -> schemas.ProtocolRunOut:
+def get_protocol(protocol_run_id: int, db: BaseDatabase = Depends(get_db), request: Request = None) -> schemas.ProtocolRunOut:
     if request:
         project_id = get_protocol_project(protocol_run_id, db)
         require_project_access(project_id, request, db)
@@ -220,7 +221,7 @@ def get_protocol(protocol_run_id: int, db: Database = Depends(get_db), request: 
 @app.post("/protocols/{protocol_run_id}/actions/start", response_model=schemas.ActionResponse, dependencies=[Depends(require_auth)])
 def start_protocol(
     protocol_run_id: int,
-    db: Database = Depends(get_db),
+    db: BaseDatabase = Depends(get_db),
     queue: jobs.BaseQueue = Depends(get_queue),
     request: Request = None,
 ) -> schemas.ActionResponse:
@@ -239,7 +240,7 @@ def start_protocol(
 def create_step(
     protocol_run_id: int,
     payload: schemas.StepRunCreate,
-    db: Database = Depends(get_db),
+    db: BaseDatabase = Depends(get_db),
 ) -> schemas.StepRunOut:
     try:
         db.get_protocol_run(protocol_run_id)
@@ -258,7 +259,7 @@ def create_step(
 
 
 @app.get("/protocols/{protocol_run_id}/steps", response_model=list[schemas.StepRunOut], dependencies=[Depends(require_auth)])
-def list_steps(protocol_run_id: int, db: Database = Depends(get_db)) -> list[schemas.StepRunOut]:
+def list_steps(protocol_run_id: int, db: BaseDatabase = Depends(get_db)) -> list[schemas.StepRunOut]:
     steps = db.list_step_runs(protocol_run_id)
     return [schemas.StepRunOut(**s.__dict__) for s in steps]
 
@@ -266,7 +267,7 @@ def list_steps(protocol_run_id: int, db: Database = Depends(get_db)) -> list[sch
 @app.post("/steps/{step_id}/actions/run", response_model=schemas.ActionResponse, dependencies=[Depends(require_auth)])
 def run_step(
     step_id: int,
-    db: Database = Depends(get_db),
+    db: BaseDatabase = Depends(get_db),
     queue: jobs.BaseQueue = Depends(get_queue),
     request: Request = None,
 ) -> schemas.ActionResponse:
@@ -284,7 +285,7 @@ def run_step(
 @app.post("/steps/{step_id}/actions/run_qa", response_model=schemas.ActionResponse, dependencies=[Depends(require_auth)])
 def run_step_qa(
     step_id: int,
-    db: Database = Depends(get_db),
+    db: BaseDatabase = Depends(get_db),
     queue: jobs.BaseQueue = Depends(get_queue),
     request: Request = None,
 ) -> schemas.ActionResponse:
@@ -300,7 +301,7 @@ def run_step_qa(
 
 
 @app.post("/steps/{step_id}/actions/approve", response_model=schemas.StepRunOut, dependencies=[Depends(require_auth)])
-def approve_step(step_id: int, db: Database = Depends(get_db)) -> schemas.StepRunOut:
+def approve_step(step_id: int, db: BaseDatabase = Depends(get_db)) -> schemas.StepRunOut:
     try:
         step = db.update_step_status(step_id, StepStatus.COMPLETED)
     except KeyError as exc:
@@ -315,7 +316,7 @@ def approve_step(step_id: int, db: Database = Depends(get_db)) -> schemas.StepRu
 
 
 @app.get("/protocols/{protocol_run_id}/events", response_model=list[schemas.EventOut], dependencies=[Depends(require_auth)])
-def list_events(protocol_run_id: int, db: Database = Depends(get_db)) -> list[schemas.EventOut]:
+def list_events(protocol_run_id: int, db: BaseDatabase = Depends(get_db)) -> list[schemas.EventOut]:
     events = db.list_events(protocol_run_id)
     return [schemas.EventOut(**e.__dict__) for e in events]
 
@@ -339,7 +340,7 @@ def queue_jobs(status: Optional[str] = None, queue: jobs.BaseQueue = Depends(get
 async def github_webhook(
     request: Request,
     protocol_run_id: Optional[int] = None,
-    db: Database = Depends(get_db),
+    db: BaseDatabase = Depends(get_db),
 ) -> schemas.ActionResponse:
     body = await request.body()
     payload = json.loads(body.decode("utf-8") or "{}")
@@ -441,7 +442,7 @@ async def github_webhook(
 async def gitlab_webhook(
     request: Request,
     protocol_run_id: Optional[int] = None,
-    db: Database = Depends(get_db),
+    db: BaseDatabase = Depends(get_db),
 ) -> schemas.ActionResponse:
     body = await request.body()
     payload = json.loads(body.decode("utf-8") or "{}")

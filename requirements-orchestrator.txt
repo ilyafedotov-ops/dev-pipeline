@@ -6,3 +6,6 @@ httpx==0.27.0
 redis==5.0.7
 rq==1.16.2
 prometheus-client==0.20.0
+psycopg[binary]==3.1.19
+alembic==1.13.2
+SQLAlchemy==2.0.30

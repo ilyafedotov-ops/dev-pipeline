@@ -3,20 +3,20 @@ import time
 from typing import Optional
 
 import logging
-import time
 
 from deksdenflow.config import load_config
 from deksdenflow.domain import ProtocolStatus, StepStatus
 from deksdenflow.jobs import BaseQueue, Job
-from deksdenflow.storage import Database
+from deksdenflow.storage import BaseDatabase, Database, create_database
 from deksdenflow.workers import codex_worker
 from deksdenflow.metrics import metrics
+from deksdenflow.logging import setup_logging
 
 
 log = logging.getLogger("deksdenflow.worker")
 
 
-def process_job(job: Job, db: Database) -> None:
+def process_job(job: Job, db: BaseDatabase) -> None:
     """
     Handle a single job. This is a placeholder that updates DB state and logs events.
     Replace with real integrations (Codex/Git/CI) as the orchestrator matures.
@@ -37,7 +37,7 @@ def process_job(job: Job, db: Database) -> None:
         )
 
 
-def drain_once(queue: BaseQueue, db: Database) -> Optional[Job]:
+def drain_once(queue: BaseQueue, db: BaseDatabase) -> Optional[Job]:
     job = queue.claim()
     if not job:
         return None
@@ -67,7 +67,8 @@ def rq_job_handler(job_type: str, payload: dict) -> None:
     Entry point for RQ workers. Uses env-configured DB and processes a single job.
     """
     config = load_config()
-    db = Database(config.db_path)
+    setup_logging(config.log_level)
+    db = create_database(db_path=config.db_path, db_url=config.db_url)
     db.init_schema()
     job = Job(job_id=str(payload.get("job_id", "")), job_type=job_type, payload=payload)
     process_job(job, db)
@@ -75,7 +76,7 @@ def rq_job_handler(job_type: str, payload: dict) -> None:
 
 
 class BackgroundWorker:
-    def __init__(self, queue: BaseQueue, db: Database, poll_interval: float = 0.5) -> None:
+    def __init__(self, queue: BaseQueue, db: BaseDatabase, poll_interval: float = 0.5) -> None:
         self.queue = queue
         self.db = db
         self.poll_interval = poll_interval

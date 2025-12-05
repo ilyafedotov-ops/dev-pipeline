@@ -2,23 +2,19 @@
 """
 Run Codex CLI to infer stack and fill CI scripts for the current repository.
 
-This wraps codex exec (default model: gpt-5.1-codex-max) using the repo-discovery prompt.
+This is a thin CLI wrapper around `deksdenflow.project_setup.run_codex_discovery`.
 """
 
 import argparse
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-def run(cmd, cwd=None, check=True, input_text=None):
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd) if cwd else None,
-        input=input_text.encode("utf-8") if input_text else None,
-        check=check,
-    )
+from deksdenflow.project_setup import run_codex_discovery  # noqa: E402
 
 
 def main() -> None:
@@ -52,34 +48,27 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if shutil.which("codex") is None:
-        print("codex CLI not found in PATH. Install/configure codex first.", file=sys.stderr)
-        sys.exit(1)
-
     repo_root = Path(args.repo_root).resolve()
-    prompt_path = repo_root / args.prompt_file
-    if not prompt_path.is_file():
-        print(f"Prompt file not found: {prompt_path}", file=sys.stderr)
+    prompt_path = Path(args.prompt_file)
+    if not prompt_path.is_absolute():
+        prompt_path = repo_root / prompt_path
+
+    try:
+        run_codex_discovery(
+            repo_root=repo_root,
+            model=args.model,
+            prompt_file=prompt_path,
+            sandbox=args.sandbox,
+            skip_git_check=args.skip_git_check,
+            strict=True,
+        )
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
         sys.exit(1)
+    except subprocess.CalledProcessError as exc:
+        print(f"Codex discovery failed (exit {exc.returncode}): {exc}", file=sys.stderr)
+        sys.exit(exc.returncode)
 
-    prompt_text = prompt_path.read_text(encoding="utf-8")
-
-    cmd = [
-        "codex",
-        "exec",
-        "-m",
-        args.model,
-        "--cd",
-        str(repo_root),
-        "--sandbox",
-        args.sandbox,
-    ]
-    if args.skip_git_check:
-        cmd.append("--skip-git-repo-check")
-    cmd.append("-")
-
-    print(f"Running Codex discovery with model {args.model} ...")
-    run(cmd, input_text=prompt_text)
     print("Codex discovery complete. Review scripts/ci/* for generated commands.")
 
 

@@ -13,17 +13,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from deksdenflow.qa import (  # noqa: E402
-    QualityResult,
-    build_prompt,
-    determine_verdict,
-    read_file,
-    run,
-    run_quality_check,
-)
+from deksdenflow.config import load_config  # noqa: E402
+from deksdenflow.qa import QualityResult, run_quality_check  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
+    config = load_config()
     parser = argparse.ArgumentParser(description="Run Codex QA orchestrator for a protocol step.")
     parser.add_argument(
         "--protocol-root",
@@ -37,8 +32,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("PROTOCOL_QA_MODEL", "codex-5.1-max"),
-        help="Codex model to use (default: env PROTOCOL_QA_MODEL or codex-5.1-max).",
+        default=config.qa_model or os.environ.get("PROTOCOL_QA_MODEL", "codex-5.1-max"),
+        help="Codex model to use (default: config, env PROTOCOL_QA_MODEL, or codex-5.1-max).",
     )
     parser.add_argument(
         "--prompt-file",
@@ -60,6 +55,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    config = load_config()
 
     protocol_root = Path(args.protocol_root).resolve()
     step_path = protocol_root / args.step_file
@@ -74,6 +70,8 @@ def main() -> None:
             prompt_file=prompt_path,
             sandbox=args.sandbox,
             report_file=report_path,
+            max_tokens=config.max_tokens_per_step or config.max_tokens_per_protocol,
+            token_budget_mode=config.token_budget_mode,
         )
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
