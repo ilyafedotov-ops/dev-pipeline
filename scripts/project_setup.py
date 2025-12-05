@@ -21,6 +21,8 @@ BASE_FILES = {
     "prompts/repo-discovery.prompt.md": "prompts/repo-discovery.prompt.md",
     "prompts/java-testing.prompt.md": "prompts/java-testing.prompt.md",
     "scripts/codex_ci_bootstrap.py": "scripts/codex_ci_bootstrap.py",
+    "scripts/quality_orchestrator.py": "scripts/quality_orchestrator.py",
+    "prompts/quality-validator.prompt.md": "prompts/quality-validator.prompt.md",
     "schemas/protocol-planning.schema.json": "schemas/protocol-planning.schema.json",
     "scripts/protocol_pipeline.py": "scripts/protocol_pipeline.py",
     ".github/workflows/ci.yml": ".github/workflows/ci.yml",

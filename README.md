@@ -25,6 +25,7 @@ This repo is a lightweight starter kit for agent-driven development using the De
 - `scripts/project_setup.py` — prepares a repo with starter docs/prompts/CI/schema/pipeline if they’re missing.
 - `prompts/repo-discovery.prompt.md` — Codex prompt to auto-discover stack and fill CI scripts.
 - `scripts/codex_ci_bootstrap.py` — helper to run Codex (codex-5.1-max by default) with the discovery prompt to fill CI scripts.
+- `scripts/quality_orchestrator.py` — Codex QA validator that checks a protocol step and writes a report.
 
 ## How to use the prompts
 
@@ -156,3 +157,20 @@ You can also run Codex CI bootstrap directly later:
 ```bash
 python3 scripts/codex_ci_bootstrap.py --model codex-5.1-max
 ```
+
+## QA orchestrator (Codex CLI)
+
+Validate a protocol step with Codex and stop on failure:
+
+```bash
+python3 scripts/quality_orchestrator.py \
+  --protocol-root ../worktrees/NNNN-[Task-short-name]/.protocols/NNNN-[Task-short-name] \
+  --step-file 01-some-step.md \
+  --model codex-5.1-max
+```
+
+Behavior:
+- Collects plan/context/log, the step file, git status, latest commit message.
+- Calls Codex with `prompts/quality-validator.prompt.md`.
+- Writes `quality-report.md` in the protocol folder.
+- Exits 1 if the verdict is FAIL, halting any pipeline that wraps it.
