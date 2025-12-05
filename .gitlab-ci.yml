@@ -1,0 +1,38 @@
+stages:
+  - bootstrap
+  - lint
+  - typecheck
+  - test
+  - build
+
+default:
+  interruptible: true
+
+bootstrap:
+  stage: bootstrap
+  script:
+    - if [ -x scripts/ci/bootstrap.sh ]; then scripts/ci/bootstrap.sh; else echo "skip: scripts/ci/bootstrap.sh not found or not executable"; fi
+
+lint:
+  stage: lint
+  needs: ["bootstrap"]
+  script:
+    - if [ -x scripts/ci/lint.sh ]; then scripts/ci/lint.sh; else echo "skip: scripts/ci/lint.sh not found or not executable"; fi
+
+typecheck:
+  stage: typecheck
+  needs: ["lint"]
+  script:
+    - if [ -x scripts/ci/typecheck.sh ]; then scripts/ci/typecheck.sh; else echo "skip: scripts/ci/typecheck.sh not found or not executable"; fi
+
+test:
+  stage: test
+  needs: ["typecheck"]
+  script:
+    - if [ -x scripts/ci/test.sh ]; then scripts/ci/test.sh; else echo "skip: scripts/ci/test.sh not found or not executable"; fi
+
+build:
+  stage: build
+  needs: ["test"]
+  script:
+    - if [ -x scripts/ci/build.sh ]; then scripts/ci/build.sh; else echo "skip: scripts/ci/build.sh not found or not executable"; fi

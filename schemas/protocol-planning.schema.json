@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProtocolPlanning",
+  "type": "object",
+  "properties": {
+    "plan_md": {
+      "type": "string",
+      "description": "Full Markdown content for plan.md"
+    },
+    "context_md": {
+      "type": "string",
+      "description": "Full Markdown content for context.md"
+    },
+    "log_md": {
+      "type": "string",
+      "description": "Initial Markdown content for log.md"
+    },
+    "step_files": {
+      "type": "array",
+      "description": "Markdown files for individual protocol steps (including 00-setup.md)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "Filename relative to the protocol folder, for example 00-setup.md or 01-discovery.md"
+          },
+          "content": {
+            "type": "string",
+            "description": "Full Markdown file content"
+          }
+        },
+        "required": ["filename", "content"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["plan_md", "context_md", "log_md", "step_files"],
+  "additionalProperties": false
+}
+

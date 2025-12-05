@@ -1,0 +1,534 @@
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Dict, List, Optional
+
+
+def prompt(text: str, default: str = "") -> str:
+    suffix = f" [{default}]" if default else ""
+    value = input(f"{text}{suffix}: ").strip()
+    return value or default
+
+
+def slugify(name: str) -> str:
+    """Convert a human Task-short-name into a filesystem/branch-safe slug."""
+    lower = name.strip().lower().replace(" ", "-")
+    return re.sub(r"[^a-z0-9\\-]+", "-", lower).strip("-") or "task"
+
+
+def run(cmd: List[str], cwd: Path) -> None:
+    subprocess.run(cmd, cwd=str(cwd), check=True)
+
+
+def run_codex_exec(
+    model: str,
+    cwd: Path,
+    prompt_text: str,
+    sandbox: str = "read-only",
+    output_schema: Optional[Path] = None,
+    output_last_message: Optional[Path] = None,
+) -> None:
+    cmd = [
+        "codex",
+        "exec",
+        "-m",
+        model,
+        "--sandbox",
+        sandbox,
+        "--cd",
+        str(cwd),
+        "--skip-git-repo-check",
+    ]
+    if output_schema is not None:
+        cmd.extend(["--output-schema", str(output_schema)])
+    if output_last_message is not None:
+        cmd.extend(["--output-last-message", str(output_last_message)])
+    cmd.append("-")
+    subprocess.run(
+        cmd,
+        input=prompt_text.encode("utf-8"),
+        check=True,
+    )
+
+
+def detect_repo_root() -> Path:
+    out = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return Path(out.stdout.strip())
+
+
+def next_protocol_number(repo_root: Path) -> str:
+    numbers: List[int] = []
+    worktrees_root = repo_root.parent / "worktrees"
+    if worktrees_root.is_dir():
+        for entry in worktrees_root.iterdir():
+            m = re.match(r"^(\\d{4})-", entry.name)
+            if m:
+                numbers.append(int(m.group(1)))
+    protocols_root = repo_root / ".protocols"
+    if protocols_root.is_dir():
+        for entry in protocols_root.iterdir():
+            m = re.match(r"^(\\d{4})-", entry.name)
+            if m:
+                numbers.append(int(m.group(1)))
+    next_num = (max(numbers) + 1) if numbers else 1
+    return f"{next_num:04d}"
+
+
+def create_worktree(repo_root: Path, protocol_name: str, base_branch: str) -> Path:
+    worktrees_root = repo_root.parent / "worktrees"
+    worktrees_root.mkdir(parents=True, exist_ok=True)
+    worktree_path = worktrees_root / protocol_name
+    run(
+        [
+            "git",
+            "worktree",
+            "add",
+            "--checkout",
+            "-b",
+            protocol_name,
+            str(worktree_path),
+            f"origin/{base_branch}",
+        ],
+        cwd=repo_root,
+    )
+    return worktree_path
+
+
+def load_templates(repo_root: Path) -> str:
+    protocol_new = repo_root / "prompts" / "protocol-new.prompt.md"
+    text = protocol_new.read_text(encoding="utf-8")
+    marker = "### TEMPLATES FOR PROTOCOL FILES"
+    if marker in text:
+        return text.split(marker, 1)[1]
+    return text
+
+
+def planning_prompt(
+    protocol_name: str,
+    protocol_number: str,
+    task_short_name: str,
+    description: str,
+    repo_root: Path,
+    worktree_root: Path,
+    templates_section: str,
+) -> str:
+    return f"""You are a senior planning agent working with DeksdenFlow_Ilyas_Edition_1.0-style protocols.
+
+Your job:
+- Create a detailed protocol plan for the task described below.
+- Return JSON only (no Markdown fences), matching the schema provided externally by the tool.
+- The JSON must have fields: plan_md, context_md, log_md, step_files[].
+
+Context:
+- Protocol number: {protocol_number}
+- Protocol name: {protocol_name}
+- Task short name (Task-short-name): {task_short_name}
+- Task description: {description}
+- PROJECT_ROOT: {repo_root}
+- WORKTREE_ROOT (CWD for work): {worktree_root}
+
+Guidelines:
+- Follow the general structure and templates shown below.
+- Keep the High-Level Plan as a contract.
+- Make steps and sub-steps executable and self-contained.
+- Use English; keep paths relative to PROJECT_ROOT.
+- Include at least Step 0 (setup) and several numbered steps; end with a finalize step.
+
+You must fill:
+- plan_md: full content for plan.md
+- context_md: initial content for context.md
+- log_md: initial content for log.md
+- step_files: array of objects {{ filename, content }} for all step files, including 00-setup.md and XX-*.md.
+
+Do not add any explanation or commentary outside the JSON structure. The tool will validate your response against the given JSON Schema.
+
+Reference templates (for guidance only):
+{templates_section}
+"""
+
+
+def decompose_step_prompt(
+    protocol_name: str,
+    protocol_number: str,
+    plan_md: str,
+    step_filename: str,
+    step_content: str,
+) -> str:
+    return f"""You are a senior engineering planner.
+
+You receive:
+- Protocol {protocol_number} ({protocol_name}) plan.md content.
+- A single step file {step_filename}.
+
+Goal:
+- Refine and decompose the Sub-tasks in this step into smaller, concrete tasks.
+- Preserve the existing headings and overall structure where reasonable.
+- Ensure the result is executable, using clear, ordered sub-tasks.
+
+Rules:
+- Output only the full updated Markdown content for {step_filename}.
+- Do not wrap the result in code fences.
+- Keep the plan contract stable; do not contradict plan.md.
+
+plan.md:
+----------------
+{plan_md}
+----------------
+
+Current {step_filename}:
+----------------
+{step_content}
+----------------
+"""
+
+
+def execute_step_prompt(
+    protocol_name: str,
+    protocol_number: str,
+    plan_md: str,
+    step_filename: str,
+    step_content: str,
+) -> str:
+    return f"""You are a senior coding agent working inside a DeksdenFlow_Ilyas_Edition_1.0 protocol.
+
+Context:
+- Protocol {protocol_number}: {protocol_name}
+- plan.md defines the contract for this protocol.
+- This step file describes the Sub-tasks you must execute.
+
+Goal for this run:
+- Implement all Sub-tasks from {step_filename}.
+- Update code, tests, and any referenced files.
+- Follow the protocol workflow: run checks, update log/context, commit and push as described in the step file and plan.md.
+
+Rules:
+- Work from the current repository root and worktree, following paths in the step file.
+- Do not change plan.md or other step contracts.
+- Prefer simple, robust solutions with good tests.
+- Use English for any new comments or docs.
+
+You must:
+1) Read plan.md and {step_filename} to understand the step.
+2) Execute all Sub-tasks.
+3) Run appropriate checks (lint/typecheck/test/build) as instructed.
+4) Update .protocols state files (log.md, context.md) per the workflow.
+5) Make a commit and push, using the commit-message format described in the protocol.
+6) Finish with a short textual summary of what was done.
+
+plan.md:
+----------------
+{plan_md}
+----------------
+
+Step file {step_filename}:
+----------------
+{step_content}
+----------------
+"""
+
+
+def write_protocol_files(protocol_root: Path, data: Dict[str, object]) -> None:
+    protocol_root.mkdir(parents=True, exist_ok=True)
+    (protocol_root / "plan.md").write_text(str(data["plan_md"]), encoding="utf-8")
+    (protocol_root / "context.md").write_text(str(data["context_md"]), encoding="utf-8")
+    (protocol_root / "log.md").write_text(str(data["log_md"]), encoding="utf-8")
+    for step in data["step_files"]:  # type: ignore[index]
+        filename = step["filename"]
+        content = step["content"]
+        target = protocol_root / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+def open_draft_pr_or_mr(
+    worktree_root: Path,
+    protocol_root: Path,
+    protocol_name: str,
+    protocol_number: str,
+    task_short_name_slug: str,
+    base_branch: str,
+    platform: str,
+) -> None:
+    # Commit protocol artifacts
+    print("Creating initial commit for protocol artifacts...")
+    run(
+        ["git", "add", str(protocol_root)],
+        cwd=worktree_root,
+    )
+    commit_message = (
+        f"feat(protocol): add plan for {protocol_name} [protocol-{protocol_number}/00]"
+    )
+    run(["git", "commit", "-m", commit_message], cwd=worktree_root)
+
+    # Push branch
+    print(f"Pushing branch {protocol_name} to origin...")
+    run(
+        ["git", "push", "--set-upstream", "origin", protocol_name],
+        cwd=worktree_root,
+    )
+
+    title = f"WIP: {protocol_number} - {task_short_name_slug}"
+    body = (
+        f"This PR/MR is being worked on according to protocol {protocol_number}.\\n"
+        f"See protocol directory for the detailed plan: .protocols/{protocol_name}/"
+    )
+
+    if platform == "github":
+        if shutil.which("gh") is None:
+            print("gh CLI not found; cannot auto-create GitHub PR. Please create it manually.")
+            return
+        print("Creating Draft GitHub PR via gh...")
+        run(
+            [
+                "gh",
+                "pr",
+                "create",
+                "--draft",
+                "--title",
+                title,
+                "--body",
+                body,
+                "--base",
+                base_branch,
+            ],
+            cwd=worktree_root,
+        )
+    elif platform == "gitlab":
+        if shutil.which("glab") is None:
+            print("glab CLI not found; cannot auto-create GitLab MR. Please create it manually.")
+            return
+        print("Creating Draft GitLab MR via glab...")
+        run(
+            [
+                "glab",
+                "mr",
+                "create",
+                "--draft",
+                "--source",
+                protocol_name,
+                "--target",
+                base_branch,
+                "--title",
+                title,
+                "--description",
+                body,
+            ],
+            cwd=worktree_root,
+        )
+    else:
+        print(f"Unknown PR/MR platform '{platform}', skipping auto-creation.")
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Interactive DeksdenFlow_Ilyas_Edition_1.0 protocol pipeline using Codex CLI.",
+    )
+    parser.add_argument(
+        "--base-branch",
+        help="Base branch to branch from (default: main).",
+    )
+    parser.add_argument(
+        "--short-name",
+        help="Task short name for protocol/branch (Task-short-name, e.g. 'user-onboarding').",
+    )
+    parser.add_argument(
+        "--description",
+        help="Human-readable description of the task.",
+    )
+    parser.add_argument(
+        "--planning-model",
+        help="Model for planning step (default from PROTOCOL_PLANNING_MODEL or gpt-5.1-high).",
+    )
+    parser.add_argument(
+        "--decompose-model",
+        help="Model for step decomposition (default from PROTOCOL_DECOMPOSE_MODEL or gpt-5.1).",
+    )
+    parser.add_argument(
+        "--exec-model",
+        help="Model for executing a specific step (default from PROTOCOL_EXEC_MODEL or codex-5.1-max-xhigh).",
+    )
+    parser.add_argument(
+        "--run-step",
+        help="Relative step filename inside the protocol folder to auto-run (e.g. 01-some-step.md).",
+    )
+    parser.add_argument(
+        "--pr-platform",
+        choices=["github", "gitlab"],
+        help="If set, auto-commit protocol artifacts, push branch, and create Draft PR/MR on the chosen platform.",
+    )
+    return parser.parse_args(argv)
+
+
+def run_pipeline(args: argparse.Namespace) -> None:
+    repo_root = detect_repo_root()
+    print(f"Detected repo root: {repo_root}")
+
+    base_branch = args.base_branch or prompt("Base branch to branch from", "main")
+    task_short_name_input = args.short_name or prompt(
+        "Task short name (Task-short-name, used in NNNN-[Task-short-name])",
+        "my-task",
+    )
+    task_short_name_slug = slugify(task_short_name_input)
+    description = args.description or prompt("Task description", "")
+
+    protocol_number = next_protocol_number(repo_root)
+    protocol_name = f"{protocol_number}-{task_short_name_slug}"
+
+    print()
+    print("Planned protocol:")
+    print(f"  Number : {protocol_number}")
+    print(f"  Name   : {protocol_name}")
+    print(f"  Branch : {protocol_name} (from origin/{base_branch})")
+    print(f"  Description: {description}")
+    confirm = prompt("Proceed with creating worktree and protocol?", "y")
+    if confirm.lower() not in ("y", "yes"):
+        print("Aborted.")
+        return
+
+    worktree_root = create_worktree(repo_root, protocol_name, base_branch)
+    print(f"Created worktree at: {worktree_root}")
+
+    protocol_root = worktree_root / ".protocols" / protocol_name
+    templates_section = load_templates(repo_root)
+
+    planning_schema = repo_root / "schemas" / "protocol-planning.schema.json"
+    if not planning_schema.is_file():
+        print(f"Planning schema not found at {planning_schema}")
+        sys.exit(1)
+
+    tmp_dir = worktree_root / ".protocols" / protocol_name / ".tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    planning_output = tmp_dir / "planning.json"
+
+    planning_model = (
+        args.planning_model
+        or os.environ.get("PROTOCOL_PLANNING_MODEL", "gpt-5.1-high")
+    )
+    planning_text = planning_prompt(
+        protocol_name=protocol_name,
+        protocol_number=protocol_number,
+        task_short_name=task_short_name_slug,
+        description=description,
+        repo_root=repo_root,
+        worktree_root=worktree_root,
+        templates_section=templates_section,
+    )
+
+    print("Running Codex planning step with model:", planning_model)
+    run_codex_exec(
+        model=planning_model,
+        cwd=worktree_root,
+        prompt_text=planning_text,
+        sandbox="read-only",
+        output_schema=planning_schema,
+        output_last_message=planning_output,
+    )
+
+    planning_data = json.loads(planning_output.read_text(encoding="utf-8"))
+    write_protocol_files(protocol_root, planning_data)
+    print(f"Wrote protocol files into {protocol_root}")
+
+    plan_md = (protocol_root / "plan.md").read_text(encoding="utf-8")
+    decomposition_model = (
+        args.decompose_model
+        or os.environ.get("PROTOCOL_DECOMPOSE_MODEL", "gpt-5.1")
+    )
+
+    for step_file in protocol_root.glob("*.md"):
+        if step_file.name.lower().startswith("00-setup"):
+            continue
+        step_content = step_file.read_text(encoding="utf-8")
+        tmp_step = tmp_dir / f"{step_file.name}.decomposed"
+
+        decompose_text = decompose_step_prompt(
+            protocol_name=protocol_name,
+            protocol_number=protocol_number,
+            plan_md=plan_md,
+            step_filename=step_file.name,
+            step_content=step_content,
+        )
+
+        print(f"Decomposing step file {step_file.name} with model {decomposition_model}")
+        run_codex_exec(
+            model=decomposition_model,
+            cwd=worktree_root,
+            prompt_text=decompose_text,
+            sandbox="read-only",
+            output_last_message=tmp_step,
+        )
+
+        new_content = tmp_step.read_text(encoding="utf-8")
+        step_file.write_text(new_content, encoding="utf-8")
+
+    # Optionally create Draft PR/MR
+    if args.pr_platform:
+        print()
+        print(f"Auto-creating Draft { 'PR' if args.pr_platform == 'github' else 'MR' } on {args.pr_platform}...")
+        open_draft_pr_or_mr(
+            worktree_root=worktree_root,
+            protocol_root=protocol_root,
+            protocol_name=protocol_name,
+            protocol_number=protocol_number,
+            task_short_name_slug=task_short_name_slug,
+            base_branch=base_branch,
+            platform=args.pr_platform,
+        )
+
+    # Optionally auto-run a specific step
+    if args.run_step:
+        exec_model = (
+            args.exec_model
+            or os.environ.get("PROTOCOL_EXEC_MODEL", "codex-5.1-max-xhigh")
+        )
+        step_path = protocol_root / args.run_step
+        if not step_path.is_file():
+            print(f"Requested step file {step_path} not found; skipping auto-run.")
+        else:
+            print()
+            print(f"Auto-running step {args.run_step} with model {exec_model}...")
+            plan_md = (protocol_root / "plan.md").read_text(encoding="utf-8")
+            step_content = step_path.read_text(encoding="utf-8")
+            exec_prompt = execute_step_prompt(
+                protocol_name=protocol_name,
+                protocol_number=protocol_number,
+                plan_md=plan_md,
+                step_filename=step_path.name,
+                step_content=step_content,
+            )
+            run_codex_exec(
+                model=exec_model,
+                cwd=worktree_root,
+                prompt_text=exec_prompt,
+                sandbox="workspace-write",
+            )
+
+    print()
+    print("Protocol planning and decomposition complete.")
+    print(f"- Worktree: {worktree_root}")
+    print(f"- Protocol folder: {protocol_root}")
+    print()
+    print("Next steps (manual execution):")
+    print(f"- Review and adjust {protocol_root/'plan.md'} and step files as needed.")
+    print(f"- Commit protocol artifacts and open a Draft PR/MR if not already open.")
+    print("- Use Codex CLI with a strong coding model (e.g. codex-5.1-max-xhigh) from the worktree root")
+    print("  to execute individual steps following the protocol workflow.")
+    print()
+    print("Example command:")
+    print(f"  codex --model codex-5.1-max-xhigh --cd {worktree_root} --sandbox workspace-write --ask-for-approval on-request \"Follow .protocols/{protocol_name}/plan.md and current step file to implement the next step.\"")
+
+
+if __name__ == "__main__":
+    cli_args = parse_args()
+    try:
+        run_pipeline(cli_args)
+    except subprocess.CalledProcessError as e:
+        print(f"Command failed: {e}", file=sys.stderr)
+        sys.exit(e.returncode)
