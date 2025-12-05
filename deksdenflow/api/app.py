@@ -113,7 +113,8 @@ async def add_request_id(request: Request, call_next):
     metrics.inc_request()
     start = time.time()
     response = await call_next(request)
-    duration_ms = (time.time() - start) * 1000
+    duration_s = (time.time() - start)
+    metrics.observe_request(request.url.path, request.method, str(response.status_code), duration_s)
     response.headers["X-Request-ID"] = request_id
     logger.info(
         "request",
@@ -122,7 +123,7 @@ async def add_request_id(request: Request, call_next):
             "path": request.url.path,
             "method": request.method,
             "status_code": response.status_code,
-            "duration_ms": f"{duration_ms:.2f}",
+            "duration_ms": f"{duration_s * 1000:.2f}",
         },
     )
     return response
@@ -326,7 +327,15 @@ def queue_stats(queue: jobs.BaseQueue = Depends(get_queue)) -> dict:
 
 @app.get("/queues/jobs", dependencies=[Depends(require_auth)])
 def queue_jobs(queue: jobs.BaseQueue = Depends(get_queue)) -> list[dict]:
-    return [job.asdict() for job in queue.list()]
+    all_jobs = []
+    for status in (None, "queued", "started", "failed"):
+        all_jobs.extend(
+            [
+                {**job.asdict(), "status": status or job.status}
+                for job in queue.list(status=status)
+            ]
+        )
+    return all_jobs
 
 
 @app.post(
@@ -347,6 +356,7 @@ async def github_webhook(
     if token:
         sig = request.headers.get("X-Hub-Signature-256", "")
         if not verify_signature(token, body, sig):
+            metrics.inc_webhook_status("github", "unauthorized")
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
     metrics.inc_webhook("github")
     action = payload.get("action", "")
@@ -397,6 +407,7 @@ async def gitlab_webhook(
     if token:
         sig = request.headers.get("X-Gitlab-Token") or request.headers.get("X-Deksdenflow-Webhook-Token")
         if sig != token:
+            metrics.inc_webhook_status("gitlab", "unauthorized")
             raise HTTPException(status_code=401, detail="Invalid webhook token")
     metrics.inc_webhook("gitlab")
     status = payload.get("object_attributes", {}).get("status")

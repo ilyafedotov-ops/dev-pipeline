@@ -173,6 +173,16 @@ def handle_execute_step(step_run_id: int, db: Database) -> None:
     step_content = step_path.read_text(encoding="utf-8")
     exec_prompt = execute_step_prompt(run.protocol_name, run.protocol_name.split("-")[0], plan_md, step_path.name, step_content)
     run_codex(exec_prompt, project.default_models.get("exec", "codex-5.1-max-xhigh") if project.default_models else "codex-5.1-max-xhigh", worktree, "workspace-write")
+    # Optionally trigger CI
+    git_push_and_open_pr(worktree, run.protocol_name, run.base_branch)
+    repo_root = Path(project.git_url) if Path(project.git_url).exists() else detect_repo_root()
+    worktree = load_project(repo_root, run.protocol_name, run.base_branch)
+    protocol_root = worktree / ".protocols" / run.protocol_name
+    step_path = protocol_root / step.step_name
+    plan_md = (protocol_root / "plan.md").read_text(encoding="utf-8")
+    step_content = step_path.read_text(encoding="utf-8")
+    exec_prompt = execute_step_prompt(run.protocol_name, run.protocol_name.split("-")[0], plan_md, step_path.name, step_content)
+    run_codex(exec_prompt, project.default_models.get("exec", "codex-5.1-max-xhigh") if project.default_models else "codex-5.1-max-xhigh", worktree, "workspace-write")
     db.update_step_status(step.id, StepStatus.COMPLETED, summary="Executed via Codex")
     db.append_event(step.protocol_run_id, "step_completed", "Step executed via Codex.", step_run_id=step.id)
 

@@ -129,11 +129,17 @@ class RedisQueue:
     def list(self, status: Optional[str] = None) -> List[Job]:
         jobs: List[Job] = []
         for q in self._queues.values():
-            rq_jobs = q.job_ids
-            if not rq_jobs:
-                continue
-            for job_id in rq_jobs:
-                jobs.append(Job(job_id=job_id, job_type="unknown", payload={}, status="queued", queue=q.name))
+            rq_jobs = q.get_jobs() if status in (None, "queued") else q.get_jobs(status=status)
+            for rq_job in rq_jobs:
+                jobs.append(
+                    Job(
+                        job_id=rq_job.id,
+                        job_type=rq_job.func_name,
+                        payload=rq_job.args or {},
+                        status=status or "queued",
+                        queue=q.name,
+                    )
+                )
         return jobs
 
     def requeue(self, job: Job, delay_seconds: float) -> None:
@@ -143,7 +149,12 @@ class RedisQueue:
     def stats(self) -> Dict[str, Any]:
         stats: Dict[str, Any] = {"backend": "redis-rq"}
         for name, q in self._queues.items():
-            stats[name] = {"queued": q.count}
+            stats[name] = {
+                "queued": q.count,
+                "started": q.started_job_registry.count,
+                "finished": q.finished_job_registry.count,
+                "failed": q.failed_job_registry.count,
+            }
         return stats
 
 
