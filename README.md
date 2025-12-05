@@ -95,7 +95,7 @@ The script will:
 
 - Ask for base branch, short task name, and description.
 - Compute the next protocol number `NNNN` and create a worktree/branch `NNNN-[Task-short-name]`.
-- Call Codex (default models `gpt-5.1-high` for planning, `gpt-5.1` for decomposition) to:
+- Call Codex (default models `gpt-5.1-high` for planning, `gpt-5.1-high` for decomposition) to:
   - Generate `.protocols/NNNN-[Task-short-name]/plan.md`, `context.md`, `log.md`, and step files.
   - Decompose each step into smaller Sub-tasks.
 
