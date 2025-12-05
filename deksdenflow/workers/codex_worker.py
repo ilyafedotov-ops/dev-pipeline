@@ -49,6 +49,52 @@ def load_project(repo_root: Path, protocol_name: str, base_branch: str) -> Path:
     return worktree
 
 
+def git_push_and_open_pr(worktree: Path, protocol_name: str, base_branch: str) -> None:
+    try:
+        run_command(["git", "add", "."], cwd=worktree)
+        run_command(["git", "commit", "-m", f"chore: sync protocol {protocol_name}"], cwd=worktree)
+        run_command(["git", "push", "--set-upstream", "origin", protocol_name], cwd=worktree)
+    except subprocess.CalledProcessError:
+        return
+    # Attempt PR/MR creation if CLI is available
+    if shutil.which("gh"):
+        try:
+            run_command(
+                [
+                    "gh",
+                    "pr",
+                    "create",
+                    "--title",
+                    f"WIP: {protocol_name}",
+                    "--body",
+                    f"Protocol {protocol_name} in progress",
+                    "--base",
+                    base_branch,
+                ],
+                cwd=worktree,
+            )
+        except subprocess.CalledProcessError:
+            pass
+    elif shutil.which("glab"):
+        try:
+            run_command(
+                [
+                    "glab",
+                    "mr",
+                    "create",
+                    "--title",
+                    f"WIP: {protocol_name}",
+                    "--description",
+                    f"Protocol {protocol_name} in progress",
+                    "--target-branch",
+                    base_branch,
+                ],
+                cwd=worktree,
+            )
+        except subprocess.CalledProcessError:
+            pass
+
+
 def run_codex(prompt_text: str, model: str, cwd: Path, sandbox: str, output_schema: Optional[Path] = None) -> str:
     cmd = [
         "codex",
@@ -106,6 +152,9 @@ def handle_plan_protocol(protocol_run_id: int, db: Database) -> None:
         dec_text = decompose_step_prompt(run.protocol_name, run.protocol_name.split("-")[0], plan_md, step_file.name, step_content)
         new_content = run_codex(dec_text, project.default_models.get("decompose", "gpt-5.1-high") if project.default_models else "gpt-5.1-high", worktree, "read-only")
         step_file.write_text(new_content, encoding="utf-8")
+
+    # Best-effort push/PR to surface changes in CI
+    git_push_and_open_pr(worktree, run.protocol_name, run.base_branch)
 
 
 def handle_execute_step(step_run_id: int, db: Database) -> None:
