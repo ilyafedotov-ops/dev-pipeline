@@ -439,7 +439,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
     plan_md = (protocol_root / "plan.md").read_text(encoding="utf-8")
     decomposition_model = (
         args.decompose_model
-        or os.environ.get("PROTOCOL_DECOMPOSE_MODEL", "gpt-5.1")
+        or os.environ.get("PROTOCOL_DECOMPOSE_MODEL", "gpt-5.1-high")
     )
 
     for step_file in protocol_root.glob("*.md"):

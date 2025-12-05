@@ -68,7 +68,7 @@ The script will:
 Environment overrides:
 
 - `PROTOCOL_PLANNING_MODEL` (default `gpt-5.1-high`)
-- `PROTOCOL_DECOMPOSE_MODEL` (default `gpt-5.1`)
+- `PROTOCOL_DECOMPOSE_MODEL` (default `gpt-5.1-high`)
 - `PROTOCOL_EXEC_MODEL` (default `codex-5.1-max-xhigh`)
 
 ### Auto-running a specific step
