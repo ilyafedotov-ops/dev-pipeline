@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS events (
     step_run_id INTEGER REFERENCES step_runs(id),
     event_type TEXT NOT NULL,
     message TEXT NOT NULL,
+    metadata TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 """
@@ -258,14 +259,16 @@ class Database:
         event_type: str,
         message: str,
         step_run_id: Optional[int] = None,
+        metadata: Optional[dict] = None,
     ) -> Event:
+        metadata_json = json.dumps(metadata) if metadata else None
         with self._connect() as conn:
             cur = conn.execute(
                 """
-                INSERT INTO events (protocol_run_id, step_run_id, event_type, message)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO events (protocol_run_id, step_run_id, event_type, message, metadata)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (protocol_run_id, step_run_id, event_type, message),
+                (protocol_run_id, step_run_id, event_type, message, metadata_json),
             )
             event_id = cur.lastrowid
             conn.commit()
@@ -334,5 +337,6 @@ class Database:
             step_run_id=row["step_run_id"],
             event_type=row["event_type"],
             message=row["message"],
+            metadata=json.loads(row["metadata"]) if row["metadata"] else None,
             created_at=row["created_at"],
         )

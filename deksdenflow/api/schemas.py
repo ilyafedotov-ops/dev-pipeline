@@ -62,6 +62,7 @@ class EventOut(BaseModel):
     event_type: str
     message: str
     created_at: str
+    metadata: Optional[dict] = None
 
 
 class ActionResponse(BaseModel):

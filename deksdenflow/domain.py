@@ -70,4 +70,5 @@ class Event:
     step_run_id: Optional[int]
     event_type: str
     message: str
+    metadata: Optional[dict]
     created_at: str

@@ -380,6 +380,7 @@ async def github_webhook(
         step_run_id=step.id if step else None,
         event_type=event_type,
         message=message,
+        metadata={"pr_number": pr_number, "conclusion": conclusion},
     )
 
     if conclusion in ("success", "neutral"):
@@ -389,6 +390,7 @@ async def github_webhook(
         if step:
             db.update_step_status(step.id, StepStatus.FAILED, summary="CI failed")
             db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+            db.append_event(run.id, event_type, "CI failed; protocol blocked", step_run_id=step.id, metadata={"conclusion": conclusion})
 
     return schemas.ActionResponse(message="Webhook recorded")
 
