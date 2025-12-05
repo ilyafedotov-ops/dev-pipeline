@@ -326,16 +326,9 @@ def queue_stats(queue: jobs.BaseQueue = Depends(get_queue)) -> dict:
 
 
 @app.get("/queues/jobs", dependencies=[Depends(require_auth)])
-def queue_jobs(queue: jobs.BaseQueue = Depends(get_queue)) -> list[dict]:
-    all_jobs = []
-    for status in (None, "queued", "started", "failed"):
-        all_jobs.extend(
-            [
-                {**job.asdict(), "status": status or job.status}
-                for job in queue.list(status=status)
-            ]
-        )
-    return all_jobs
+def queue_jobs(status: Optional[str] = None, queue: jobs.BaseQueue = Depends(get_queue)) -> list[dict]:
+    jobs_list = queue.list(status=status)
+    return [job.asdict() for job in jobs_list]
 
 
 @app.post(
@@ -360,37 +353,82 @@ async def github_webhook(
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
     metrics.inc_webhook("github")
     action = payload.get("action", "")
-    workflow = payload.get("workflow_run") or {}
-    conclusion = workflow.get("conclusion")
+    branch = payload.get("ref") or payload.get("branch")
+    conclusion = None
+    status = None
     pr_number = None
-    if workflow.get("pull_requests"):
-        pr_number = workflow["pull_requests"][0].get("number")
+    check_name = None
+    sha = payload.get("after")
+
+    if event_type == "workflow_run":
+        workflow = payload.get("workflow_run") or {}
+        conclusion = workflow.get("conclusion") or workflow.get("status")
+        status = workflow.get("status")
+        branch = workflow.get("head_branch") or branch
+        if workflow.get("pull_requests"):
+            pr_number = workflow["pull_requests"][0].get("number")
+    elif event_type in ("check_suite", "check_run"):
+        check_payload = payload.get("check_suite") or payload.get("check_run") or {}
+        conclusion = check_payload.get("conclusion")
+        status = check_payload.get("status")
+        branch = check_payload.get("head_branch") or check_payload.get("check_suite", {}).get("head_branch") or branch
+        prs = check_payload.get("pull_requests") or []
+        if prs:
+            pr_number = prs[0].get("number")
+        check_name = check_payload.get("name")
+    elif event_type == "pull_request":
+        pr = payload.get("pull_request") or {}
+        branch = pr.get("head", {}).get("ref") or branch
+        pr_number = pr.get("number")
+        status = pr.get("state")
+        conclusion = "merged" if pr.get("merged") else pr.get("state")
+        sha = pr.get("head", {}).get("sha")
+    elif event_type == "status":
+        branch = (payload.get("branches") or [{}])[0].get("name") or branch
+        conclusion = payload.get("state")
+        status = payload.get("state")
     if not protocol_run_id:
-        branch = workflow.get("head_branch") or payload.get("ref", "")
         run = db.find_protocol_run_by_branch(branch or "")
     else:
         run = db.get_protocol_run(protocol_run_id)
-    branch = workflow.get("head_branch") or payload.get("ref", "")
     if not run:
         raise HTTPException(status_code=404, detail="Protocol run not found for webhook")
     step = db.latest_step_run(run.id)
-    message = f"GitHub webhook {event_type} action={action} branch={branch} conclusion={conclusion} pr={pr_number}"
+    message = f"GitHub webhook {event_type} action={action} branch={branch} conclusion={conclusion} status={status} pr={pr_number}"
+    metadata = {
+        "pr_number": pr_number,
+        "conclusion": conclusion,
+        "status": status,
+        "action": action,
+        "check_name": check_name,
+        "branch": branch,
+        "sha": sha,
+    }
     db.append_event(
         protocol_run_id=run.id,
         step_run_id=step.id if step else None,
         event_type=event_type,
         message=message,
-        metadata={"pr_number": pr_number, "conclusion": conclusion},
+        metadata=metadata,
     )
 
-    if conclusion in ("success", "neutral"):
-        if step:
-            db.update_step_status(step.id, StepStatus.COMPLETED, summary="CI passed")
-    elif conclusion in ("failure", "timed_out", "cancelled"):
-        if step:
-            db.update_step_status(step.id, StepStatus.FAILED, summary="CI failed")
-            db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
-            db.append_event(run.id, event_type, "CI failed; protocol blocked", step_run_id=step.id, metadata={"conclusion": conclusion})
+    normalized = (conclusion or status or "").lower()
+    success_states = {"success", "neutral", "passed", "ok", "merged"}
+    running_states = {"in_progress", "queued", "requested", "pending"}
+    failure_states = {"failure", "timed_out", "cancelled", "canceled", "action_required", "error"}
+
+    if step and normalized in success_states:
+        db.update_step_status(step.id, StepStatus.COMPLETED, summary="CI passed")
+    elif step and normalized in running_states:
+        db.update_step_status(step.id, StepStatus.RUNNING, summary="CI running")
+    elif step and normalized in failure_states:
+        db.update_step_status(step.id, StepStatus.FAILED, summary="CI failed")
+        db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+        db.append_event(run.id, event_type, "CI failed; protocol blocked", step_run_id=step.id, metadata={"conclusion": conclusion})
+
+    if event_type == "pull_request" and payload.get("pull_request", {}).get("merged"):
+        db.update_protocol_status(run.id, ProtocolStatus.COMPLETED)
+        db.append_event(run.id, "pr_merged", "PR merged; protocol completed", metadata={"pr_number": pr_number})
 
     return schemas.ActionResponse(message="Webhook recorded")
 
@@ -421,25 +459,47 @@ async def gitlab_webhook(
             metrics.inc_webhook_status("gitlab", "unauthorized")
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
     metrics.inc_webhook("gitlab")
-    status = payload.get("object_attributes", {}).get("status")
-    ref = payload.get("ref")
-    ref = payload.get("ref")
-    run = db.get_protocol_run(protocol_run_id) if protocol_run_id else db.find_protocol_run_by_branch(ref or "")  # type: ignore[arg-type]
+    object_kind = payload.get("object_kind") or event_type
+    attrs = payload.get("object_attributes", {})
+    status = attrs.get("status") or attrs.get("state")
+    ref = attrs.get("ref") or payload.get("ref")
+    branch = attrs.get("source_branch") or ref
+    pr_number = attrs.get("iid")
+    if not protocol_run_id:
+        run = db.find_protocol_run_by_branch(branch or "")  # type: ignore[arg-type]
+    else:
+        run = db.get_protocol_run(protocol_run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Protocol run not found for webhook")
     step = db.latest_step_run(run.id)
-    message = f"GitLab webhook {event_type} status={status} ref={ref}"
+    message = f"GitLab webhook {object_kind} status={status} ref={branch}"
+    metadata = {
+        "status": status,
+        "ref": branch,
+        "event": object_kind,
+        "pr_number": pr_number,
+    }
     db.append_event(
         protocol_run_id=run.id,
         step_run_id=step.id if step else None,
-        event_type=event_type,
+        event_type=object_kind,
         message=message,
+        metadata=metadata,
     )
-    if status in ("success", "passed"):
-        if step:
-            db.update_step_status(step.id, StepStatus.COMPLETED, summary="CI passed")
-    elif status in ("failed", "canceled"):
-        if step:
-            db.update_step_status(step.id, StepStatus.FAILED, summary="CI failed")
-            db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+
+    normalized = (status or "").lower()
+    success_states = {"success", "passed", "merge"}
+    running_states = {"running", "pending"}
+    failure_states = {"failed", "canceled", "cancelled"}
+
+    if object_kind == "merge_request" and attrs.get("state") == "merged":
+        db.update_protocol_status(run.id, ProtocolStatus.COMPLETED)
+        db.append_event(run.id, "mr_merged", "Merge request merged; protocol completed", metadata=metadata)
+    if step and normalized in success_states:
+        db.update_step_status(step.id, StepStatus.COMPLETED, summary="CI passed")
+    elif step and normalized in running_states:
+        db.update_step_status(step.id, StepStatus.RUNNING, summary="CI running")
+    elif step and normalized in failure_states:
+        db.update_step_status(step.id, StepStatus.FAILED, summary="CI failed")
+        db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
     return schemas.ActionResponse(message="Webhook recorded")

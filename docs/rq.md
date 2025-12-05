@@ -11,6 +11,23 @@
    ```
 4. Jobs enqueued via API actions/webhooks will be processed by the RQ worker using `deksdenflow.worker_runtime.rq_job_handler`.
 
+Observability
+-------------
+- API endpoints:
+  - `GET /queues` shows per-queue counts (queued/started/finished/failed) and identifies the backend (in-memory vs Redis/RQ).
+  - `GET /queues/jobs` lists jobs with payload, timestamps (enqueued/started/ended when available), and result/exception info for `queued/started/finished/failed`.
+- RQ CLI:
+  ```bash
+  rq info --url "$DEKSDENFLOW_REDIS_URL"
+  rq worker --url "$DEKSDENFLOW_REDIS_URL" # for ad-hoc inspection
+  ```
+- RQ dashboard (optional):
+  ```bash
+  pip install rq-dashboard
+  rq-dashboard --redis-url "$DEKSDENFLOW_REDIS_URL" --port 9181
+  ```
+  Then browse http://localhost:9181/ to view live queues/jobs.
+
 Env used by RQ worker:
 - `DEKSDENFLOW_DB_PATH`
 - `DEKSDENFLOW_REDIS_URL`

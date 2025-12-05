@@ -76,3 +76,74 @@ def test_gitlab_webhook_updates_step() -> None:
             assert resp.status_code == 200
             step_after = client.get(f"/protocols/{run['id']}/steps").json()[0]
             assert step_after["status"] == "completed"
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_github_pr_merge_completes_protocol() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        os.environ["DEKSDENFLOW_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
+        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
+
+        with TestClient(app) as client:  # type: ignore[arg-type]
+            proj = client.post(
+                "/projects",
+                json={"name": "demo", "git_url": "git@example.com/demo.git", "base_branch": "main"},
+            ).json()
+            run = client.post(
+                f"/projects/{proj['id']}/protocols",
+                json={"protocol_name": "0003-demo", "status": "running", "base_branch": "main"},
+            ).json()
+            payload = {
+                "action": "closed",
+                "pull_request": {
+                    "head": {"ref": "0003-demo", "sha": "abc123"},
+                    "number": 7,
+                    "state": "closed",
+                    "merged": True,
+                },
+            }
+            resp = client.post(
+                "/webhooks/github",
+                json=payload,
+                headers={"X-GitHub-Event": "pull_request"},
+            )
+            assert resp.status_code == 200
+            run_after = client.get(f"/protocols/{run['id']}").json()
+            assert run_after["status"] == "completed"
+            events = client.get(f"/protocols/{run['id']}/events").json()
+            assert any(e["event_type"] == "pr_merged" for e in events)
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_gitlab_merge_request_updates_protocol() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        os.environ["DEKSDENFLOW_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
+        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
+
+        with TestClient(app) as client:  # type: ignore[arg-type]
+            proj = client.post(
+                "/projects",
+                json={"name": "demo", "git_url": "git@example.com/demo.git", "base_branch": "main"},
+            ).json()
+            run = client.post(
+                f"/projects/{proj['id']}/protocols",
+                json={"protocol_name": "0004-demo", "status": "running", "base_branch": "main"},
+            ).json()
+            payload = {
+                "object_kind": "merge_request",
+                "object_attributes": {
+                    "state": "merged",
+                    "source_branch": "0004-demo",
+                    "iid": 11,
+                },
+            }
+            resp = client.post(
+                "/webhooks/gitlab",
+                json=payload,
+                headers={"X-Gitlab-Event": "Merge Request Hook"},
+            )
+            assert resp.status_code == 200
+            run_after = client.get(f"/protocols/{run['id']}").json()
+            assert run_after["status"] == "completed"
+            events = client.get(f"/protocols/{run['id']}/events").json()
+            assert any(e["event_type"] in ("merge_request", "mr_merged") for e in events)

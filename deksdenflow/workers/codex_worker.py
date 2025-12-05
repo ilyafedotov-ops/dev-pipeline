@@ -5,6 +5,7 @@ Codex worker: resolves protocol context, runs Codex CLI for planning/exec/QA, an
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -49,13 +50,15 @@ def load_project(repo_root: Path, protocol_name: str, base_branch: str) -> Path:
     return worktree
 
 
-def git_push_and_open_pr(worktree: Path, protocol_name: str, base_branch: str) -> None:
+def git_push_and_open_pr(worktree: Path, protocol_name: str, base_branch: str) -> bool:
+    pushed = False
     try:
         run_command(["git", "add", "."], cwd=worktree)
         run_command(["git", "commit", "-m", f"chore: sync protocol {protocol_name}"], cwd=worktree)
         run_command(["git", "push", "--set-upstream", "origin", protocol_name], cwd=worktree)
+        pushed = True
     except subprocess.CalledProcessError:
-        return
+        return False
     # Attempt PR/MR creation if CLI is available
     if shutil.which("gh"):
         try:
@@ -93,6 +96,33 @@ def git_push_and_open_pr(worktree: Path, protocol_name: str, base_branch: str) -
             )
         except subprocess.CalledProcessError:
             pass
+    return pushed
+
+
+def trigger_ci_pipeline(repo_root: Path, branch: str, ci_provider: Optional[str]) -> bool:
+    """Best-effort CI trigger after push (gh/glab)."""
+    provider = (ci_provider or "github").lower()
+    if provider == "gitlab" and shutil.which("glab"):
+        try:
+            run_command(["glab", "pipeline", "run", "--ref", branch], cwd=repo_root)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+    if shutil.which("gh"):
+        try:
+            # Trigger the default workflow on the branch; falls back silently if none configured.
+            run_command(["gh", "workflow", "run", "--ref", branch], cwd=repo_root)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+    script_path = Path(__file__).resolve().parents[1] / "scripts" / "ci_trigger.py"
+    if script_path.exists():
+        try:
+            run_command([sys.executable, str(script_path), "--branch", branch, "--repo-root", str(repo_root), "--platform", provider], cwd=repo_root)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+    return False
 
 
 def run_codex(prompt_text: str, model: str, cwd: Path, sandbox: str, output_schema: Optional[Path] = None) -> str:
@@ -154,7 +184,11 @@ def handle_plan_protocol(protocol_run_id: int, db: Database) -> None:
         step_file.write_text(new_content, encoding="utf-8")
 
     # Best-effort push/PR to surface changes in CI
-    git_push_and_open_pr(worktree, run.protocol_name, run.base_branch)
+    pushed = git_push_and_open_pr(worktree, run.protocol_name, run.base_branch)
+    if pushed:
+        triggered = trigger_ci_pipeline(repo_root, run.protocol_name, project.ci_provider)
+        if triggered:
+            db.append_event(protocol_run_id, "ci_triggered", "CI triggered after planning push.", metadata={"branch": run.protocol_name})
 
 
 def handle_execute_step(step_run_id: int, db: Database) -> None:
@@ -173,16 +207,11 @@ def handle_execute_step(step_run_id: int, db: Database) -> None:
     step_content = step_path.read_text(encoding="utf-8")
     exec_prompt = execute_step_prompt(run.protocol_name, run.protocol_name.split("-")[0], plan_md, step_path.name, step_content)
     run_codex(exec_prompt, project.default_models.get("exec", "codex-5.1-max-xhigh") if project.default_models else "codex-5.1-max-xhigh", worktree, "workspace-write")
-    # Optionally trigger CI
-    git_push_and_open_pr(worktree, run.protocol_name, run.base_branch)
-    repo_root = Path(project.git_url) if Path(project.git_url).exists() else detect_repo_root()
-    worktree = load_project(repo_root, run.protocol_name, run.base_branch)
-    protocol_root = worktree / ".protocols" / run.protocol_name
-    step_path = protocol_root / step.step_name
-    plan_md = (protocol_root / "plan.md").read_text(encoding="utf-8")
-    step_content = step_path.read_text(encoding="utf-8")
-    exec_prompt = execute_step_prompt(run.protocol_name, run.protocol_name.split("-")[0], plan_md, step_path.name, step_content)
-    run_codex(exec_prompt, project.default_models.get("exec", "codex-5.1-max-xhigh") if project.default_models else "codex-5.1-max-xhigh", worktree, "workspace-write")
+    pushed = git_push_and_open_pr(worktree, run.protocol_name, run.base_branch)
+    if pushed:
+        triggered = trigger_ci_pipeline(repo_root, run.protocol_name, project.ci_provider)
+        if triggered:
+            db.append_event(step.protocol_run_id, "ci_triggered", "CI triggered after push.", step_run_id=step.id, metadata={"branch": run.protocol_name})
     db.update_step_status(step.id, StepStatus.COMPLETED, summary="Executed via Codex")
     db.append_event(step.protocol_run_id, "step_completed", "Step executed via Codex.", step_run_id=step.id)
 
