@@ -319,6 +319,11 @@ def list_events(protocol_run_id: int, db: Database = Depends(get_db)) -> list[sc
     return [schemas.EventOut(**e.__dict__) for e in events]
 
 
+@app.get("/queues", dependencies=[Depends(require_auth)])
+def queue_stats(queue: jobs.BaseQueue = Depends(get_queue)) -> dict:
+    return queue.stats()
+
+
 @app.post(
     "/webhooks/github",
     response_model=schemas.ActionResponse,

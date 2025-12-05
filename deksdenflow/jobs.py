@@ -35,6 +35,9 @@ class BaseQueue(Protocol):
     def requeue(self, job: Job, delay_seconds: float) -> None:
         ...
 
+    def stats(self) -> Dict[str, Any]:
+        ...
+
 
 class InMemoryQueue:
     """
@@ -79,6 +82,13 @@ class InMemoryQueue:
         with self._lock:
             self._jobs.append(job)
 
+    def stats(self) -> Dict[str, Any]:
+        with self._lock:
+            total = len(self._jobs)
+            queued = len([j for j in self._jobs if j.status == "queued"])
+            in_progress = len([j for j in self._jobs if j.status == "in_progress"])
+        return {"backend": "in-memory", "total": total, "queued": queued, "in_progress": in_progress}
+
 
 class RedisQueue:
     """
@@ -117,11 +127,19 @@ class RedisQueue:
         return None
 
     def list(self, status: Optional[str] = None) -> List[Job]:
+        # Listing RQ jobs requires fetching from Redis; return empty for now.
         return []
 
     def requeue(self, job: Job, delay_seconds: float) -> None:
         q = self._get_queue(job.queue)
         q.enqueue_in(time.timedelta(seconds=delay_seconds), "deksdenflow.worker_runtime.rq_job_handler", job.job_type, job.payload)
+
+    def stats(self) -> Dict[str, Any]:
+        q = self._get_queue("default")
+        return {
+            "backend": "redis-rq",
+            "queued": q.count,
+        }
 
 
 def create_queue(redis_url: Optional[str]) -> BaseQueue:
