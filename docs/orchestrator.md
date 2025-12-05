@@ -11,6 +11,8 @@ This folder describes the first slice of a central orchestrator/API you can run 
 - `deksdenflow/logging.py`: minimal structured logging helpers and request-id filter.
 - `scripts/api_server.py`: uvicorn runner for the API; starts a background in-process worker to drain the queue.
 - `scripts/worker.py`: standalone worker loop using the same stub handlers (for local demos; note in-memory queue is process-local unless using Redis).
+- `scripts/ci_trigger.py`: optional helper to trigger CI (gh/glab) for a protocol branch.
+- `scripts/rq_worker.py`: RQ worker entrypoint when using Redis-backed queue.
 
 ## Quickstart
 ```bash
