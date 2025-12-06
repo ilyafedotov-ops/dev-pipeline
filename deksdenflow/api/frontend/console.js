@@ -6,6 +6,7 @@ const state = {
   steps: [],
   events: [],
   operations: [],
+  eventFilter: "all",
   projectTokens: JSON.parse(localStorage.getItem("df_project_tokens") || "{}"),
   queueStats: null,
   queueJobs: [],
@@ -244,8 +245,13 @@ function renderProtocolDetail() {
       </div>
       <div class="pane">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h3>Events</h3>
-          <span class="muted">${state.events.length} event(s)</span>
+          <div>
+            <h3>Events</h3>
+            <div class="muted small">${eventSummaryLabel()}</div>
+          </div>
+          <div class="button-group">
+            ${["all", "loop", "trigger"].map((f) => `<button class="${state.eventFilter === f ? "primary" : ""}" data-filter="${f}">${f}</button>`).join(" ")}
+          </div>
         </div>
         ${renderEventsList()}
       </div>
@@ -265,6 +271,12 @@ function renderProtocolDetail() {
     loadSteps();
     loadEvents();
   };
+  document.querySelectorAll('[data-filter]').forEach((btn) => {
+    btn.onclick = () => {
+      state.eventFilter = btn.getAttribute("data-filter");
+      renderProtocolDetail();
+    };
+  });
 
   const startBtn = document.getElementById("startRun");
   const pauseBtn = document.getElementById("pauseRun");
@@ -367,6 +379,25 @@ function eventTypeClass(eventType) {
   return "";
 }
 
+function filteredEvents() {
+  const filter = state.eventFilter || "all";
+  if (filter === "loop") {
+    return state.events.filter((e) => e.event_type && e.event_type.startsWith("loop_"));
+  }
+  if (filter === "trigger") {
+    return state.events.filter((e) => e.event_type && e.event_type.startsWith("trigger_"));
+  }
+  return state.events;
+}
+
+function eventSummaryLabel() {
+  const total = state.events.length;
+  const loops = state.events.filter((e) => e.event_type && e.event_type.startsWith("loop_")).length;
+  const triggers = state.events.filter((e) => e.event_type && e.event_type.startsWith("trigger_")).length;
+  const parts = [`${total} total`, `loop:${loops}`, `trigger:${triggers}`];
+  return parts.join(" · ");
+}
+
 function eventMetaSnippet(event) {
   const meta = event.metadata || {};
   const parts = [];
@@ -389,10 +420,11 @@ function eventMetaSnippet(event) {
 }
 
 function renderEventsList() {
-  if (!state.events.length) {
+  const events = filteredEvents();
+  if (!events.length) {
     return `<p class="muted">Events will appear as jobs run.</p>`;
   }
-  return state.events
+  return events
     .map(
       (e) => {
         const meta = e.metadata || {};

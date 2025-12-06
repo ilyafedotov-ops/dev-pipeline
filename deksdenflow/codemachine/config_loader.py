@@ -31,6 +31,9 @@ class ModulePolicy:
     step_back: Optional[int] = None
     skip_steps: List[int] = field(default_factory=list)
     trigger_agent_id: Optional[str] = None
+    target_agent_id: Optional[str] = None
+    condition: Optional[object] = None
+    conditions: List[object] = field(default_factory=list)
     raw: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -147,6 +150,9 @@ def normalize_module_policy(raw: Dict[str, Any]) -> ModulePolicy:
     max_iterations = behavior_block.get("maxIterations") or behavior_block.get("max_iterations")
     skip = behavior_block.get("skip") or behavior_block.get("skipSteps") or []
     trigger_agent_id = behavior_block.get("triggerAgentId") or behavior_block.get("trigger_agent_id")
+    target_agent_id = behavior_block.get("targetAgentId") or raw.get("targetAgentId") or raw.get("target_agent_id")
+    condition = behavior_block.get("condition") or raw.get("condition")
+    conditions = behavior_block.get("conditions") or raw.get("conditions") or []
 
     skip_steps = []
     if isinstance(skip, list):
@@ -160,6 +166,9 @@ def normalize_module_policy(raw: Dict[str, Any]) -> ModulePolicy:
         step_back=int(step_back) if isinstance(step_back, (int, float)) else None,
         skip_steps=skip_steps,
         trigger_agent_id=str(trigger_agent_id) if trigger_agent_id else None,
+        target_agent_id=str(target_agent_id) if target_agent_id else None,
+        condition=condition,
+        conditions=conditions if isinstance(conditions, list) else [],
         raw=raw,
     )
 

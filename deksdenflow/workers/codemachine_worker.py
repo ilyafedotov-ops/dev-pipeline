@@ -40,7 +40,7 @@ def _policies_for_agent(agent: AgentSpec, modules: List[ModulePolicy]) -> List[d
         agent_module_ids.update(str(m) for m in agent_modules)
 
     for mod in modules:
-        target_agent = (mod.raw.get("targetAgentId") or mod.raw.get("target_agent_id") or "").strip()
+        target_agent = (mod.target_agent_id or mod.raw.get("targetAgentId") or mod.raw.get("target_agent_id") or "").strip()
         should_attach = False
         if mod.module_id in agent_module_ids:
             should_attach = True

@@ -76,3 +76,30 @@ def test_load_config_requires_prompt_path(tmp_path) -> None:
 
     with pytest.raises(ConfigError):
         load_codemachine_config(tmp_path)
+
+
+def test_module_conditions_and_target_agent(tmp_path) -> None:
+    workspace = tmp_path / ".codemachine"
+    config_dir = workspace / "config"
+    _write(
+        config_dir / "main.agents.js",
+        """
+        export default [
+          { "id": "plan", "promptPath": "prompts/plan.md" },
+          { "id": "build", "promptPath": "prompts/build.md" }
+        ];
+        """,
+    )
+    _write(
+        config_dir / "modules.js",
+        """
+        export default [
+          { "id": "loop-check", "behavior": { "type": "loop", "action": "stepBack", "stepBack": 1, "condition": "needs_more" } },
+          { "id": "handoff", "behavior": { "type": "trigger", "triggerAgentId": "qa", "conditions": ["ready"], "targetAgentId": "build" } }
+        ];
+        """,
+    )
+    cfg = load_codemachine_config(tmp_path)
+    assert cfg.modules[0].condition == "needs_more"
+    assert cfg.modules[1].target_agent_id == "build"
+    assert cfg.modules[1].conditions == ["ready"]
