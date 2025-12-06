@@ -17,6 +17,7 @@ docker-compose up --build
 ```
 
 Redis is required; the API fails fast if it cannot reach `DEKSDENFLOW_REDIS_URL`.
+When `fakeredis://` is used, the API also starts a background RQ worker thread for inline job processing.
 
 ## Components
 - `deksdenflow/storage.py`: SQLite/Postgres DAO for Projects/ProtocolRuns/StepRuns/Events; migrations under `alembic/`.
@@ -24,6 +25,7 @@ Redis is required; the API fails fast if it cannot reach `DEKSDENFLOW_REDIS_URL`
 - `deksdenflow/api/app.py`: FastAPI app with bearer/project-token auth, console assets at `/console`, queue stats, metrics, webhook listeners, and project/protocol/step actions.
 - `deksdenflow/jobs.py`: Redis/RQ-backed queue abstraction; fakeredis supported for tests/dev.
 - `deksdenflow/worker_runtime.py`: job processors and background worker helper (auto-starts when using fakeredis); `scripts/rq_worker.py` runs dedicated workers.
+- `deksdenflow/codemachine/*`: loader + runtime adapter for `.codemachine` workspaces, including loop/trigger policy helpers and prompt resolution with placeholders/specifications.
 - `deksdenflow/logging.py`: structured logging helpers with request IDs.
 - `scripts/api_server.py`: uvicorn runner for the API.
 - `scripts/ci_trigger.py` and `scripts/ci/report.sh`: optional helpers to trigger CI and to post webhook-style results back into the orchestrator.
@@ -34,11 +36,13 @@ Redis is required; the API fails fast if it cannot reach `DEKSDENFLOW_REDIS_URL`
 - Auto QA: `DEKSDENFLOW_AUTO_QA_AFTER_EXEC` triggers QA after execution; `DEKSDENFLOW_AUTO_QA_ON_CI` triggers QA on successful CI webhooks.
 - Token budgets: `DEKSDENFLOW_MAX_TOKENS_PER_STEP` / `DEKSDENFLOW_MAX_TOKENS_PER_PROTOCOL` with `DEKSDENFLOW_TOKEN_BUDGET_MODE=strict|warn|off`.
 - Queue: Redis/RQ with retries/backoff (defaults: 3 attempts, capped backoff); jobs append Events and carry IDs for tracing.
+- Policies: CodeMachine module policies attach loop/trigger behavior to steps; loops reset step statuses with bounded iteration counts, and triggers can enqueue or inline-run other steps (depth-limited to prevent recursion).
 
 ## API surface (non-exhaustive)
 - `GET /health` → `{ "status": "ok" }`; `GET /metrics` for Prometheus output.
 - `GET /console` serves the web console (static assets).
 - Projects: `POST /projects`, `GET /projects`, `GET /projects/{id}`.
+- CodeMachine: `POST /projects/{id}/codemachine/import` to ingest `.codemachine` workspaces and create steps.
 - Protocols: `POST /projects/{id}/protocols`, `GET /projects/{id}/protocols`, `GET /protocols/{id}`, actions `start|pause|resume|cancel|run_next_step|retry_latest|open_pr`.
 - Steps: `POST /protocols/{id}/steps`, `GET /protocols/{id}/steps`, `GET /steps/{id}`, actions `run`, `run_qa`, `approve`.
 - Events: `GET /protocols/{id}/events`, `GET /events?project_id=...`.

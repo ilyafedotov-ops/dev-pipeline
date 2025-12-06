@@ -27,12 +27,16 @@ For deeper design and delivery detail, see:
 graph LR
   User["Console / API clients"] --> API["FastAPI orchestrator"]
   API --> DB[(SQLite or Postgres)]
-  API --> Queue["Redis/RQ queue"]
-  Queue --> CodexW["Codex worker\n(plan/exec/QA)"]
+  API --> Queue["Redis/RQ queue (fakeredis inline in dev)"]
+  Queue --> CodexW["Codex/Execution worker\n(plan/exec/QA + CodeMachine)"]
   Queue --> GitW["Git/CI worker\n(worktrees/PR/webhooks)"]
+  Queue --> OnboardW["Onboarding worker\n(project setup)"]
   CodexW --> Codex["Codex CLI + prompts"]
+  CodexW --> CM["CodeMachine adapter\n(.codemachine import/runtime)"]
+  CM --> Protocols[".protocols + .codemachine/outputs"]
+  Codex --> Protocols
   GitW --> Git["Git + CI jobs"]
-  Git --> Webhooks["CI webhooks"]
+  Git --> Webhooks["CI webhooks/report.sh"]
   Webhooks --> API
 ```
 
@@ -59,18 +63,24 @@ graph LR
   - `protocol-new` defines the contract for opening a protocol (worktree creation, planning, first commit/PR, step structure, commit messaging).  
   - `protocol-resume` and `protocol-review-merge*` handle continuation and QA/merge flows with context reconciliation.  
   - `project-init` guides scaffolding a repo; `protocol-pipeline` guides running `protocol_pipeline.py`; `java-testing` and `quality-validator` provide specialized guidance.
+- **CodeMachine import/runtime**  
+  - `.codemachine` workspaces are parsed via `deksdenflow.codemachine.load_codemachine_config`, normalizing main/sub agents, module policies, placeholders, and templates.  
+  - `codemachine_worker.import_codemachine_workspace` persists the template to the protocol run and creates steps for main agents, attaching loop/trigger policies.  
+  - Execution uses `runtime_adapter` to resolve prompts (with placeholder substitution + optional `inputs/specifications.md`), write outputs to both `.protocols/<protocol>/` and `.codemachine/outputs/`, and honor loop/trigger policies via `policy_runtime`.
 - **Dataset helper (`scripts/generate_dataset_report.py`)**  
   - Small utility that reads `dataset.csv` (category/value), aggregates metrics, and renders a PDF via reportlab. Current inputs are toy data; output path defaults to `docs/dataset_report.pdf`.
 - **TerraformManager workflow plan (`docs/terraformmanager-workflow-plan.md`)**  
   - Checklists for cloning/running the TerraformManager demo under `Projects/`, covering API/CLI/UI validation and optional infra tooling; serves as an example end-to-end ops workflow.
 - **Orchestrator (alpha)**  
-  - `deksdenflow/storage.py` supports SQLite and Postgres; `alembic/` carries migrations for both. `deksdenflow/api/app.py` exposes projects/protocols/steps/events, queue inspection, metrics, webhook listeners, and actions (start/pause/resume/run/rerun/run_qa/approve/open_pr). Redis/RQ is the queue backend with fakeredis fallback; `scripts/api_server.py` runs the API, `scripts/rq_worker.py` runs dedicated workers, and `deksdenflow/api/frontend` hosts the console UI assets.
+  - `deksdenflow/storage.py` supports SQLite and Postgres; `alembic/` carries migrations for both. `deksdenflow/api/app.py` exposes projects/protocols/steps/events, queue inspection, metrics, webhook listeners, CodeMachine import, and actions (start/pause/resume/run/rerun/run_qa/approve/open_pr). Redis/RQ is the queue backend with fakeredis fallback; the API spins up a background RQ worker thread when fakeredis is used. `scripts/api_server.py` runs the API, `scripts/rq_worker.py` runs dedicated workers, and `deksdenflow/api/frontend` hosts the console UI assets.
+  - Worker jobs cover planning, execution, QA, project setup, PR open, and CodeMachine import. Loop/trigger policies from CodeMachine modules are applied during execution/QA to drive retries or inline triggers, with runtime_state updates and events for observability.
 
 ## Operational workflows
 1. **Run the orchestrator + console**  
-   - `make orchestrator-setup && DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py` (SQLite/fakeredis) or `docker-compose up --build` (Postgres/Redis). Visit `/console` for projects/protocols/steps/events; queue and metrics available at `/queues*` and `/metrics`.
+   - `make orchestrator-setup && DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py` (SQLite/fakeredis) or `docker-compose up --build` (Postgres/Redis). Visit `/console` for projects/protocols/steps/events; queue and metrics available at `/queues*` and `/metrics`. With fakeredis, the API auto-starts a background RQ worker thread for inline processing.
 2. **Bootstrap a repo**  
    - Run `python3 scripts/project_setup.py --base-branch <branch> [--init-if-needed] [--run-discovery]` or follow `prompts/project-init.prompt.md`. Creates docs/prompts/CI/scripts/schema, ensures git state, and optionally runs Codex discovery to prefill CI hooks.
+   - Optional: import an existing CodeMachine workspace via `POST /projects/{id}/codemachine/import` to materialize steps and template metadata before planning/exec flows.
 3. **Open a new protocol stream**  
    - From repo root, run `python3 scripts/protocol_pipeline.py ...`. It creates `../worktrees/NNNN-[task]/`, generates `.protocols/NNNN-[task]/` with plan + step files, optionally commits/pushes + Draft PR/MR, and can auto-run a step. Work happens in the new worktree; plan/step files are the execution contract.
 4. **Execute steps manually (outside auto-run)**  
@@ -90,6 +100,7 @@ graph LR
 - **Worktrees/branches:** Each protocol lives in its own Git worktree under `../worktrees/NNNN-[task]/` with a same-named branch from `origin/<base>`. `.protocols/` sits inside the worktree; numbering scans both `.protocols/` and `../worktrees/`.
 - **Commit format:** `feat(protocol): add plan for ... [protocol-NNNN/00]` for initial plan; subsequent commits use `type(scope): subject [protocol-NNNN/XX]` as defined in `protocol-new.prompt.md`.
 - **Models/env vars:** Planning/decompose/exec/QA models configurable via `PROTOCOL_PLANNING_MODEL`, `PROTOCOL_DECOMPOSE_MODEL`, `PROTOCOL_EXEC_MODEL`, `PROTOCOL_QA_MODEL`, `PROTOCOL_DISCOVERY_MODEL`; defaults favor `gpt-5.1-high`/`codex-5.1-max` families. Token budgets enforced via `DEKSDENFLOW_MAX_TOKENS_*` with `strict|warn|off` modes.
+- **Queue/runtime:** Redis/RQ is the canonical backend; fakeredis keeps local/dev hermetic and triggers a background RQ worker thread from the API to process jobs inline. Trigger policies are bounded by `MAX_INLINE_TRIGGER_DEPTH` to avoid unbounded recursion.
 - **External tooling:** Codex CLI (mandatory for orchestrators), optional `gh`/`glab` for PR/MR automation. The dataset helper requires `reportlab`. Redis/RQ is required for the orchestrator queue; fakeredis works for local/dev.
 - **Git hygiene:** Scripts avoid destructive commands; `project_setup` warns if `origin` missing or base branch absent. `.gitignore` excludes local assets (`Projects/`, dataset files, generated reports).
 - **Statuses:** ProtocolRun `pending → planning → planned → running → (paused|blocked|failed|cancelled|completed)`; StepRun `pending → running → needs_qa → (completed|failed|cancelled|blocked)` with events recorded per transition.

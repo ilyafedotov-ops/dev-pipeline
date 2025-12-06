@@ -48,6 +48,13 @@ Redis is required for orchestration; set `DEKSDENFLOW_REDIS_URL` (use `fakeredis
 - CI callbacks: export `DEKSDENFLOW_API_BASE` in CI and call `scripts/ci/report.sh success|failure` to mirror pipeline status into the orchestrator (supports GitHub/GitLab payloads; optional `DEKSDENFLOW_API_TOKEN`/`DEKSDENFLOW_WEBHOOK_TOKEN`). Set `DEKSDENFLOW_PROTOCOL_RUN_ID` if branch detection is ambiguous so the webhook can map directly to a run.
 - Observability: `/metrics` exposes Prometheus data; `/queues` and `/queues/jobs` list queue stats and payloads. Events can be tailed via the console’s activity feed.
 
+## CodeMachine integration
+
+- Import `.codemachine` workspaces with `POST /projects/{id}/codemachine/import` to persist the template graph and auto-create steps for main agents.
+- CodeMachine steps run through the same Codex worker, using agent prompts plus optional `inputs/specifications.md`, and write outputs to both `.protocols/<protocol>/` and `.codemachine/outputs/`.
+- Module policies (loop/trigger) attach to matching agents and drive retries or inline triggers. Loop limits and trigger depth are recorded in `runtime_state` and surfaced as events.
+- When `DEKSDENFLOW_REDIS_URL=fakeredis://`, the API spins up a background RQ worker thread to process jobs inline for local dev.
+
 ## Containerized orchestrator (API + worker + Redis/Postgres)
 
 For a quick local stack with API, RQ worker, Redis, and Postgres:
@@ -79,6 +86,8 @@ DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py
 - `scripts/quality_orchestrator.py` — Codex QA validator that checks a protocol step and writes a report.
 - `Makefile` — helper targets: `deps` (install orchestrator deps in `.venv`), `migrate` (alembic upgrade), `orchestrator-setup` (deps + migrate).
 - `deksdenflow/api/frontend/` — lightweight web console assets served from `/console`.
+- `deksdenflow/codemachine/` — loaders/runtime adapters for `.codemachine` workspaces plus loop/trigger policy helpers.
+- `deksdenflow/workers/` — job handlers for Codex execution, CodeMachine import, onboarding, and state helpers.
 - `alembic/` — migrations for Postgres/SQLite schema (projects, protocol_runs, step_runs, events).
 
 ## How to use the prompts
@@ -105,14 +114,18 @@ graph TD
   U["User (console/API client)"] --> Console["Console (web/TUI)"]
   Console --> API["Orchestrator API (FastAPI)"]
   API --> DB[(DB: Postgres/SQLite)]
-  API --> Queue["Queue (Redis/RQ)"]
-  Queue --> CW["Codex Worker (plan/exec/QA)"]
-  Queue --> GW["Git/CI Worker (worktrees/PR/CI)"]
+  API --> Queue["Queue (Redis/RQ, fakeredis inline in dev)"]
+  Queue --> CW["Codex/Execution Worker\n(plan/exec/QA + CodeMachine)"]
+  Queue --> GW["Git/CI Worker\n(worktrees/PR/webhooks)"]
+  Queue --> OW["Onboarding Worker\n(project setup)"]
   CW --> Codex["Codex CLI + prompts"]
+  CW --> CM["CodeMachine adapter\n(.codemachine import/runtime)"]
   Codex --> Prot[".protocols/NNNN-[task] artifacts"]
+  CM --> Prot
   GW --> Git["Git worktrees/branches"]
   GW --> CI["CI (GitHub/GitLab)"]
-  CI --> API
+  CI --> Webhooks["Webhooks / report.sh"]
+  Webhooks --> API
   Git --> Prot
 ```
 
@@ -121,13 +134,15 @@ graph TD
 ```mermaid
 flowchart LR
   A["Register project (/projects)"] --> B["project_setup_job (clone + bootstrap assets)"]
+  A --> B2["optional: codemachine_import_job (/projects/{id}/codemachine/import)"]
   B --> C["plan_protocol_job (plan + decompose)"]
   C --> D["execute_step_job (worktree + .protocols updates)"]
   D -->|DEKSDENFLOW_AUTO_QA_AFTER_EXEC| E["run_quality_job"]
   D --> F["open_pr_job / push branch (optional)"]
   E --> F
   F --> G["CI pipelines (GitHub/GitLab)"]
-  G --> H["Webhooks update statuses; optional auto QA on CI pass"]
+  G --> H["Webhooks/report.sh mirror CI → orchestrator"]
+  H -->|DEKSDENFLOW_AUTO_QA_ON_CI| E
   H --> I["Manual review/merge via protocol-review prompts"]
 ```
 
