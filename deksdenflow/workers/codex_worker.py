@@ -4,8 +4,9 @@ Codex worker: resolves protocol context, runs engine-backed planning/exec/QA, an
 
 import json
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 import deksdenflow.engines_codex  # noqa: F401 - ensure Codex engine is registered
 
@@ -50,6 +51,25 @@ from deksdenflow.spec import (
 
 log = get_logger(__name__)
 MAX_INLINE_TRIGGER_DEPTH = 3
+
+
+@dataclass
+class ExecContext:
+    kind: str  # "codex" or "codemachine"
+    engine_id: str
+    model: str
+    prompt_text: str
+    prompt_path: Path
+    prompt_version: str
+    workdir: Path
+    protocol_root: Path
+    repo_root: Optional[Path]
+    agent_id: Optional[str]
+    outputs_cfg: Optional[dict]
+    protocol_output_path: Optional[Path]
+    aux_outputs: Dict[str, Path]
+    spec_hash: Optional[str]
+    prompt_files: list[str]
 
 
 def _enqueue_trigger_target(
@@ -144,10 +164,10 @@ def _resolve_codex_context(
     run: ProtocolRun,
     project,
     step_spec: Optional[dict],
-):
+) -> tuple[ExecContext, list[str]]:
     """
     Resolve prompt, engine/model, outputs, and paths for a Codex-backed step.
-    Returns (context_dict, validation_errors).
+    Returns (ExecContext, validation_errors).
     """
     step_spec = step_spec or get_step_spec(run.template_config, step.step_name)
     template_cfg = run.template_config or {}
@@ -197,20 +217,23 @@ def _resolve_codex_context(
         or "codex-5.1-max-xhigh"
     )
     engine_id = (step_spec.get("engine_id") if step_spec else None) or step.engine_id or registry.get_default().metadata.id
-    ctx = {
-        "repo_root": repo_root,
-        "worktree": worktree,
-        "protocol_root": protocol_root,
-        "step_path": step_path,
-        "exec_prompt": exec_prompt,
-        "prompt_version": prompt_version(step_path),
-        "outputs_cfg": outputs_cfg,
-        "protocol_output_path": resolved_protocol_out,
-        "aux_outputs": resolved_aux_outs,
-        "spec_hash": spec_hash_val,
-        "engine_id": engine_id,
-        "model": exec_model,
-    }
+    ctx = ExecContext(
+        kind="codex",
+        engine_id=engine_id,
+        model=exec_model,
+        prompt_text=exec_prompt,
+        prompt_path=step_path,
+        prompt_version=prompt_version(step_path),
+        workdir=worktree,
+        protocol_root=protocol_root,
+        repo_root=repo_root,
+        agent_id=None,
+        outputs_cfg=outputs_cfg,
+        protocol_output_path=resolved_protocol_out,
+        aux_outputs=resolved_aux_outs,
+        spec_hash=spec_hash_val,
+        prompt_files=[],
+    )
     return ctx, spec_errors
 
 
@@ -242,7 +265,9 @@ def _resolve_codemachine_context(
     config,
     template_cfg: dict,
     step_spec: Optional[dict],
-):
+    *,
+    with_spec_errors: bool = True,
+) -> tuple[ExecContext, list[str]]:
     """
     Resolve prompt, engine/model, and output paths for a CodeMachine-backed step.
     Returns (context_dict, validation_errors).
@@ -291,21 +316,24 @@ def _resolve_codemachine_context(
         default_aux={"codemachine": default_codemachine},
         prefer_workspace=True,
     )
-    spec_errors = validate_step_spec_paths(codemachine_root, step_spec or {}, workspace=workspace)
-    ctx = {
-        "workspace": workspace,
-        "codemachine_root": codemachine_root,
-        "agent_id": agent_id,
-        "prompt_text": prompt_text,
-        "prompt_path": prompt_path,
-        "prompt_version": cm_prompt_ver,
-        "engine_id": engine_id,
-        "model": model,
-        "outputs_cfg": outputs_cfg,
-        "protocol_output_path": protocol_output_path,
-        "aux_outputs": aux_outputs,
-        "spec_hash": spec_hash_val,
-    }
+    spec_errors = validate_step_spec_paths(codemachine_root, step_spec or {}, workspace=workspace) if with_spec_errors else []
+    ctx = ExecContext(
+        kind="codemachine",
+        engine_id=engine_id,
+        model=model,
+        prompt_text=prompt_text,
+        prompt_path=prompt_path,
+        prompt_version=cm_prompt_ver,
+        workdir=workspace,
+        protocol_root=codemachine_root,
+        repo_root=None,
+        agent_id=agent_id,
+        outputs_cfg=outputs_cfg,
+        protocol_output_path=protocol_output_path,
+        aux_outputs=aux_outputs,
+        spec_hash=spec_hash_val,
+        prompt_files=[str(prompt_path)],
+    )
     return ctx, spec_errors
 
 
@@ -629,15 +657,15 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
             handle_quality(step.id, db)
         return
     ctx, spec_errors = _resolve_codex_context(step, run, project, step_spec)
-    repo_root = ctx["repo_root"]
-    worktree = ctx["worktree"]
-    protocol_root = ctx["protocol_root"]
-    step_path = ctx["step_path"]
-    exec_prompt = ctx["exec_prompt"]
-    outputs_cfg = ctx["outputs_cfg"]
-    resolved_protocol_out = ctx["protocol_output_path"]
-    resolved_aux_outs = ctx["aux_outputs"]
-    spec_hash_val = spec_hash_val or ctx.get("spec_hash")
+    repo_root = ctx.repo_root
+    worktree = ctx.workdir
+    protocol_root = ctx.protocol_root
+    step_path = ctx.prompt_path
+    exec_prompt = ctx.prompt_text
+    outputs_cfg = ctx.outputs_cfg
+    resolved_protocol_out = ctx.protocol_output_path
+    resolved_aux_outs = ctx.aux_outputs
+    spec_hash_val = spec_hash_val or ctx.spec_hash
     if spec_errors:
         for err in spec_errors:
             db.append_event(
@@ -650,12 +678,12 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
         db.update_step_status(step.id, StepStatus.FAILED, summary="Spec validation failed")
         db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
         return
-    exec_model = ctx["model"]
+    exec_model = ctx.model
     exec_tokens = _budget_and_tokens(exec_prompt, exec_model, "exec", config.token_budget_mode, budget_limit)
 
-    engine_id = ctx["engine_id"]
+    engine_id = ctx.engine_id
     engine = registry.get(engine_id)
-    prompt_ver = ctx["prompt_version"]
+    prompt_ver = ctx.prompt_version
     exec_request = EngineRequest(
         project_id=project.id,
         protocol_run_id=run.id,
@@ -786,7 +814,7 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
         )
         return
     try:
-        engine = registry.get(ctx["engine_id"])
+        engine = registry.get(ctx.engine_id)
     except KeyError as exc:  # pragma: no cover - defensive guard
         db.update_step_status(step.id, StepStatus.FAILED, summary=str(exc))
         db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
@@ -795,22 +823,9 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
             "codemachine_step_failed",
             "Execution failed: engine not registered.",
             step_run_id=step.id,
-            metadata={"engine_id": ctx.get("engine_id"), "spec_hash": ctx.get("spec_hash")},
+            metadata={"engine_id": ctx.engine_id, "spec_hash": ctx.spec_hash},
         )
         return
-
-    workspace: Path = ctx["workspace"]
-    codemachine_root: Path = ctx["codemachine_root"]
-    agent_id: str = ctx["agent_id"]
-    prompt_text: str = ctx["prompt_text"]
-    prompt_path: Path = ctx["prompt_path"]
-    cm_prompt_ver: str = ctx["prompt_version"]
-    engine_id: str = ctx["engine_id"]
-    model: str = ctx["model"]
-    outputs_cfg = ctx["outputs_cfg"]
-    protocol_output_path: Path = ctx["protocol_output_path"]
-    aux_outputs = ctx["aux_outputs"]
-    spec_hash_val = ctx["spec_hash"]
 
     if spec_errors:
         db.update_step_status(step.id, StepStatus.FAILED, summary="Spec validation failed")
@@ -821,7 +836,7 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
                 "spec_validation_error",
                 err,
                 step_run_id=step.id,
-                metadata={"step": step.step_name, "spec_hash": spec_hash_val},
+                metadata={"step": step.step_name, "spec_hash": ctx.spec_hash},
             )
         return
 
@@ -829,27 +844,27 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
         project_id=project.id,
         protocol_run_id=run.id,
         step_run_id=step.id,
-        model=model,
-        prompt_files=[str(prompt_path)],
-        working_dir=str(workspace),
+        model=ctx.model,
+        prompt_files=ctx.prompt_files,
+        working_dir=str(ctx.workdir),
         extra={
-            "prompt_text": prompt_text,
+            "prompt_text": ctx.prompt_text,
             "sandbox": "workspace-write",
         },
     )
     db.append_event(
         step.protocol_run_id,
         "codemachine_step_started",
-        f"Executing CodeMachine agent {agent_id}.",
+        f"Executing CodeMachine agent {ctx.agent_id}.",
         step_run_id=step.id,
         metadata={
-            "engine_id": engine_id,
-            "model": model,
-            "prompt_path": str(prompt_path),
-            "prompt_versions": {"exec": cm_prompt_ver},
-            "workspace": str(workspace),
+            "engine_id": ctx.engine_id,
+            "model": ctx.model,
+            "prompt_path": str(ctx.prompt_path),
+            "prompt_versions": {"exec": ctx.prompt_version},
+            "workspace": str(ctx.workdir),
             "template": template_cfg.get("template"),
-            "spec_hash": spec_hash_val,
+            "spec_hash": ctx.spec_hash,
         },
     )
     db.append_event(
@@ -858,23 +873,24 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
         "Executing step via CodeMachine.",
         step_run_id=step.id,
         metadata={
-            "engine_id": engine_id,
-            "model": model,
-            "prompt_path": str(prompt_path),
-            "prompt_versions": {"exec": cm_prompt_ver},
-            "spec_hash": spec_hash_val,
+            "engine_id": ctx.engine_id,
+            "model": ctx.model,
+            "prompt_path": str(ctx.prompt_path),
+            "prompt_versions": {"exec": ctx.prompt_version},
+            "spec_hash": ctx.spec_hash,
+            "agent_id": ctx.agent_id,
         },
     )
     try:
         result = engine.execute(exec_request)
     except Exception as exc:  # pragma: no cover - best effort
-        db.update_step_status(step.id, StepStatus.FAILED, summary=f"CodeMachine execution failed: {exc}", engine_id=engine_id, model=model)
+        db.update_step_status(step.id, StepStatus.FAILED, summary=f"CodeMachine execution failed: {exc}", engine_id=ctx.engine_id, model=ctx.model)
         db.append_event(
             step.protocol_run_id,
             "codemachine_step_failed",
-            f"Execution failed for agent {agent_id}: {exc}",
+            f"Execution failed for agent {ctx.agent_id}: {exc}",
             step_run_id=step.id,
-            metadata={"engine_id": engine_id, "model": model, "prompt_path": str(prompt_path)},
+            metadata={"engine_id": ctx.engine_id, "model": ctx.model, "prompt_path": str(ctx.prompt_path)},
         )
         loop_decision = apply_loop_policies(step, db, reason="codemachine_exec_failed")
         if loop_decision and loop_decision.get("applied"):
@@ -894,39 +910,42 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
         return
 
     output_text = result.stdout or ""
-    protocol_output_path.parent.mkdir(parents=True, exist_ok=True)
-    for aux_path in aux_outputs.values():
-        aux_path.parent.mkdir(parents=True, exist_ok=True)
-    if output_text:
-        protocol_output_path.write_text(output_text, encoding="utf-8")
+    protocol_output_path = ctx.protocol_output_path
+    aux_outputs = ctx.aux_outputs
+    if protocol_output_path:
+        protocol_output_path.parent.mkdir(parents=True, exist_ok=True)
         for aux_path in aux_outputs.values():
-            aux_path.write_text(output_text, encoding="utf-8")
+            aux_path.parent.mkdir(parents=True, exist_ok=True)
+        if output_text:
+            protocol_output_path.write_text(output_text, encoding="utf-8")
+            for aux_path in aux_outputs.values():
+                aux_path.write_text(output_text, encoding="utf-8")
 
     db.update_step_status(
         step.id,
         StepStatus.NEEDS_QA,
-        summary=f"Executed CodeMachine agent {agent_id}; pending QA",
-        model=model,
-        engine_id=engine_id,
+        summary=f"Executed CodeMachine agent {ctx.agent_id}; pending QA",
+        model=ctx.model,
+        engine_id=ctx.engine_id,
     )
     outputs_meta = {
-        "protocol": str(protocol_output_path),
+        "protocol": str(protocol_output_path) if protocol_output_path else None,
         "aux": {k: str(v) for k, v in aux_outputs.items()} if aux_outputs else {},
     }
     event_meta = {
-        "engine_id": engine_id,
-        "model": model,
-        "prompt_path": str(prompt_path),
-        "prompt_versions": {"exec": cm_prompt_ver},
+        "engine_id": ctx.engine_id,
+        "model": ctx.model,
+        "prompt_path": str(ctx.prompt_path),
+        "prompt_versions": {"exec": ctx.prompt_version},
         "outputs": outputs_meta,
         "result_metadata": result.metadata,
-        "spec_hash": spec_hash_val,
+        "spec_hash": ctx.spec_hash,
         "spec_validated": True,
     }
     db.append_event(
         step.protocol_run_id,
         "codemachine_step_completed",
-        f"CodeMachine agent {agent_id} executed.",
+        f"CodeMachine agent {ctx.agent_id} executed.",
         step_run_id=step.id,
         metadata=event_meta,
     )
