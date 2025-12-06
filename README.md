@@ -146,6 +146,53 @@ flowchart LR
   H --> I["Manual review/merge via protocol-review prompts"]
 ```
 
+## Detailed orchestrator pipelines
+
+### Protocol lifecycle (jobs, policies, QA)
+
+```mermaid
+flowchart TD
+  A[/POST /projects/] --> B["project_setup_job\nensure docs/prompts/CI assets"]
+  A --> C{"Import .codemachine?"}
+  C -->|Yes| C1["codemachine_import_job\npersist template + create steps\nattach loop/trigger policies"]
+  C -->|No| B
+  B --> D[/POST /projects/{id}/protocols + start/]
+  D --> E["plan_protocol_job\nCodex plan + decompose → StepRuns"]
+  E --> F{"Any pending/blocked steps?"}
+  F -->|run| G[/steps/{id}/actions/run → execute_step_job/]
+  G --> H{"Execution path"}
+  H -->|Codex| H1["Codex exec → writes .protocols step"]
+  H -->|CodeMachine| H2["Resolve agent prompt + specs → write .protocols + .codemachine/outputs"]
+  H1 --> I{"Auto QA after exec?"}
+  H2 --> I
+  I -->|yes| J["run_quality_job\nQA prompt → verdict"]
+  I -->|no| K["Step → needs_qa"]
+  J --> L{"QA verdict"}
+  L -->|PASS| M["Step completed\nmaybe triggers other steps via policy"]
+  L -->|FAIL| N{"Loop policy?"}
+  N -->|apply| F
+  N -->|none| O["Protocol blocked; manual retry/resume"]
+  K --> P{"Manual QA / approve?"}
+  P -->|approve| M
+  P -->|run QA| J
+```
+
+### CI feedback loop
+
+```mermaid
+flowchart LR
+  A["execute_step_job writes changes\nand may push/open PR"] --> B["CI (GitHub/GitLab) pipelines"]
+  B --> C["report.sh or /webhooks/{provider}\nbranch or run_id correlation"]
+  C --> D{"CI status normalized"}
+  D -->|running| E["Step status → running"]
+  D -->|success| F{"DEKSDENFLOW_AUTO_QA_ON_CI?"}
+  F -->|yes| G["run_quality_job enqueued"]
+  F -->|no| H["Step completed (CI passed)\nmaybe triggers next step"]
+  D -->|failure| I["Step failed; Protocol blocked\nloop/trigger policies may requeue"]
+  H --> J{"PR merged?"}
+  J -->|yes| K["Protocol completed"]
+```
+
 ## Protocol pipeline (Codex CLI)
 
 Prerequisites:
