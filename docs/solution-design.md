@@ -78,3 +78,10 @@ This document captures the current state of the system, the risks that block ful
 - Queue: Redis + RQ to start (simple, Pythonic, already hinted by `scripts/rq_worker.py`); keep queue abstraction so Celery/DB-backed queues remain pluggable.
 - API: FastAPI (already present) with Pydantic config for env overrides.
 - Packaging: container images for API and workers; compose file for local; Kubernetes manifests later.
+
+## 3. Current implementation alignment
+- Storage and migrations: SQLite default with Postgres available via `DEKSDENFLOW_DB_URL`; Alembic scaffolding plus initial migration under `alembic/`.
+- API and console: FastAPI app exposes projects/protocols/steps/events, queue stats (`/queues*`), Prometheus metrics (`/metrics`), and webhook endpoints for GitHub/GitLab; a lightweight console at `/console` surfaces projects/runs/steps/events/queues.
+- Queue and workers: Redis/RQ (fakeredis in dev) with job types wired for planning, execution, QA, project setup, and PR open; background worker auto-starts when fakeredis is used. Request/step IDs, retries, and backoff are captured as events.
+- Automation flags and budgets: `DEKSDENFLOW_AUTO_QA_AFTER_EXEC` and `DEKSDENFLOW_AUTO_QA_ON_CI` drive QA scheduling; token budgets (`DEKSDENFLOW_MAX_TOKENS_*` with `strict|warn|off`) gate Codex calls.
+- CI callbacks: `scripts/ci/report.sh` posts GitHub/GitLab-shaped payloads to `/webhooks/*`, mapping by branch or explicit `DEKSDENFLOW_PROTOCOL_RUN_ID`. Webhook tokens and API tokens guard external access.

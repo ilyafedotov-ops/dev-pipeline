@@ -6,6 +6,7 @@ This repo is a lightweight starter kit for agent-driven development using the De
 - Ready-to-use prompts (new/resume/review) adapted from the published gists.
 - Dual CI templates for GitHub Actions and GitLab CI that call the same `scripts/ci/*` hooks.
 - An interactive protocol pipeline script that talks to Codex CLI to generate plans, decompose steps, and optionally open PRs/MRs or auto-run a specific step.
+- A FastAPI-based orchestrator with Redis/RQ queue, SQLite/Postgres storage, and a minimal web console at `/console` for projects/protocols/steps/events.
 
 ## Quick start
 
@@ -30,11 +31,11 @@ This repo is a lightweight starter kit for agent-driven development using the De
    ```
 5. Validate a step (optional QA gate):
    ```bash
-  python3 scripts/quality_orchestrator.py \
-    --protocol-root ../worktrees/NNNN-<task>/.protocols/NNNN-<task> \
-    --step-file 01-some-step.md \
-    --model codex-5.1-max
-  ```
+   python3 scripts/quality_orchestrator.py \
+     --protocol-root ../worktrees/NNNN-<task>/.protocols/NNNN-<task> \
+     --step-file 01-some-step.md \
+     --model codex-5.1-max
+   ```
 
 Logging tip: set `DEKSDENFLOW_LOG_JSON=true` to emit structured JSON logs from CLIs/workers/API.
 Redis is required for orchestration; set `DEKSDENFLOW_REDIS_URL` (use `fakeredis://` for local testing).
@@ -42,9 +43,10 @@ Redis is required for orchestration; set `DEKSDENFLOW_REDIS_URL` (use `fakeredis
 ## Orchestrator status & QA options
 
 - Protocol statuses: `pending` → `planning` → `planned` → `running` → (`paused` | `blocked` | `failed` | `cancelled` | `completed`). CI failures or worker errors block the run; PR/MR merge completes it.
-- Step statuses: `pending` → `running` → `needs_qa` → (`completed` | `failed` | `cancelled`). Execution stops at `needs_qa`; QA or manual approval marks `completed`.
+- Step statuses: `pending` → `running` → `needs_qa` → (`completed` | `failed` | `cancelled` | `blocked`). Execution stops at `needs_qa`; QA or manual approval marks `completed`. CI/webhook failures can mark a step `blocked`.
 - Auto QA knobs: set `DEKSDENFLOW_AUTO_QA_AFTER_EXEC=true` to enqueue QA immediately after execution. Set `DEKSDENFLOW_AUTO_QA_ON_CI=true` to enqueue QA when CI reports success via webhook.
 - CI callbacks: export `DEKSDENFLOW_API_BASE` in CI and call `scripts/ci/report.sh success|failure` to mirror pipeline status into the orchestrator (supports GitHub/GitLab payloads; optional `DEKSDENFLOW_API_TOKEN`/`DEKSDENFLOW_WEBHOOK_TOKEN`). Set `DEKSDENFLOW_PROTOCOL_RUN_ID` if branch detection is ambiguous so the webhook can map directly to a run.
+- Observability: `/metrics` exposes Prometheus data; `/queues` and `/queues/jobs` list queue stats and payloads. Events can be tailed via the console’s activity feed.
 
 ## Containerized orchestrator (API + worker + Redis/Postgres)
 
@@ -54,6 +56,13 @@ docker-compose up --build
 # API at http://localhost:8000 (token from DEKSDENFLOW_API_TOKEN env or compose default)
 ```
 Environment defaults live in `docker-compose.yml`; override with env vars as needed.
+
+Local (SQLite + fakeredis) without Docker:
+```bash
+make orchestrator-setup
+DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py
+# open http://localhost:8000/console and set API token if configured
+```
 
 ## Folder map
 
@@ -69,6 +78,8 @@ Environment defaults live in `docker-compose.yml`; override with env vars as nee
 - `scripts/codex_ci_bootstrap.py` — helper to run Codex (codex-5.1-max by default) with the discovery prompt to fill CI scripts.
 - `scripts/quality_orchestrator.py` — Codex QA validator that checks a protocol step and writes a report.
 - `Makefile` — helper targets: `deps` (install orchestrator deps in `.venv`), `migrate` (alembic upgrade), `orchestrator-setup` (deps + migrate).
+- `deksdenflow/api/frontend/` — lightweight web console assets served from `/console`.
+- `alembic/` — migrations for Postgres/SQLite schema (projects, protocol_runs, step_runs, events).
 
 ## How to use the prompts
 
@@ -91,33 +102,33 @@ The core idea: ship improvements in parallel streams with strict, explicit proto
 
 ```mermaid
 graph TD
-  U["User/Agent"] --> PS["project_setup.py (clone+discovery)"]
-  PS --> Repo["Repo"]
-  PS --> Disc["Codex discovery (codex_ci_bootstrap.py)"]
-  Disc --> CIScripts["CI scripts filled per stack"]
-  U --> PP["protocol_pipeline.py"]
-  PP --> PlanGen["Planning (gpt-5.1-high)"]
-  PlanGen --> Decomp["Decompose steps (gpt-5.1-high)"]
-  Decomp --> Worktree["Worktree + .protocols/NNNN-Task"]
-  Worktree --> QA["quality_orchestrator.py (Codex QA)"]
-  QA --> PR["Draft PR/MR (gh or glab)"]
-  PR --> CIJobs["CI (GitHub Actions or GitLab)"]
-  CIJobs --> Status["Checks and build status"]
+  U["User (console/API client)"] --> Console["Console (web/TUI)"]
+  Console --> API["Orchestrator API (FastAPI)"]
+  API --> DB[(DB: Postgres/SQLite)]
+  API --> Queue["Queue (Redis/RQ)"]
+  Queue --> CW["Codex Worker (plan/exec/QA)"]
+  Queue --> GW["Git/CI Worker (worktrees/PR/CI)"]
+  CW --> Codex["Codex CLI + prompts"]
+  Codex --> Prot[".protocols/NNNN-[task] artifacts"]
+  GW --> Git["Git worktrees/branches"]
+  GW --> CI["CI (GitHub/GitLab)"]
+  CI --> API
+  Git --> Prot
 ```
 
 ## Workflow overview (Mermaid)
 
 ```mermaid
 flowchart LR
-  A["Prepare repo (project_setup.py)"] --> B["Codex discovery (optional)"]
-  B --> C["Run protocol_pipeline.py (plan + steps)"]
-  C --> D["Optional: auto Draft PR/MR"]
-  C --> E["Optional: auto-run a step"]
-  E --> QA["Run quality_orchestrator.py"]
-  QA --> G["Commit/push per step"]
-  D --> F["CI pipelines run"]
-  G --> F
-  F --> H["Review & merge via protocol-review prompts"]
+  A["Register project (/projects)"] --> B["project_setup_job (clone + bootstrap assets)"]
+  B --> C["plan_protocol_job (plan + decompose)"]
+  C --> D["execute_step_job (worktree + .protocols updates)"]
+  D -->|DEKSDENFLOW_AUTO_QA_AFTER_EXEC| E["run_quality_job"]
+  D --> F["open_pr_job / push branch (optional)"]
+  E --> F
+  F --> G["CI pipelines (GitHub/GitLab)"]
+  G --> H["Webhooks update statuses; optional auto QA on CI pass"]
+  H --> I["Manual review/merge via protocol-review prompts"]
 ```
 
 ## Protocol pipeline (Codex CLI)

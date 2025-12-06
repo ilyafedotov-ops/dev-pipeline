@@ -1,6 +1,6 @@
 # Detailed Implementation Plan
 
-This plan turns the target architecture into executable work. Phases can run sequentially or with limited parallelism when dependencies allow. Existing alpha components in `deksdenflow/` (storage, API skeleton, stub jobs) should be reused rather than rebuilt.
+This plan turns the target architecture into executable work. Phases can run sequentially or with limited parallelism when dependencies allow. Existing components in `deksdenflow/` (storage, API, queue/workers) should be reused rather than rebuilt.
 
 ## Current decisions and priorities
 - Stack choice: Postgres for production (SQLite for dev/tests), Redis + RQ for the first queue/worker implementation.
@@ -8,7 +8,7 @@ This plan turns the target architecture into executable work. Phases can run seq
 
 ## Status model and QA defaults
 - ProtocolRun: `pending` → `planning` → `planned` → `running` → (`paused` | `blocked` | `failed` | `cancelled` | `completed`). CI failure or job failure moves to `blocked`; PR/MR merge completes the run.
-- StepRun: `pending` → `running` → `needs_qa` → (`completed` | `failed` | `cancelled`). Execution ends in `needs_qa`; QA or manual approval flips to `completed`.
+- StepRun: `pending` → `running` → `needs_qa` → (`completed` | `failed` | `cancelled` | `blocked`). Execution ends in `needs_qa`; QA or manual approval flips to `completed`; CI/webhook failures can block a step.
 - Automation flags: `DEKSDENFLOW_AUTO_QA_AFTER_EXEC=true` enqueues QA immediately after execution; `DEKSDENFLOW_AUTO_QA_ON_CI=true` enqueues QA when CI success webhooks arrive.
 - CI callbacks: `scripts/ci/report.sh success|failure` posts GitHub/GitLab-style payloads to the orchestrator using `DEKSDENFLOW_API_BASE` (optional `DEKSDENFLOW_API_TOKEN`/`DEKSDENFLOW_WEBHOOK_TOKEN`).
 - Auth tokens: API bearer token (`DEKSDENFLOW_API_TOKEN`) gates all non-health endpoints; per-project token (`X-Project-Token`) is optional; webhook token (`DEKSDENFLOW_WEBHOOK_TOKEN`) signs/verifies CI callbacks.
@@ -36,7 +36,7 @@ This plan turns the target architecture into executable work. Phases can run seq
 
 - 2.1 API skeleton: FastAPI app with health, auth middleware, and dependency injection for config/DB.
 - 2.2 Endpoints: `/projects`, `/projects/{id}`, `/projects/{id}/protocols`, `/protocols/{id}`, `/protocols/{id}/steps`, `/steps/{id}` plus action endpoints (`start`, `run`, `run_qa`, `approve`, `pause/resume`, `cancel`).
-- 2.3 Workflows: handlers validate input, update DB state, enqueue jobs (Phase 3), or call library stubs for now. Include optimistic concurrency to avoid double-runs.
+- 2.3 Workflows: handlers validate input, update DB state, and enqueue jobs (Phase 3). Include optimistic concurrency to avoid double-runs.
 - 2.4 Auth and tenancy: API tokens or basic auth; project/org scoping for multi-tenant readiness.
 - 2.5 Docs: OpenAPI/Swagger exposed; examples for common flows; smoke tests for happy paths.
 

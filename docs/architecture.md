@@ -17,6 +17,25 @@ For deeper design and delivery detail, see:
 - `tests/`: harnesses covering orchestration code paths; optional Codex integration test gated by `RUN_REAL_CODEX`.
 - `deksdenflow/`: reusable library for protocol pipeline, QA, project setup, and the new orchestrator (API + storage + domain).
 
+## Control plane (orchestrator)
+- FastAPI API (`deksdenflow/api/app.py`) with bearer/project-token auth, queue stats, metrics, events feed, and webhook listeners.
+- Storage via SQLite (default) or Postgres (`DEKSDENFLOW_DB_URL`), initialized with Alembic migrations.
+- Redis/RQ queue (`deksdenflow/jobs.py`, `worker_runtime.py`) with fakeredis support for local dev; workers process planning/execution/QA/PR jobs.
+- Thin web console (`/console`) backed by the API for projects, protocol runs, steps, recent events, and queue visibility.
+
+```mermaid
+graph LR
+  User["Console / API clients"] --> API["FastAPI orchestrator"]
+  API --> DB[(SQLite or Postgres)]
+  API --> Queue["Redis/RQ queue"]
+  Queue --> CodexW["Codex worker\n(plan/exec/QA)"]
+  Queue --> GitW["Git/CI worker\n(worktrees/PR/webhooks)"]
+  CodexW --> Codex["Codex CLI + prompts"]
+  GitW --> Git["Git + CI jobs"]
+  Git --> Webhooks["CI webhooks"]
+  Webhooks --> API
+```
+
 ## Core building blocks
 - **Protocol assets and schema**  
   - Protocols live under `.protocols/NNNN-[task]/` inside each worktree; numbered via `next_protocol_number()` scanning existing `.protocols/` and `../worktrees/`.  
@@ -45,32 +64,35 @@ For deeper design and delivery detail, see:
 - **TerraformManager workflow plan (`docs/terraformmanager-workflow-plan.md`)**  
   - Checklists for cloning/running the TerraformManager demo under `Projects/`, covering API/CLI/UI validation and optional infra tooling; serves as an example end-to-end ops workflow.
 - **Orchestrator (alpha)**  
-  - `deksdenflow/storage.py` provides SQLite persistence for Projects/ProtocolRuns/StepRuns/Events; `deksdenflow/api/app.py` exposes FastAPI endpoints for CRUD + actions; `scripts/api_server.py` runs uvicorn. Queueing is a stub (`deksdenflow/jobs.py`) to be replaced with a real backend.
+  - `deksdenflow/storage.py` supports SQLite and Postgres; `alembic/` carries migrations for both. `deksdenflow/api/app.py` exposes projects/protocols/steps/events, queue inspection, metrics, webhook listeners, and actions (start/pause/resume/run/rerun/run_qa/approve/open_pr). Redis/RQ is the queue backend with fakeredis fallback; `scripts/api_server.py` runs the API, `scripts/rq_worker.py` runs dedicated workers, and `deksdenflow/api/frontend` hosts the console UI assets.
 
 ## Operational workflows
-1. **Bootstrap a repo**  
+1. **Run the orchestrator + console**  
+   - `make orchestrator-setup && DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py` (SQLite/fakeredis) or `docker-compose up --build` (Postgres/Redis). Visit `/console` for projects/protocols/steps/events; queue and metrics available at `/queues*` and `/metrics`.
+2. **Bootstrap a repo**  
    - Run `python3 scripts/project_setup.py --base-branch <branch> [--init-if-needed] [--run-discovery]` or follow `prompts/project-init.prompt.md`. Creates docs/prompts/CI/scripts/schema, ensures git state, and optionally runs Codex discovery to prefill CI hooks.
-2. **Open a new protocol stream**  
+3. **Open a new protocol stream**  
    - From repo root, run `python3 scripts/protocol_pipeline.py ...`. It creates `../worktrees/NNNN-[task]/`, generates `.protocols/NNNN-[task]/` with plan + step files, optionally commits/pushes + Draft PR/MR, and can auto-run a step. Work happens in the new worktree; plan/step files are the execution contract.
-3. **Execute steps manually (outside auto-run)**  
+4. **Execute steps manually (outside auto-run)**  
    - Work from the protocol’s worktree. For each step: follow the step file, run stack checks (`lint/typecheck/test/build`), update `log.md` and `context.md`, commit with `type(scope): subject [protocol-NNNN/XX]`, push, and report per the contract in `prompts/protocol-new.prompt.md`.
-4. **QA gate a step**  
-   - Run `python3 scripts/quality_orchestrator.py --protocol-root <.protocols/...> --step-file XX-*.md [--model ...] [--sandbox ...]`. On FAIL, fix issues before continuing; reports land in `quality-report.md`.
-5. **CI pipelines**  
-   - Both GitHub Actions and GitLab CI invoke the same `scripts/ci/*.sh` hooks. Real work requires filling those scripts; missing scripts simply print skip messages to keep empty repos green.
-6. **Optional: CI discovery**  
+5. **QA gate a step**  
+   - Run `python3 scripts/quality_orchestrator.py --protocol-root <.protocols/...> --step-file XX-*.md [--model ...] [--sandbox ...]`. On FAIL, fix issues before continuing; reports land in `quality-report.md`. Or trigger QA via `/steps/{id}/actions/run_qa` (or auto via `DEKSDENFLOW_AUTO_QA_*` flags).
+6. **CI pipelines**  
+   - Both GitHub Actions and GitLab CI invoke the same `scripts/ci/*.sh` hooks. Real work requires filling those scripts; missing scripts simply print skip messages to keep empty repos green. CI results can be mirrored back via `scripts/ci/report.sh` posting to orchestrator webhooks.
+7. **Optional: CI discovery**  
    - Use `python3 scripts/codex_ci_bootstrap.py` to run the discovery prompt that suggests/fills CI commands based on the detected stack.
-7. **Sample data/report workflow**  
+8. **Sample data/report workflow**  
    - `scripts/generate_dataset_report.py --csv dataset.csv --out docs/dataset_report.pdf` converts the sample CSV into a PDF report; demonstrates the pattern for simple analytic tooling.
-8. **TerraformManager demo**  
+9. **TerraformManager demo**  
    - `docs/terraformmanager-workflow-plan.md` documents a full validation flow for the TerraformManager app (clone, configure env vars, run services, exercise CLI/API/UI, optional container smoke tests).
 
 ## State, conventions, and dependencies
 - **Worktrees/branches:** Each protocol lives in its own Git worktree under `../worktrees/NNNN-[task]/` with a same-named branch from `origin/<base>`. `.protocols/` sits inside the worktree; numbering scans both `.protocols/` and `../worktrees/`.
 - **Commit format:** `feat(protocol): add plan for ... [protocol-NNNN/00]` for initial plan; subsequent commits use `type(scope): subject [protocol-NNNN/XX]` as defined in `protocol-new.prompt.md`.
-- **Models/env vars:** Planning/decompose/exec/QA models configurable via `PROTOCOL_PLANNING_MODEL`, `PROTOCOL_DECOMPOSE_MODEL`, `PROTOCOL_EXEC_MODEL`, `PROTOCOL_QA_MODEL`, `PROTOCOL_DISCOVERY_MODEL`; defaults favor `gpt-5.1-high`/`codex-5.1-max` families.
-- **External tooling:** Codex CLI (mandatory for orchestrators), optional `gh`/`glab` for PR/MR automation. The dataset helper requires `reportlab`.
+- **Models/env vars:** Planning/decompose/exec/QA models configurable via `PROTOCOL_PLANNING_MODEL`, `PROTOCOL_DECOMPOSE_MODEL`, `PROTOCOL_EXEC_MODEL`, `PROTOCOL_QA_MODEL`, `PROTOCOL_DISCOVERY_MODEL`; defaults favor `gpt-5.1-high`/`codex-5.1-max` families. Token budgets enforced via `DEKSDENFLOW_MAX_TOKENS_*` with `strict|warn|off` modes.
+- **External tooling:** Codex CLI (mandatory for orchestrators), optional `gh`/`glab` for PR/MR automation. The dataset helper requires `reportlab`. Redis/RQ is required for the orchestrator queue; fakeredis works for local/dev.
 - **Git hygiene:** Scripts avoid destructive commands; `project_setup` warns if `origin` missing or base branch absent. `.gitignore` excludes local assets (`Projects/`, dataset files, generated reports).
+- **Statuses:** ProtocolRun `pending → planning → planned → running → (paused|blocked|failed|cancelled|completed)`; StepRun `pending → running → needs_qa → (completed|failed|cancelled|blocked)` with events recorded per transition.
 
 ## Quality and tests
 - Unit tests cover orchestration helpers (`run_codex_exec`, QA prompt assembly, project setup discovery wiring).  
