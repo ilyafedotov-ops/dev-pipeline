@@ -47,13 +47,18 @@ class DataListItem(ListItem):
 class ImportScreen(ModalScreen[Optional[Dict[str, Any]]]):
     """Modal form to import a CodeMachine workspace."""
 
+    def __init__(self, defaults: Optional[Dict[str, str]] = None) -> None:
+        super().__init__()
+        self.defaults = defaults or {}
+
     def compose(self) -> ComposeResult:
         yield Static("Import CodeMachine workspace", classes="title")
-        yield Input(placeholder="Protocol name (e.g., 0002-cm)", id="protocol_name")
-        yield Input(placeholder="Workspace path", id="workspace_path")
-        yield Input(placeholder="Base branch (default: main)", id="base_branch")
-        yield Input(placeholder="Description (optional)", id="description")
-        yield Input(placeholder="Enqueue job? (y/N)", id="enqueue")
+        yield Input(placeholder="Protocol name (e.g., 0002-cm)", id="protocol_name", value=self.defaults.get("protocol_name", ""))
+        yield Input(placeholder="Workspace path", id="workspace_path", value=self.defaults.get("workspace_path", ""))
+        yield Input(placeholder="Base branch (default: main)", id="base_branch", value=self.defaults.get("base_branch", ""))
+        yield Input(placeholder="Description (optional)", id="description", value=self.defaults.get("description", ""))
+        enqueue_default = self.defaults.get("enqueue", "")
+        yield Input(placeholder="Enqueue job? (y/N)", id="enqueue", value=str(enqueue_default))
         yield Button("Submit", id="submit", variant="primary")
         yield Button("Cancel", id="cancel", variant="default")
 
@@ -201,6 +206,7 @@ class TuiDashboard(App):
         self.steps: List[Dict[str, Any]] = []
         self.events: List[Dict[str, Any]] = []
         self.step_filter: Optional[str] = None
+        self.modal_open = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -249,7 +255,7 @@ class TuiDashboard(App):
             self._render_step_details()
 
     async def refresh_all(self) -> None:
-        if self.refreshing:
+        if self.refreshing or self.modal_open:
             return
         self.refreshing = True
         try:
@@ -443,9 +449,21 @@ class TuiDashboard(App):
         if not self.project_id:
             self.status_message = "Select a project."
             return
-        payload = await self.push_screen_wait(ImportScreen())
+        defaults = {}
+        if self.protocol_id:
+            run = next((r for r in self.protocols if r["id"] == self.protocol_id), None)
+            if run:
+                defaults["protocol_name"] = f"{run['protocol_name']}-cm"
+                defaults["base_branch"] = run.get("base_branch", "main")
+        payload = await self._show_modal(ImportScreen(defaults))
         if not payload:
             return
+        workspace_path = Path(payload["workspace_path"]).expanduser()
+        if not workspace_path.exists():
+            self.status_message = f"Workspace not found: {workspace_path}"
+            return
+        payload["workspace_path"] = str(workspace_path)
+        payload["base_branch"] = payload.get("base_branch") or defaults.get("base_branch") or "main"
         try:
             resp = await asyncio.to_thread(
                 self.client.post, f"/projects/{self.project_id}/codemachine/import", payload
@@ -486,7 +504,7 @@ class TuiDashboard(App):
         if not self.protocol_id:
             self.status_message = "Select a protocol."
             return
-        choice = await self.push_screen_wait(StepActionScreen())
+        choice = await self._show_modal(StepActionScreen())
         if not choice:
             return
         if choice == "run_next":
@@ -501,7 +519,7 @@ class TuiDashboard(App):
             await self.action_open_pr()
 
     async def action_configure_tokens(self) -> None:
-        result = await self.push_screen_wait(TokenConfigScreen())
+        result = await self._show_modal(TokenConfigScreen())
         if not result:
             return
         self.client.base_url = result["api_base"]
@@ -509,6 +527,13 @@ class TuiDashboard(App):
         self.client.project_token = result.get("project_token")
         self.status_message = f"Updated API base to {self.client.base_url}"
         log.info("api_config_updated", extra={"base_url": self.client.base_url})
+
+    async def _show_modal(self, screen: ModalScreen[Any]) -> Any:
+        self.modal_open = True
+        try:
+            return await self.push_screen_wait(screen)
+        finally:
+            self.modal_open = False
 
 
 def run_tui() -> None:
