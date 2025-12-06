@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Minimal launcher to start the DeksdenFlow TUI like a standalone app.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Prefer a project-local venv if present; fall back to system python3.
+PY_BIN="${PYTHON_BIN:-}"
+if [[ -z "$PY_BIN" ]]; then
+  if [[ -x "$ROOT/.venv/bin/python" ]]; then
+    PY_BIN="$ROOT/.venv/bin/python"
+  else
+    PY_BIN="$(command -v python3)"
+  fi
+fi
+
+if [[ -z "$PY_BIN" ]]; then
+  echo "python3 not found; set PYTHON_BIN or create .venv" >&2
+  exit 1
+fi
+
+# Default API base unless caller overrides.
+export DEKSDENFLOW_API_BASE="${DEKSDENFLOW_API_BASE:-http://localhost:8010}"
+
+exec "$PY_BIN" -m deksdenflow.cli.tui "$@"

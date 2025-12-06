@@ -20,7 +20,7 @@ make orchestrator-setup \
   DEKSDENFLOW_DB_URL=postgresql://user:pass@host:5432/dbname  # or use DEKSDENFLOW_DB_PATH for SQLite
 ```
 Then start API: `.venv/bin/python scripts/api_server.py`
-# Or use docker-compose: `docker-compose up --build` (API on :8000)
+# Or use docker-compose: `docker-compose up --build` (API on :8010)
 # Redis URL required: set `DEKSDENFLOW_REDIS_URL` (use `fakeredis://` for local/testing).
 
 ## Next focus

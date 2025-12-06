@@ -7,13 +7,13 @@ Local (SQLite + fakeredis):
 ```bash
 make orchestrator-setup
 DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py
-# API at http://localhost:8000 (console at /console)
+# API at http://localhost:8010 (console at /console)
 ```
 
 Docker Compose (Postgres + Redis):
 ```bash
 docker-compose up --build
-# API at http://localhost:8000 (token from DEKSDENFLOW_API_TOKEN)
+# API at http://localhost:8010 (token from DEKSDENFLOW_API_TOKEN)
 ```
 
 Redis is required; the API fails fast if it cannot reach `DEKSDENFLOW_REDIS_URL`.

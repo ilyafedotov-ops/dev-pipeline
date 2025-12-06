@@ -12,6 +12,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
 
-EXPOSE 8000
+EXPOSE 8010
 
-CMD ["bash", "-c", "python scripts/api_server.py --host 0.0.0.0 --port 8000"]
+CMD ["bash", "-c", "python scripts/api_server.py --host 0.0.0.0 --port 8010"]

@@ -10,7 +10,7 @@
 - Bootstrap CI/local env: `scripts/ci/bootstrap.sh` (`python3 -m venv .venv`, install `requirements-orchestrator.txt` + `ruff`, defaults `DEKSDENFLOW_DB_PATH=/tmp/deksdenflow-ci.sqlite`, `DEKSDENFLOW_REDIS_URL=fakeredis://`).
 - Lint: `scripts/ci/lint.sh` (`ruff check deksdenflow scripts tests --select E9,F63,F7,F82`).
 - Typecheck: `scripts/ci/typecheck.sh` (compileall + import smoke for config, API app, and CLIs).
-- Tests: `scripts/ci/test.sh` (`pytest -q --disable-warnings --maxfail=1` with fakeredis + temp SQLite). API locally: `.venv/bin/python scripts/api_server.py --host 0.0.0.0 --port 8000`; worker: `.venv/bin/python scripts/rq_worker.py`.
+- Tests: `scripts/ci/test.sh` (`pytest -q --disable-warnings --maxfail=1` with fakeredis + temp SQLite). API locally: `.venv/bin/python scripts/api_server.py --host 0.0.0.0 --port 8010`; worker: `.venv/bin/python scripts/rq_worker.py`.
 - Build: `scripts/ci/build.sh` (`docker build -t deksdenflow-ci .`; falls back to `docker-compose config -q` if Docker is absent). Full stack: `docker-compose up --build`.
 
 ## Coding Style & Naming Conventions

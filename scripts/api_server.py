@@ -21,7 +21,7 @@ from deksdenflow.logging import setup_logging, json_logging_from_env, log_extra 
 def main() -> None:
     logger = setup_logging(os.environ.get("DEKSDENFLOW_LOG_LEVEL", "INFO"), json_output=json_logging_from_env())
     host = os.environ.get("DEKSDENFLOW_API_HOST", "0.0.0.0")
-    port = int(os.environ.get("DEKSDENFLOW_API_PORT", "8000"))
+    port = int(os.environ.get("DEKSDENFLOW_API_PORT", "8010"))
     try:
         uvicorn.run("deksdenflow.api.app:app", host=host, port=port, reload=False)
     except Exception as exc:  # pragma: no cover - best effort

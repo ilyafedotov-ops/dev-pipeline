@@ -9,7 +9,7 @@ services:
       DEKSDENFLOW_API_TOKEN: ${DEKSDENFLOW_API_TOKEN:-changeme}
       DEKSDENFLOW_LOG_LEVEL: INFO
     ports:
-      - "8000:8000"
+      - "8010:8010"
     depends_on:
       - db
       - redis
