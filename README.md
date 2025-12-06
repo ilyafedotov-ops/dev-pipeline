@@ -68,7 +68,7 @@ For a quick local stack with API, RQ worker, Redis, and Postgres:
 
 ```bash
 docker-compose up --build
-# API at http://localhost:8000 (token from DEKSDENFLOW_API_TOKEN env or compose default)
+# API at http://localhost:8010 (token from DEKSDENFLOW_API_TOKEN env or compose default)
 ```
 
 Environment defaults live in `docker-compose.yml`; override with env vars as needed.
@@ -78,7 +78,21 @@ Local (SQLite + fakeredis) without Docker:
 ```bash
 make orchestrator-setup
 DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py
-# open http://localhost:8000/console and set API token if configured
+# open http://localhost:8010/console and set API token if configured
+```
+
+CLI (interactive):
+```bash
+python -m deksdenflow.cli.main          # interactive menu
+./scripts/deksdenflow_cli.py projects list --json
+```
+See docs/cli.md for details.
+
+Textual TUI (dashboard):
+```bash
+python -m deksdenflow.cli.tui           # panel-based dashboard with keybindings
+./scripts/deksdenflow_tui.py
+./scripts/tui                           # simple launcher (prefers .venv)
 ```
 
 ## Folder map

@@ -10,3 +10,4 @@ prometheus-client==0.20.0
 psycopg[binary]==3.1.19
 alembic==1.13.2
 SQLAlchemy==2.0.30
+textual==0.54.0
