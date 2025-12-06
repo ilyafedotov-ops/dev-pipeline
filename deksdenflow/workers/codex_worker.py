@@ -190,6 +190,80 @@ def _resolve_qa_prompt_path(qa_cfg: dict, protocol_root: Path, workspace: Path) 
     return (workspace / "prompts" / "quality-validator.prompt.md").resolve()
 
 
+def _resolve_codemachine_context(
+    step: StepRun,
+    run: ProtocolRun,
+    project,
+    config,
+    template_cfg: dict,
+    step_spec: Optional[dict],
+):
+    """
+    Resolve prompt, engine/model, and output paths for a CodeMachine-backed step.
+    Returns (context_dict, validation_errors).
+    """
+    workspace = Path(run.worktree_path or project.git_url or ".").resolve()
+    codemachine_root = Path(run.protocol_root).resolve() if run.protocol_root else (workspace / ".codemachine")
+    placeholders = template_cfg.get("placeholders") or {}
+    spec_hash_val = None
+    if isinstance(template_cfg, dict):
+        template_spec = template_cfg.get(PROTOCOL_SPEC_KEY)
+        if template_spec:
+            spec_hash_val = protocol_spec_hash(template_spec)
+
+    agent = find_agent_for_step(step, template_cfg)
+    if not agent:
+        raise ValueError("CodeMachine agent not found")
+
+    agent_id = str(agent.get("id") or agent.get("agent_id") or step.step_name)
+    prompt_text, prompt_path = build_prompt_text(agent, codemachine_root, placeholders, step_spec=step_spec, workspace=workspace)
+    cm_prompt_ver = prompt_version(prompt_path)
+    engine_defaults = (template_cfg.get("template") or {}).get("engineDefaults") or {}
+    engine_id = (
+        (step_spec.get("engine_id") if step_spec else None)
+        or step.engine_id
+        or agent.get("engine_id")
+        or engine_defaults.get("execute")
+        or registry.get_default().metadata.id
+    )
+    model = (
+        (step_spec.get("model") if step_spec else None)
+        or step.model
+        or agent.get("model")
+        or engine_defaults.get("executeModel")
+        or (project.default_models.get("exec") if project.default_models else None)
+        or getattr(config, "exec_model", None)
+        or registry.get(engine_id).metadata.default_model
+        or "codex-5.1-max-xhigh"
+    )
+    outputs_cfg = step_spec.get("outputs") if step_spec else None
+    default_protocol, default_codemachine = output_paths(workspace, codemachine_root, run, step, agent_id)
+    protocol_output_path, aux_outputs = resolve_outputs_map(
+        outputs_cfg,
+        base=codemachine_root,
+        workspace=workspace,
+        default_protocol=default_protocol,
+        default_aux={"codemachine": default_codemachine},
+        prefer_workspace=True,
+    )
+    spec_errors = validate_step_spec_paths(codemachine_root, step_spec or {}, workspace=workspace)
+    ctx = {
+        "workspace": workspace,
+        "codemachine_root": codemachine_root,
+        "agent_id": agent_id,
+        "prompt_text": prompt_text,
+        "prompt_path": prompt_path,
+        "prompt_version": cm_prompt_ver,
+        "engine_id": engine_id,
+        "model": model,
+        "outputs_cfg": outputs_cfg,
+        "protocol_output_path": protocol_output_path,
+        "aux_outputs": aux_outputs,
+        "spec_hash": spec_hash_val,
+    }
+    return ctx, spec_errors
+
+
 def infer_step_type(filename: str) -> str:
     lower = filename.lower()
     if lower.startswith("00-") or "setup" in lower:
@@ -635,65 +709,60 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
 
 
 def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config, db: BaseDatabase, step_spec: Optional[dict] = None) -> None:
-    workspace = Path(run.worktree_path or project.git_url or ".").resolve()
-    codemachine_root = Path(run.protocol_root).resolve() if run.protocol_root else (workspace / ".codemachine")
     template_cfg = run.template_config or {}
-    placeholders = template_cfg.get("placeholders") or {}
-    spec_hash_val = None
-    if isinstance(template_cfg, dict):
-        template_spec = template_cfg.get(PROTOCOL_SPEC_KEY)
-        if template_spec:
-            spec_hash_val = protocol_spec_hash(template_spec)
-
-    agent = find_agent_for_step(step, template_cfg)
-    if not agent:
-        db.update_step_status(step.id, StepStatus.FAILED, summary="CodeMachine agent not found")
+    try:
+        ctx, spec_errors = _resolve_codemachine_context(step, run, project, config, template_cfg, step_spec)
+    except ValueError as exc:
+        db.update_step_status(step.id, StepStatus.FAILED, summary=str(exc))
         db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
         db.append_event(
             run.id,
             "codemachine_step_failed",
-            f"No agent found for step {step.step_name}",
+            str(exc),
             step_run_id=step.id,
             metadata={"step_name": step.step_name, "template": template_cfg.get("template")},
         )
         return
-
-    agent_id = str(agent.get("id") or agent.get("agent_id") or step.step_name)
     try:
-        prompt_text, prompt_path = build_prompt_text(agent, codemachine_root, placeholders, step_spec=step_spec, workspace=workspace)
-    except Exception as exc:  # pragma: no cover - best effort
-        db.update_step_status(step.id, StepStatus.FAILED, summary=f"CodeMachine prompt error: {exc}")
+        engine = registry.get(ctx["engine_id"])
+    except KeyError as exc:  # pragma: no cover - defensive guard
+        db.update_step_status(step.id, StepStatus.FAILED, summary=str(exc))
         db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
         db.append_event(
             run.id,
             "codemachine_step_failed",
-            "Failed to resolve prompt for CodeMachine agent.",
+            "Execution failed: engine not registered.",
             step_run_id=step.id,
-            metadata={"error": str(exc), "agent_id": agent_id, "codemachine_root": str(codemachine_root)},
+            metadata={"engine_id": ctx.get("engine_id"), "spec_hash": ctx.get("spec_hash")},
         )
         return
 
-    cm_prompt_ver = prompt_version(prompt_path)
-    engine_defaults = (template_cfg.get("template") or {}).get("engineDefaults") or {}
-    engine_id = (
-        (step_spec.get("engine_id") if step_spec else None)
-        or step.engine_id
-        or agent.get("engine_id")
-        or engine_defaults.get("execute")
-        or registry.get_default().metadata.id
-    )
-    model = (
-        (step_spec.get("model") if step_spec else None)
-        or step.model
-        or agent.get("model")
-        or engine_defaults.get("executeModel")
-        or (project.default_models.get("exec") if project.default_models else None)
-        or getattr(config, "exec_model", None)
-        or registry.get(engine_id).metadata.default_model
-        or "codex-5.1-max-xhigh"
-    )
+    workspace: Path = ctx["workspace"]
+    codemachine_root: Path = ctx["codemachine_root"]
+    agent_id: str = ctx["agent_id"]
+    prompt_text: str = ctx["prompt_text"]
+    prompt_path: Path = ctx["prompt_path"]
+    cm_prompt_ver: str = ctx["prompt_version"]
+    engine_id: str = ctx["engine_id"]
+    model: str = ctx["model"]
+    outputs_cfg = ctx["outputs_cfg"]
+    protocol_output_path: Path = ctx["protocol_output_path"]
+    aux_outputs = ctx["aux_outputs"]
+    spec_hash_val = ctx["spec_hash"]
 
-    engine = registry.get(engine_id)
+    if spec_errors:
+        db.update_step_status(step.id, StepStatus.FAILED, summary="Spec validation failed")
+        db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+        for err in spec_errors:
+            db.append_event(
+                run.id,
+                "spec_validation_error",
+                err,
+                step_run_id=step.id,
+                metadata={"step": step.step_name, "spec_hash": spec_hash_val},
+            )
+        return
+
     exec_request = EngineRequest(
         project_id=project.id,
         protocol_run_id=run.id,
@@ -750,16 +819,6 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
         return
 
     output_text = result.stdout or ""
-    outputs_cfg = step_spec.get("outputs") if step_spec else None
-    default_protocol, default_codemachine = output_paths(workspace, codemachine_root, run, step, agent_id)
-    protocol_output_path, aux_outputs = resolve_outputs_map(
-        outputs_cfg,
-        base=codemachine_root,
-        workspace=workspace,
-        default_protocol=default_protocol,
-        default_aux={"codemachine": default_codemachine},
-        prefer_workspace=True,
-    )
     protocol_output_path.parent.mkdir(parents=True, exist_ok=True)
     for aux_path in aux_outputs.values():
         aux_path.parent.mkdir(parents=True, exist_ok=True)
