@@ -91,8 +91,14 @@ def test_codemachine_execute_writes_outputs_and_events(tmp_path) -> None:
     assert "output for" in protocol_output.read_text(encoding="utf-8")
     assert "output for" in codemachine_output.read_text(encoding="utf-8")
 
-    events = [e.event_type for e in db.list_events(run.id)]
-    assert "codemachine_step_completed" in events
+    events = db.list_events(run.id)
+    types = [e.event_type for e in events]
+    assert "codemachine_step_completed" in types
+    assert "step_completed" in types
+    completed = next(e for e in events if e.event_type == "step_completed")
+    outputs_meta = completed.metadata.get("outputs")
+    assert outputs_meta["protocol"].endswith(f"{step.step_name}.md")
+    assert outputs_meta["aux"]["codemachine"].endswith("build.md")
 
 
 def test_codemachine_quality_is_skipped(tmp_path) -> None:

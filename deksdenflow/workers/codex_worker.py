@@ -775,24 +775,33 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
         model=model,
         engine_id=engine_id,
     )
+    outputs_meta = {
+        "protocol": str(protocol_output_path),
+        "aux": {k: str(v) for k, v in aux_outputs.items()} if aux_outputs else {},
+    }
+    event_meta = {
+        "engine_id": engine_id,
+        "model": model,
+        "prompt_path": str(prompt_path),
+        "prompt_versions": {"exec": cm_prompt_ver},
+        "outputs": outputs_meta,
+        "result_metadata": result.metadata,
+        "spec_hash": spec_hash_val,
+        "spec_validated": True,
+    }
     db.append_event(
         step.protocol_run_id,
         "codemachine_step_completed",
         f"CodeMachine agent {agent_id} executed.",
         step_run_id=step.id,
-        metadata={
-            "engine_id": engine_id,
-            "model": model,
-            "prompt_path": str(prompt_path),
-            "prompt_versions": {"exec": cm_prompt_ver},
-            "outputs": {
-                "protocol": str(protocol_output_path),
-                "aux": {k: str(v) for k, v in aux_outputs.items()} if aux_outputs else {},
-            },
-            "result_metadata": result.metadata,
-            "spec_hash": spec_hash_val,
-            "spec_validated": True,
-        },
+        metadata=event_meta,
+    )
+    db.append_event(
+        step.protocol_run_id,
+        "step_completed",
+        "Step executed via CodeMachine. QA required.",
+        step_run_id=step.id,
+        metadata=event_meta,
     )
 
     trigger_decision = apply_trigger_policies(step, db, reason="codemachine_exec_completed")
