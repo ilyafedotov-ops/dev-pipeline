@@ -7,6 +7,11 @@ const state = {
   events: [],
   operations: [],
   eventFilter: "all",
+  eventSpecFilter: "",
+  operationsInvalidOnly: false,
+  operationsSpecFilter: "",
+  projectSort: "name",
+  protocolSort: "updated",
   projectTokens: JSON.parse(localStorage.getItem("df_project_tokens") || "{}"),
   queueStats: null,
   queueJobs: [],
@@ -34,6 +39,14 @@ function setStatus(message, level = "info") {
   if (!statusEl) return;
   statusEl.textContent = message;
   statusEl.style.color = level === "error" ? "#f87171" : "#7e8ba1";
+
+  if (level === "toast") {
+    statusEl.style.transition = "opacity 0.3s ease";
+    statusEl.style.opacity = 1;
+    setTimeout(() => {
+      statusEl.style.opacity = 0.4;
+    }, 1200);
+  }
 }
 
 function apiPath(path) {
@@ -107,7 +120,28 @@ async function loadProjects() {
 function renderProjects() {
   const container = document.getElementById("projectList");
   container.innerHTML = "";
-  state.projects.forEach((proj) => {
+  const sortBar = document.createElement("div");
+  sortBar.className = "sort-toggle";
+  sortBar.innerHTML = `
+    <span>Sort projects by:</span>
+    <button class="${state.projectSort === "name" ? "active" : ""}" data-sort="name">Name</button>
+    <button class="${state.projectSort === "spec" ? "active" : ""}" data-sort="spec">Spec status</button>
+  `;
+  container.appendChild(sortBar);
+  const sorted = [...state.projects].sort((a, b) => {
+    if (state.projectSort === "name") {
+      return a.name.localeCompare(b.name);
+    }
+    if (state.projectSort === "spec") {
+      const aInvalid = (state.protocols || []).some((p) => p.project_id === a.id && p.spec_validation_status === "invalid");
+      const bInvalid = (state.protocols || []).some((p) => p.project_id === b.id && p.spec_validation_status === "invalid");
+      if (aInvalid !== bInvalid) return aInvalid ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    }
+    return a.id - b.id;
+  });
+  sorted.forEach((proj) => {
+    const anyInvalid = (state.protocols || []).some((p) => p.project_id === proj.id && p.spec_validation_status === "invalid");
     const card = document.createElement("div");
     card.className = `card ${state.selectedProject === proj.id ? "active" : ""}`;
     card.innerHTML = `
@@ -116,7 +150,10 @@ function renderProjects() {
           <div>${proj.name}</div>
           <div class="muted" style="font-size:12px;">${proj.git_url}</div>
         </div>
-        <span class="pill">${proj.base_branch}</span>
+        <div style="display:flex; gap:6px; align-items:center;">
+          ${anyInvalid ? `<span class="pill spec-invalid">spec invalid</span>` : ""}
+          <span class="pill">${proj.base_branch}</span>
+        </div>
       </div>
     `;
     card.onclick = () => {
@@ -132,10 +169,16 @@ function renderProjects() {
         projectTokenInput.value = state.projectTokens[String(proj.id)] || "";
       }
       renderProjects();
-      loadProtocols();
-      loadOperations();
+        loadProtocols();
+        loadOperations();
+      };
+      container.appendChild(card);
+    });
+  container.querySelectorAll(".sort-toggle button[data-sort]").forEach((btn) => {
+    btn.onclick = () => {
+      state.projectSort = btn.getAttribute("data-sort");
+      renderProjects();
     };
-    container.appendChild(card);
   });
 }
 
@@ -161,6 +204,33 @@ function renderProtocols() {
   if (!state.protocols.length) {
     list.innerHTML = `<p class="muted">No protocol runs yet.</p>`;
   } else {
+    const sortBar = document.createElement("div");
+    sortBar.className = "sort-toggle";
+    sortBar.innerHTML = `
+      <span>Sort runs by:</span>
+      <button class="${state.protocolSort === "updated" ? "active" : ""}" data-sort="updated">Updated</button>
+      <button class="${state.protocolSort === "spec" ? "active" : ""}" data-sort="spec">Spec status</button>
+    `;
+    list.appendChild(sortBar);
+
+    const sortedRuns = [...state.protocols].sort((a, b) => {
+      if (state.protocolSort === "spec") {
+        const rank = (run) => {
+          const status = (run.spec_validation_status || "unknown").toLowerCase();
+          if (status === "invalid") return 0;
+          if (status === "unknown") return 1;
+          if (status === "valid") return 2;
+          return 3;
+        };
+        const diff = rank(a) - rank(b);
+        if (diff !== 0) return diff;
+      }
+      const aTs = new Date(a.updated_at || 0).getTime() || 0;
+      const bTs = new Date(b.updated_at || 0).getTime() || 0;
+      if (bTs !== aTs) return bTs - aTs;
+      return a.protocol_name.localeCompare(b.protocol_name);
+    });
+
     const table = document.createElement("table");
     table.className = "table";
     table.innerHTML = `
@@ -168,18 +238,25 @@ function renderProtocols() {
         <tr>
           <th>Name</th>
           <th>Status</th>
+          <th>Spec</th>
           <th>Updated</th>
         </tr>
       </thead>
       <tbody></tbody>
     `;
     const body = table.querySelector("tbody");
-    state.protocols.forEach((run) => {
+    sortedRuns.forEach((run) => {
       const row = document.createElement("tr");
       row.style.cursor = "pointer";
+      const specStatus = (run.spec_validation_status || "unknown").toLowerCase();
+      const badgeClass = specStatus === "valid" ? "spec-valid" : specStatus === "invalid" ? "spec-invalid" : "spec-unknown";
+      const specBadge = run.spec_hash
+        ? `<span class="pill ${badgeClass}">${run.spec_hash} · ${specStatus}</span>`
+        : `<span class="pill spec-unknown">spec: n/a</span>`;
       row.innerHTML = `
         <td>${run.protocol_name}</td>
         <td><span class="pill ${statusClass(run.status)}">${run.status}</span></td>
+        <td>${specBadge}</td>
         <td class="muted">${formatDate(run.updated_at)}</td>
       `;
       row.onclick = () => {
@@ -195,6 +272,13 @@ function renderProtocols() {
       body.appendChild(row);
     });
     list.appendChild(table);
+
+    sortBar.querySelectorAll("button[data-sort]").forEach((btn) => {
+      btn.onclick = () => {
+        state.protocolSort = btn.getAttribute("data-sort");
+        renderProtocols();
+      };
+    });
   }
   renderProtocolDetail();
 }
@@ -251,6 +335,7 @@ function renderProtocolDetail() {
           </div>
           <div class="button-group">
             ${["all", "loop", "trigger"].map((f) => `<button class="${state.eventFilter === f ? "primary" : ""}" data-filter="${f}">${f}</button>`).join(" ")}
+            <input id="specFilterInput" class="input-inline" placeholder="spec hash" value="${state.eventSpecFilter || ""}" />
           </div>
         </div>
         ${renderEventsList()}
@@ -271,10 +356,28 @@ function renderProtocolDetail() {
     loadSteps();
     loadEvents();
   };
-  document.querySelectorAll('[data-filter]').forEach((btn) => {
-    btn.onclick = () => {
-      state.eventFilter = btn.getAttribute("data-filter");
-      renderProtocolDetail();
+  bindEventFilters();
+
+  document.querySelectorAll("button[data-copy-spec]").forEach((btn) => {
+    btn.onclick = async (e) => {
+      const hash = e.currentTarget.getAttribute("data-copy-spec");
+      try {
+        await navigator.clipboard.writeText(hash);
+        setStatus(`Copied spec hash ${hash}`, "toast");
+        const existing = e.currentTarget.parentElement.querySelector(".tiny-toast");
+        if (existing) {
+          existing.remove();
+        }
+        const toast = document.createElement("span");
+        toast.className = "tiny-toast";
+        toast.textContent = "Copied!";
+        e.currentTarget.insertAdjacentElement("afterend", toast);
+        setTimeout(() => {
+          toast.remove();
+        }, 1500);
+      } catch (err) {
+        setStatus("Copy failed", "error");
+      }
     };
   });
 
@@ -302,10 +405,23 @@ function renderProtocolDetail() {
 function renderTemplateMeta(run) {
   const cfg = run.template_config || {};
   const template = cfg.template || run.template_source || null;
-  if (!template) return "";
-  const name = template.template || template.name || "template";
-  const version = template.version ? `v${template.version}` : "";
-  return `<div class="muted" style="font-size:12px;">Template: ${name} ${version}</div>`;
+  const parts = [];
+  if (template) {
+    const name = template.template || template.name || "template";
+    const version = template.version ? `v${template.version}` : "";
+    parts.push(`Template: ${name} ${version}`.trim());
+  }
+  if (run.spec_hash) {
+    const status = (run.spec_validation_status || "unknown").toLowerCase();
+    const ts = run.spec_validated_at ? formatDate(run.spec_validated_at) : "-";
+    const badgeClass = status === "valid" ? "spec-valid" : status === "invalid" ? "spec-invalid" : "spec-unknown";
+    parts.push(
+      `<span class="pill ${badgeClass}">spec ${run.spec_hash} · ${status} · ${ts}</span>
+       <button class="tiny-btn" data-copy-spec="${run.spec_hash}" title="Copy spec hash">⧉</button>`
+    );
+  }
+  if (!parts.length) return "";
+  return `<div class="muted" style="font-size:12px;">${parts.join(" · ")}</div>`;
 }
 
 function renderStepsTable() {
@@ -389,7 +505,14 @@ function filteredEvents() {
   if (filter === "trigger") {
     return state.events.filter((e) => e.event_type && e.event_type.startsWith("trigger_"));
   }
-  return state.events;
+  const specFilter = (state.eventSpecFilter || "").trim().toLowerCase();
+  const events = state.events;
+  if (!specFilter) return events;
+  return events.filter((e) => {
+    const meta = e.metadata || {};
+    const specHash = (meta.spec_hash || meta.specHash || "").toLowerCase();
+    return specHash.includes(specFilter);
+  });
 }
 
 function eventSummaryLabel() {
@@ -437,7 +560,8 @@ function renderEventsList() {
               .join(" · ")
           : null;
         const modelLine = meta.model ? `model:${meta.model}` : null;
-        const extraLine = [promptLine, modelLine].filter(Boolean).join(" | ");
+        const specLine = meta.spec_hash ? `spec:${meta.spec_hash}` : null;
+        const extraLine = [promptLine, modelLine, specLine].filter(Boolean).join(" | ");
         const metaSnippet = eventMetaSnippet(e);
         return `
         <div class="event">
@@ -722,29 +846,75 @@ function renderOperations() {
     target.innerHTML = `<p class="muted">Recent events will appear here.</p>`;
     return;
   }
-  target.innerHTML = state.operations
-    .slice(0, 40)
-    .map((e) => {
-      const contextBits = [
-        e.project_name || e.project_id || "",
-        e.protocol_name || "",
-        e.step_run_id ? `step ${e.step_run_id}` : "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      return `
-        <div class="event">
-          <div style="display:flex; justify-content:space-between;">
-            <span class="pill">${e.event_type}</span>
-            <span class="muted">${formatDate(e.created_at)}</span>
+  const toggle = `
+    <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-bottom:6px;">
+      <label class="muted small" style="display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" id="opsInvalidOnly" ${state.operationsInvalidOnly ? "checked" : ""} />
+        invalid specs only
+      </label>
+      <input id="opsSpecFilter" class="input-inline" placeholder="spec hash" value="${state.operationsSpecFilter || ""}" />
+    </div>
+  `;
+  const filteredOps = state.operations.filter((e) => {
+    if (!state.operationsInvalidOnly) return true;
+    const meta = e.metadata || {};
+    const status = meta.spec_status || meta.specStatus || null;
+    if (status) return status === "invalid";
+    const hash = meta.spec_hash || null;
+    return Boolean(hash);
+  });
+  const specFilter = (state.operationsSpecFilter || "").trim().toLowerCase();
+  const filteredBySpec = specFilter
+    ? filteredOps.filter((e) => {
+        const meta = e.metadata || {};
+        const specHash = (meta.spec_hash || meta.specHash || "").toLowerCase();
+        return specHash.includes(specFilter);
+      })
+    : filteredOps;
+  target.innerHTML =
+    toggle +
+    filteredBySpec
+      .slice(0, 40)
+      .map((e) => {
+        const meta = e.metadata || {};
+        const specHash = meta.spec_hash || (meta.outputs && meta.outputs.spec_hash);
+        const specStatus = meta.spec_status || meta.specStatus || "unknown";
+        const contextBits = [
+          e.project_name || e.project_id || "",
+          e.protocol_name || "",
+          e.step_run_id ? `step ${e.step_run_id}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const specClass = specStatus === "valid" ? "spec-valid" : specStatus === "invalid" ? "spec-invalid" : "spec-unknown";
+        const specPill = specHash ? `<span class="pill ${specClass}" style="margin-right:6px;">spec ${specHash}</span>` : "";
+        return `
+          <div class="event">
+            <div style="display:flex; justify-content:space-between;">
+              <span class="pill">${e.event_type}</span>
+              <span class="muted">${formatDate(e.created_at)}</span>
+            </div>
+            <div>${specPill}${e.message}</div>
+            ${contextBits ? `<div class="muted small">${contextBits}</div>` : ""}
+            ${e.metadata ? `<div class="muted" style="font-size:12px;">${JSON.stringify(e.metadata)}</div>` : ""}
           </div>
-          <div>${e.message}</div>
-          ${contextBits ? `<div class="muted small">${contextBits}</div>` : ""}
-          ${e.metadata ? `<div class="muted" style="font-size:12px;">${JSON.stringify(e.metadata)}</div>` : ""}
-        </div>
-      `;
-    })
-    .join("");
+        `;
+      })
+      .join("");
+  const toggleEl = document.getElementById("opsInvalidOnly");
+  if (toggleEl) {
+    toggleEl.onchange = (e) => {
+      state.operationsInvalidOnly = e.target.checked;
+      renderOperations();
+    };
+  }
+  const specInput = document.getElementById("opsSpecFilter");
+  if (specInput) {
+    specInput.oninput = (e) => {
+      state.operationsSpecFilter = e.target.value;
+      renderOperations();
+    };
+  }
 }
 
 function startPolling() {
@@ -757,6 +927,22 @@ function startPolling() {
     loadOperations();
     loadMetrics();
   }, 4000);
+}
+
+function bindEventFilters() {
+  document.querySelectorAll(".button-group button[data-filter]").forEach((btn) => {
+    btn.onclick = () => {
+      state.eventFilter = btn.getAttribute("data-filter");
+      renderProtocolDetail();
+    };
+  });
+  const specInput = document.getElementById("specFilterInput");
+  if (specInput) {
+    specInput.oninput = (e) => {
+      state.eventSpecFilter = e.target.value;
+      renderProtocolDetail();
+    };
+  }
 }
 
 async function startProtocol(runId) {

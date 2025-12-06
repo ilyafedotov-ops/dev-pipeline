@@ -2,8 +2,12 @@
 Shared protocol/step specification helpers to unify Codex and CodeMachine paths.
 """
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from jsonschema import Draft7Validator
 
 from deksdenflow.codemachine.config_loader import AgentSpec, CodeMachineConfig
 from deksdenflow.domain import StepStatus
@@ -11,6 +15,91 @@ from deksdenflow.storage import BaseDatabase
 
 # Key used inside protocol_run.template_config to persist the normalized spec.
 PROTOCOL_SPEC_KEY = "protocol_spec"
+SPEC_META_KEY = "spec_meta"
+
+
+def load_protocol_spec_schema(schema_path: Optional[Path] = None) -> dict:
+    """
+    Load the ProtocolSpec JSON Schema from disk. Allows overriding the path for tests.
+    """
+    path = schema_path or Path(__file__).resolve().parents[1] / "schemas" / "protocol-spec.schema.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def protocol_spec_hash(spec: Dict[str, Any]) -> str:
+    """
+    Stable short hash for a ProtocolSpec to attach to events/metrics.
+    """
+    data = json.dumps(spec or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:12]
+
+
+def update_spec_meta(
+    db: BaseDatabase,
+    protocol_run_id: int,
+    template_config: dict,
+    template_source: Optional[dict],
+    *,
+    status: str,
+    errors: Optional[List[str]] = None,
+) -> dict:
+    """
+    Store spec validation metadata on the protocol template_config to avoid
+    repeated event scans. Returns the updated template_config.
+    """
+    meta = dict(template_config.get(SPEC_META_KEY) or {})
+    meta["status"] = status
+    meta["errors"] = errors or []
+    from datetime import datetime, timezone
+
+    meta["validated_at"] = datetime.now(timezone.utc).isoformat()
+    template_config[SPEC_META_KEY] = meta
+    db.update_protocol_template(protocol_run_id, template_config, template_source)
+    return template_config
+
+
+def _resolve_path_candidates(path_value: str, base: Path, workspace: Path) -> tuple[Path, List[Path]]:
+    """
+    Resolve a spec path value relative to the protocol base and workspace,
+    returning the first existing candidate (or the first candidate if none exist)
+    plus the full candidate list for diagnostics.
+    """
+    path = Path(path_value)
+    if path.is_absolute():
+        return path, [path]
+    candidates: List[Path] = [(base / path).resolve()]
+    if workspace != base:
+        candidates.append((workspace / path).resolve())
+    resolved = next((p for p in candidates if p.exists()), candidates[0])
+    return resolved, candidates
+
+
+def _resolve_output_path(path_value: str, base: Path, workspace: Path) -> Path:
+    """
+    Resolve an output path, preferring a candidate whose parent exists even if the
+    file itself has not been created yet.
+    """
+    path = Path(path_value)
+    if path.is_absolute():
+        return path
+    candidates: List[Path] = [(base / path).resolve()]
+    if workspace != base:
+        candidates.append((workspace / path).resolve())
+    for cand in candidates:
+        if cand.parent.exists():
+            return cand
+    return candidates[0]
+
+
+def resolve_spec_path(path_value: str, base: Path, workspace: Optional[Path] = None) -> Path:
+    """
+    Resolve a path from a ProtocolSpec value (prompt_ref or outputs) against the
+    protocol base and workspace root. Prefers existing candidates, otherwise the
+    first candidate is returned for validation error reporting.
+    """
+    workspace_root = workspace or base
+    resolved, _ = _resolve_path_candidates(path_value, base, workspace_root)
+    return resolved
 
 
 def infer_step_type_from_name(name: str) -> str:
@@ -158,34 +247,70 @@ def get_step_spec(template_config: Optional[dict], step_name: str) -> Optional[D
     return None
 
 
-def validate_step_spec_paths(base: Path, step_spec: Dict[str, Any]) -> List[str]:
+def validate_step_spec_paths(base: Path, step_spec: Dict[str, Any], workspace: Optional[Path] = None) -> List[str]:
     """
-    Validate prompt_ref and output paths exist (if relative, resolved from base).
+    Validate prompt_ref and output paths exist. When relative, paths are resolved
+    against the protocol base and the workspace root to support prompts/outputs
+    outside `.protocols/`.
     Returns a list of errors; empty list if valid.
     """
     errors: List[str] = []
+    workspace_root = workspace or base
     prompt_ref = step_spec.get("prompt_ref")
+    step_name = step_spec.get("name") or step_spec.get("id") or "(unknown)"
     if prompt_ref:
-        pr_path = Path(prompt_ref)
-        if not pr_path.is_absolute():
-            pr_path = (base / pr_path).resolve()
+        pr_path, _ = _resolve_path_candidates(prompt_ref, base, workspace_root)
         if not pr_path.exists():
             errors.append(f"prompt_ref missing: {pr_path}")
+    else:
+        default_prompt = (base / step_name).resolve()
+        if not default_prompt.exists():
+            errors.append(f"prompt_ref missing: {default_prompt}")
+
+    outputs_cfg = step_spec.get("outputs") if isinstance(step_spec, dict) else None
+    if isinstance(outputs_cfg, dict):
+        protocol_output = outputs_cfg.get("protocol")
+        if protocol_output:
+            proto_path = _resolve_output_path(protocol_output, base, workspace_root)
+            if not proto_path.parent.exists():
+                errors.append(f"output parent missing: {proto_path.parent}")
+        aux_outputs = outputs_cfg.get("aux") if isinstance(outputs_cfg.get("aux"), dict) else {}
+        if isinstance(aux_outputs, dict):
+            for key, path_val in aux_outputs.items():
+                aux_path = _resolve_output_path(str(path_val), base, workspace_root)
+                if not aux_path.parent.exists():
+                    errors.append(f"output parent missing ({key}): {aux_path.parent}")
     return errors
 
 
-def validate_protocol_spec(base: Path, spec: Dict[str, Any]) -> List[str]:
+def validate_protocol_spec(base: Path, spec: Dict[str, Any], workspace: Optional[Path] = None, schema: Optional[dict] = None) -> List[str]:
     """
     Validate all steps in a protocol spec relative to a base path.
     """
     if not spec or not isinstance(spec, dict):
         return ["protocol spec missing or malformed"]
+    errors: List[str] = []
+    schema_data = schema
+    if schema_data is None:
+        try:
+            schema_data = load_protocol_spec_schema()
+        except Exception as exc:  # pragma: no cover - best effort if schema file missing
+            errors.append(f"schema: {exc}")
+            schema_data = None
+    if schema_data is not None:
+        try:
+            validator = Draft7Validator(schema_data)
+            for err in validator.iter_errors(spec):
+                location = "/".join(str(p) for p in err.path) or "(root)"
+                errors.append(f"schema:{location}: {err.message}")
+        except Exception as exc:  # pragma: no cover - defensive guard
+            errors.append(f"schema: {exc}")
     steps = spec.get("steps")
     if not isinstance(steps, list):
-        return ["protocol spec steps must be a list"]
-    errors: List[str] = []
+        errors.append("protocol spec steps must be a list")
+        return errors
     for step in steps:
         step_name = str(step.get("name") or step.get("id") or "(unknown)")
-        errs = validate_step_spec_paths(base, step)
+        errs = validate_step_spec_paths(base, step, workspace=workspace)
         errors.extend([f"{step_name}: {e}" for e in errs])
     return errors

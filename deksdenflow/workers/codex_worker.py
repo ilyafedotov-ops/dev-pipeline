@@ -40,7 +40,11 @@ from deksdenflow.spec import (
     build_spec_from_protocol_files,
     create_steps_from_spec,
     get_step_spec,
+    protocol_spec_hash,
+    resolve_spec_path,
+    update_spec_meta,
     validate_step_spec_paths,
+    validate_protocol_spec,
 )
 
 log = get_logger(__name__)
@@ -134,30 +138,33 @@ def _budget_and_tokens(prompt_text: str, model: str, phase: str, token_budget_mo
     return estimated
 
 
-def _resolve_codex_exec_context(step: StepRun, run: ProtocolRun, project) -> tuple[Path, Path, Path, Path, str, Optional[dict], list[str]]:
+def _resolve_codex_exec_context(step: StepRun, run: ProtocolRun, project, step_spec: Optional[dict] = None) -> tuple[Path, Path, Path, Path, str, Optional[dict], list[str]]:
     """
     Resolve repo/worktree/protocol paths, the prompt text, and outputs config for Codex execution based on step spec.
     """
-    step_spec = get_step_spec(run.template_config, step.step_name)
+    step_spec = step_spec or get_step_spec(run.template_config, step.step_name)
     repo_root = Path(project.git_url) if Path(project.git_url).exists() else detect_repo_root()
     worktree = load_project(repo_root, run.protocol_name, run.base_branch)
     protocol_root = worktree / ".protocols" / run.protocol_name
     plan_md = (protocol_root / "plan.md").read_text(encoding="utf-8")
 
     prompt_ref = step_spec.get("prompt_ref") if step_spec else None
-    step_path = Path(prompt_ref) if prompt_ref else (protocol_root / step.step_name)
-    if not step_path.is_absolute():
-        # If prompt_ref provided, treat it as relative to worktree; otherwise protocol_root.
-        base = worktree if prompt_ref else protocol_root
-        step_path = (base / step_path).resolve()
-    if not step_path.exists():
-        step_path = protocol_root / step.step_name
+    if prompt_ref:
+        step_path = resolve_spec_path(prompt_ref, protocol_root, workspace=worktree)
+        if not step_path.exists():
+            fallback = (protocol_root / step.step_name).resolve()
+            if fallback.exists():
+                step_path = fallback
+    else:
+        step_path = (protocol_root / step.step_name).resolve()
+        if not step_path.exists():
+            step_path = resolve_spec_path(step.step_name, protocol_root, workspace=worktree)
 
-    step_content = step_path.read_text(encoding="utf-8")
+    step_content = step_path.read_text(encoding="utf-8") if step_path.exists() else ""
     exec_prompt = execute_step_prompt(run.protocol_name, run.protocol_name.split("-")[0], plan_md, step_path.name, step_content)
     outputs_cfg = step_spec.get("outputs") if step_spec else None
     # Emit validation info to caller.
-    errors = validate_step_spec_paths(protocol_root, step_spec or {})
+    errors = validate_step_spec_paths(protocol_root, step_spec or {}, workspace=worktree)
     return repo_root, worktree, protocol_root, step_path, exec_prompt, outputs_cfg, errors
 
 
@@ -181,6 +188,21 @@ def sync_step_runs_from_protocol(protocol_root: Path, protocol_run_id: int, db: 
         spec = build_spec_from_protocol_files(protocol_root)
         template_config[PROTOCOL_SPEC_KEY] = spec
         db.update_protocol_template(protocol_run_id, template_config, run.template_source)
+    workspace_root = protocol_root.parent.parent if protocol_root.parent.name == ".protocols" else protocol_root.parent
+    validation_errors = validate_protocol_spec(protocol_root, spec, workspace=workspace_root)
+    if validation_errors:
+        for err in validation_errors:
+            db.append_event(
+                protocol_run_id,
+                "spec_validation_error",
+                err,
+                metadata={"protocol_root": str(protocol_root), "spec_hash": protocol_spec_hash(spec)},
+            )
+        update_spec_meta(db, protocol_run_id, template_config, run.template_source, status="invalid", errors=validation_errors)
+        db.update_protocol_status(protocol_run_id, ProtocolStatus.BLOCKED)
+        return 0
+    else:
+        update_spec_meta(db, protocol_run_id, template_config, run.template_source, status="valid", errors=[])
     existing = {s.step_name for s in db.list_step_runs(protocol_run_id)}
     return create_steps_from_spec(protocol_run_id, spec, db, existing_names=existing)
 
@@ -294,7 +316,19 @@ def handle_plan_protocol(protocol_run_id: int, db: BaseDatabase) -> None:
     )
     if shutil.which("codex") is None or not Path(project.git_url).exists():
         db.update_protocol_status(protocol_run_id, ProtocolStatus.PLANNED)
-        db.append_event(protocol_run_id, "planned", "Protocol planned (stub; codex or repo unavailable).", step_run_id=None)
+        spec_hash_val = None
+        run = db.get_protocol_run(protocol_run_id)
+        if isinstance(run.template_config, dict):
+            tmpl_spec = run.template_config.get(PROTOCOL_SPEC_KEY)
+            if tmpl_spec:
+                spec_hash_val = protocol_spec_hash(tmpl_spec)
+        db.append_event(
+            protocol_run_id,
+            "planned",
+            "Protocol planned (stub; codex or repo unavailable).",
+            step_run_id=None,
+            metadata={"spec_hash": spec_hash_val, "spec_validated": False},
+        )
         return
 
     repo_root = Path(project.git_url) if Path(project.git_url).exists() else detect_repo_root()
@@ -372,6 +406,8 @@ def handle_plan_protocol(protocol_run_id: int, db: BaseDatabase) -> None:
         step_file.write_text(new_content, encoding="utf-8")
 
     db.update_protocol_status(protocol_run_id, ProtocolStatus.PLANNED)
+    run = db.get_protocol_run(run.id)
+    spec = (run.template_config or {}).get(PROTOCOL_SPEC_KEY)
     db.append_event(
         protocol_run_id,
         "planned",
@@ -383,6 +419,8 @@ def handle_plan_protocol(protocol_run_id: int, db: BaseDatabase) -> None:
             "models": {"planning": planning_model, "decompose": decompose_model},
             "prompt_versions": {"planning": prompt_version(planning_prompt_path)},
             "estimated_tokens": {"planning": planning_tokens, "decompose": decompose_tokens},
+            "spec_hash": protocol_spec_hash(spec) if spec else None,
+            "spec_validated": True,
         },
     )
 
@@ -401,6 +439,11 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
     config = load_config()
     budget_limit = config.max_tokens_per_step or config.max_tokens_per_protocol
     step_spec = get_step_spec(run.template_config, step.step_name)
+    spec_hash_val = None
+    if isinstance(run.template_config, dict):
+        template_spec = run.template_config.get(PROTOCOL_SPEC_KEY)
+        if template_spec:
+            spec_hash_val = protocol_spec_hash(template_spec)
     log.info(
         "Executing step",
         extra={
@@ -422,6 +465,7 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
             "step_completed",
             "Step executed (stub; codex/repo unavailable). QA required.",
             step_run_id=step.id,
+            metadata={"spec_hash": spec_hash_val},
         )
         trigger_decision = apply_trigger_policies(step, db, reason="exec_stub")
         if trigger_decision and trigger_decision.get("applied"):
@@ -443,7 +487,7 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
             )
             handle_quality(step.id, db)
         return
-    repo_root, worktree, protocol_root, step_path, exec_prompt, outputs_cfg, spec_errors = _resolve_codex_exec_context(step, run, project)
+    repo_root, worktree, protocol_root, step_path, exec_prompt, outputs_cfg, spec_errors = _resolve_codex_exec_context(step, run, project, step_spec=step_spec)
     if spec_errors:
         for err in spec_errors:
             db.append_event(
@@ -451,7 +495,7 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
                 "spec_validation_error",
                 err,
                 step_run_id=step.id,
-                metadata={"step": step.step_name},
+                metadata={"step": step.step_name, "spec_hash": spec_hash_val},
             )
         db.update_step_status(step.id, StepStatus.FAILED, summary="Spec validation failed")
         db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
@@ -546,6 +590,8 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
             "estimated_tokens": {"exec": exec_tokens},
             "outputs": outputs_cfg,
             "prompt_versions": {"exec": prompt_ver},
+            "spec_hash": spec_hash_val,
+            "spec_validated": True,
         },
     )
     trigger_decision = apply_trigger_policies(step, db, reason="exec_completed")
@@ -605,6 +651,11 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
     codemachine_root = Path(run.protocol_root).resolve() if run.protocol_root else (workspace / ".codemachine")
     template_cfg = run.template_config or {}
     placeholders = template_cfg.get("placeholders") or {}
+    spec_hash_val = None
+    if isinstance(template_cfg, dict):
+        template_spec = template_cfg.get(PROTOCOL_SPEC_KEY)
+        if template_spec:
+            spec_hash_val = protocol_spec_hash(template_spec)
 
     agent = find_agent_for_step(step, template_cfg)
     if not agent:
@@ -679,6 +730,7 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
             "prompt_versions": {"exec": cm_prompt_ver},
             "workspace": str(workspace),
             "template": template_cfg.get("template"),
+            "spec_hash": spec_hash_val,
         },
     )
     try:
@@ -736,6 +788,8 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
             "prompt_versions": {"exec": cm_prompt_ver},
             "outputs": {"protocol": str(protocol_output_path), "codemachine": str(codemachine_output_path)},
             "result_metadata": result.metadata,
+            "spec_hash": spec_hash_val,
+            "spec_validated": True,
         },
     )
 
@@ -777,6 +831,11 @@ def handle_quality(step_run_id: int, db: BaseDatabase) -> None:
         },
     )
     step_spec = get_step_spec(run.template_config, step.step_name)
+    spec_hash_val = None
+    if isinstance(run.template_config, dict):
+        template_spec = run.template_config.get(PROTOCOL_SPEC_KEY)
+        if template_spec:
+            spec_hash_val = protocol_spec_hash(template_spec)
     qa_policy = (step_spec.get("qa") or {}).get("policy") if step_spec else None
     if qa_policy == "skip":
         event_type = "qa_skipped_codemachine" if is_codemachine_run(run) else "qa_skipped_policy"
@@ -787,7 +846,7 @@ def handle_quality(step_run_id: int, db: BaseDatabase) -> None:
             event_type,
             event_message,
             step_run_id=step.id,
-            metadata={"policy": qa_policy},
+            metadata={"policy": qa_policy, "spec_hash": spec_hash_val},
         )
         trigger_decision = apply_trigger_policies(step, db, reason=event_type)
         if trigger_decision and trigger_decision.get("applied"):
@@ -808,7 +867,7 @@ def handle_quality(step_run_id: int, db: BaseDatabase) -> None:
             "qa_skipped_codemachine",
             "QA skipped (CodeMachine adapter does not run codex QA).",
             step_run_id=step.id,
-            metadata={"reason": "codemachine_adapter"},
+            metadata={"reason": "codemachine_adapter", "spec_hash": spec_hash_val},
         )
         trigger_decision = apply_trigger_policies(step, db, reason="qa_skipped_codemachine")
         if trigger_decision and trigger_decision.get("applied"):
@@ -845,7 +904,7 @@ def handle_quality(step_run_id: int, db: BaseDatabase) -> None:
             "qa_passed",
             "QA passed (stub; codex/repo unavailable).",
             step_run_id=step.id,
-            metadata={"prompt_versions": {"qa": qa_prompt_version}, "model": qa_model},
+            metadata={"prompt_versions": {"qa": qa_prompt_version}, "model": qa_model, "spec_hash": spec_hash_val},
         )
         trigger_decision = apply_trigger_policies(step, db, reason="qa_stub_pass")
         if trigger_decision and trigger_decision.get("applied"):
@@ -891,6 +950,7 @@ def handle_quality(step_run_id: int, db: BaseDatabase) -> None:
                     "estimated_tokens": {"qa": qa_tokens},
                     "prompt_versions": {"qa": qa_prompt_version},
                     "model": qa_model,
+                    "spec_hash": spec_hash_val,
                 },
             )
             loop_decision = apply_loop_policies(step, db, reason="qa_failed")
@@ -912,6 +972,7 @@ def handle_quality(step_run_id: int, db: BaseDatabase) -> None:
                     "estimated_tokens": {"qa": qa_tokens},
                     "prompt_versions": {"qa": qa_prompt_version},
                     "model": qa_model,
+                    "spec_hash": spec_hash_val,
                 },
             )
             trigger_decision = apply_trigger_policies(step, db, reason="qa_passed")

@@ -104,3 +104,38 @@ def test_api_projects_protocols_steps_end_to_end() -> None:
 
             ops = client.get("/events", params={"project_id": project_id}).json()
             assert any(o["protocol_run_id"] == protocol_run_id for o in ops)
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_protocol_spec_endpoint_exposes_hash_and_spec() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "api-test.sqlite"
+        os.environ["DEKSDENFLOW_DB_PATH"] = str(db_path)
+        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
+        os.environ["DEKSDENFLOW_REDIS_URL"] = "fakeredis://"
+
+        with TestClient(app) as client:  # type: ignore[arg-type]
+            project = client.post(
+                "/projects",
+                json={"name": "demo", "git_url": "/tmp/demo.git", "base_branch": "main"},
+            ).json()
+            spec = {"steps": [{"id": "00-step", "name": "00-step.md", "engine_id": "codex", "prompt_ref": "00-step.md", "qa": {"policy": "skip"}}]}
+            run = client.post(
+                f"/projects/{project['id']}/protocols",
+                json={
+                    "protocol_name": "0001-spec",
+                    "status": "planned",
+                    "base_branch": "main",
+                    "worktree_path": "/tmp/work",
+                    "protocol_root": "/tmp/work/.protocols/0001-spec",
+                    "description": "spec",
+                    "template_config": {"protocol_spec": spec},
+                },
+            ).json()
+
+            resp = client.get(f"/protocols/{run['id']}/spec")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["spec"] == spec
+            assert body["spec_hash"]
+            assert body["validation_status"] in (None, "valid")

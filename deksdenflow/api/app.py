@@ -21,6 +21,7 @@ from deksdenflow.worker_runtime import BackgroundWorker, RQWorkerThread
 from deksdenflow.health import check_db
 from deksdenflow.workers.state import maybe_complete_protocol
 from deksdenflow.workers import codemachine_worker
+from deksdenflow.spec import PROTOCOL_SPEC_KEY, SPEC_META_KEY, protocol_spec_hash
 from hmac import compare_digest
 import hmac
 import hashlib
@@ -139,14 +140,74 @@ def record_event(
     metadata: Optional[dict] = None,
 ):
     request_id = getattr(request.state, "request_id", None) if request else None
+    meta = dict(metadata or {})
+    try:
+        run = db.get_protocol_run(protocol_run_id)
+        spec_hash = _spec_hash_from_template(run.template_config)
+        if spec_hash and "spec_hash" not in meta:
+            meta["spec_hash"] = spec_hash
+    except Exception:  # pragma: no cover - defensive guard
+        pass
     return db.append_event(
         protocol_run_id=protocol_run_id,
         event_type=event_type,
         message=message,
         step_run_id=step_run_id,
-        metadata=metadata,
+        metadata=meta,
         request_id=request_id,
     )
+
+
+def _protocol_out(run, db: Optional[BaseDatabase] = None) -> schemas.ProtocolRunOut:
+    data = dict(run.__dict__)
+    spec_hash = _spec_hash_from_template(data.get("template_config"))
+    data["spec_hash"] = spec_hash
+    summary = _spec_validation_summary(run.id, db=db) if db else {"status": None, "validated_at": None}
+    data["spec_validation_status"] = summary.get("status")
+    data["spec_validated_at"] = summary.get("validated_at")
+    return schemas.ProtocolRunOut(**data)
+
+
+def _spec_hash_from_template(template_config: Optional[dict]) -> Optional[str]:
+    if isinstance(template_config, dict):
+        spec = template_config.get(PROTOCOL_SPEC_KEY)
+        if spec:
+            return protocol_spec_hash(spec)
+    return None
+
+
+def _spec_validation_summary(protocol_run_id: int, db: BaseDatabase) -> dict:
+    run = db.get_protocol_run(protocol_run_id)
+    status = None
+    errors: list[str] = []
+    validated_at = None
+    template = run.template_config or {}
+    if isinstance(template, dict):
+        meta = template.get(SPEC_META_KEY) or {}
+        if meta:
+            status = meta.get("status")
+            errors = meta.get("errors") or []
+            validated_at = meta.get("validated_at")
+            return {"status": status, "errors": errors or None, "validated_at": validated_at}
+
+    events = db.list_events(protocol_run_id)
+    for ev in events:
+        if ev.event_type == "spec_validation_error":
+            status = "invalid"
+            ev_errors = []
+            if isinstance(ev.metadata, dict):
+                meta_errs = ev.metadata.get("errors")
+                if isinstance(meta_errs, list):
+                    ev_errors.extend(str(e) for e in meta_errs)
+            errors = ev_errors or errors
+            validated_at = ev.created_at if not validated_at else validated_at
+            break
+        if isinstance(ev.metadata, dict) and ev.metadata.get("spec_validated"):
+            status = status or "valid"
+            validated_at = ev.created_at
+            if errors:
+                break
+    return {"status": status, "errors": errors or None, "validated_at": validated_at}
 
 
 @app.middleware("http")
@@ -278,7 +339,35 @@ def create_protocol_run(
         template_config=payload.template_config,
         template_source=payload.template_source,
     )
-    return schemas.ProtocolRunOut(**run.__dict__)
+    return _protocol_out(run, db=db)
+
+
+@app.get("/protocols/{protocol_run_id}/spec", response_model=schemas.ProtocolSpecOut, dependencies=[Depends(require_auth)])
+def get_protocol_spec(
+    protocol_run_id: int,
+    db: BaseDatabase = Depends(get_db),
+    request: Request = None,
+) -> schemas.ProtocolSpecOut:
+    if request:
+        project_id = get_protocol_project(protocol_run_id, db)
+        require_project_access(project_id, request, db)
+    try:
+        run = db.get_protocol_run(protocol_run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    template = run.template_config or {}
+    spec = template.get(PROTOCOL_SPEC_KEY) if isinstance(template, dict) else None
+    summary = _spec_validation_summary(run.id, db)
+    return schemas.ProtocolSpecOut(
+        protocol_run_id=run.id,
+        protocol_name=run.protocol_name,
+        project_id=run.project_id,
+        spec=spec,
+        spec_hash=_spec_hash_from_template(template),
+        validation_status=summary["status"],
+        validation_errors=summary["errors"],
+        validated_at=summary["validated_at"],
+    )
 
 
 @app.post("/projects/{project_id}/codemachine/import", response_model=schemas.CodeMachineImportResponse, dependencies=[Depends(require_auth)])
@@ -327,7 +416,7 @@ def import_codemachine(
             request=request,
         )
         return schemas.CodeMachineImportResponse(
-            protocol_run=schemas.ProtocolRunOut(**run.__dict__),
+            protocol_run=_protocol_out(run, db=db),
             job=job,
             message="Enqueued CodeMachine import job.",
         )
@@ -338,7 +427,7 @@ def import_codemachine(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     run = db.get_protocol_run(run.id)
     return schemas.CodeMachineImportResponse(
-        protocol_run=schemas.ProtocolRunOut(**run.__dict__),
+        protocol_run=_protocol_out(run, db=db),
         message="Imported CodeMachine workspace.",
         job=None,
     )
@@ -349,7 +438,7 @@ def list_protocol_runs(project_id: int, db: BaseDatabase = Depends(get_db), requ
     if request:
         require_project_access(project_id, request, db)
     runs = db.list_protocol_runs(project_id)
-    return [schemas.ProtocolRunOut(**r.__dict__) for r in runs]
+    return [_protocol_out(r, db=db) for r in runs]
 
 
 @app.get("/protocols/{protocol_run_id}", response_model=schemas.ProtocolRunOut, dependencies=[Depends(require_auth)])
@@ -361,7 +450,7 @@ def get_protocol(protocol_run_id: int, db: BaseDatabase = Depends(get_db), reque
         run = db.get_protocol_run(protocol_run_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return schemas.ProtocolRunOut(**run.__dict__)
+    return _protocol_out(run, db=db)
 
 
 @app.post("/protocols/{protocol_run_id}/actions/start", response_model=schemas.ActionResponse, dependencies=[Depends(require_auth)])
@@ -390,7 +479,7 @@ def start_protocol(
         protocol_run_id,
         "planning_enqueued",
         "Planning job enqueued.",
-        metadata={"job_id": job["job_id"]},
+        metadata={"job_id": job["job_id"], "spec_hash": _spec_hash_from_template(run.template_config)},
         request=request,
     )
     return schemas.ActionResponse(message="Protocol planning enqueued", job=job)
@@ -416,7 +505,7 @@ def pause_protocol(
     except ValueError:
         raise HTTPException(status_code=409, detail="Protocol state changed; retry")
     record_event(db, protocol_run_id, "paused", "Protocol paused by user.", request=request)
-    return schemas.ProtocolRunOut(**run.__dict__)
+    return _protocol_out(run, db=db)
 
 
 @app.post("/protocols/{protocol_run_id}/actions/resume", response_model=schemas.ProtocolRunOut, dependencies=[Depends(require_auth)])
@@ -439,7 +528,7 @@ def resume_protocol(
     except ValueError:
         raise HTTPException(status_code=409, detail="Protocol state changed; retry")
     record_event(db, protocol_run_id, "resumed", "Protocol resumed by user.", request=request)
-    return schemas.ProtocolRunOut(**run.__dict__)
+    return _protocol_out(run, db=db)
 
 
 @app.post("/protocols/{protocol_run_id}/actions/cancel", response_model=schemas.ProtocolRunOut, dependencies=[Depends(require_auth)])
@@ -456,7 +545,7 @@ def cancel_protocol(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if run.status == ProtocolStatus.CANCELLED:
-        return schemas.ProtocolRunOut(**run.__dict__)
+        return _protocol_out(run, db=db)
     try:
         run = db.update_protocol_status(protocol_run_id, ProtocolStatus.CANCELLED, expected_status=run.status)
     except ValueError:
@@ -466,7 +555,7 @@ def cancel_protocol(
         if step.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.NEEDS_QA):
             db.update_step_status(step.id, StepStatus.CANCELLED, summary="Cancelled with protocol", expected_status=step.status)
     record_event(db, protocol_run_id, "cancelled", "Protocol cancelled by user.", request=request)
-    return schemas.ProtocolRunOut(**run.__dict__)
+    return _protocol_out(run, db=db)
 
 
 @app.post("/protocols/{protocol_run_id}/actions/run_next_step", response_model=schemas.ActionResponse, dependencies=[Depends(require_auth)])

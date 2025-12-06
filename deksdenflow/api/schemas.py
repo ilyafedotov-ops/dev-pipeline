@@ -38,6 +38,20 @@ class ProtocolRunOut(ProtocolRunCreate):
     project_id: int
     created_at: str
     updated_at: str
+    spec_hash: Optional[str] = None
+    spec_validation_status: Optional[str] = None
+    spec_validated_at: Optional[str] = None
+
+
+class ProtocolSpecOut(BaseModel):
+    protocol_run_id: int
+    protocol_name: str
+    project_id: int
+    spec: Optional[dict] = None
+    spec_hash: Optional[str] = None
+    validation_status: Optional[str] = None
+    validation_errors: Optional[list[str]] = None
+    validated_at: Optional[str] = None
 
 
 class StepRunCreate(BaseModel):

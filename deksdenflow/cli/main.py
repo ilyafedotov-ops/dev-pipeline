@@ -8,7 +8,10 @@ from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
 from deksdenflow.cli.client import APIClient, APIClientError
+from deksdenflow.config import load_config
 from deksdenflow.logging import EXIT_RUNTIME_ERROR, EXIT_OK, init_cli_logging, json_logging_from_env
+from deksdenflow.spec_tools import audit_specs
+from deksdenflow.storage import create_database
 
 DEFAULT_API_BASE = os.environ.get("DEKSDENFLOW_API_BASE", "http://localhost:8010")
 DEFAULT_TOKEN = os.environ.get("DEKSDENFLOW_API_TOKEN")
@@ -98,6 +101,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     cm_import.add_argument("--base-branch", default="main")
     cm_import.add_argument("--description", default=None)
     cm_import.add_argument("--enqueue", action="store_true", help="Enqueue import as a job instead of inline")
+
+    spec = subparsers.add_parser("spec", help="Protocol spec utilities")
+    spec_sub = spec.add_subparsers(dest="action")
+    spec_validate = spec_sub.add_parser("validate", help="Validate/backfill protocol specs")
+    spec_validate.add_argument("--project", type=int, help="Project ID to validate (optional)")
+    spec_validate.add_argument("--protocol", type=int, help="Single protocol run ID to validate (optional)")
+    spec_validate.add_argument("--backfill-missing", action="store_true", help="Backfill missing specs before validating")
 
     return parser.parse_args(argv)
 
@@ -197,11 +207,14 @@ def handle_protocols(client: APIClient, args: argparse.Namespace) -> None:
                 "Name": r["protocol_name"],
                 "Status": r["status"],
                 "Branch": r["base_branch"],
+                "Spec": r.get("spec_hash") or "-",
+                "SpecValid": r.get("spec_validation_status") or "-",
+                "SpecAt": format_ts(r.get("spec_validated_at")),
                 "Updated": format_ts(r["updated_at"]),
             }
             for r in runs
         ]
-        print_table(["ID", "Name", "Status", "Branch", "Updated"], rows)
+        print_table(["ID", "Name", "Status", "Branch", "Spec", "SpecValid", "SpecAt", "Updated"], rows)
     elif args.action == "show":
         run = client.get(f"/protocols/{args.protocol_id}")
         print(json.dumps(run, indent=2) if args.as_json else run)
@@ -281,11 +294,12 @@ def handle_events(client: APIClient, args: argparse.Namespace) -> None:
                 "Type": e["event_type"],
                 "Protocol": e.get("protocol_name") or e.get("protocol_run_id"),
                 "Step": e.get("step_run_id") or "-",
+                "Spec": (e.get("metadata") or {}).get("spec_hash") or "-",
                 "Message": e["message"],
             }
             for e in events
         ]
-        print_table(["Time", "Type", "Protocol", "Step", "Message"], rows)
+        print_table(["Time", "Type", "Protocol", "Step", "Spec", "Message"], rows)
     elif args.action == "watch":
         last_seen = None
         try:
@@ -296,7 +310,9 @@ def handle_events(client: APIClient, args: argparse.Namespace) -> None:
                     last_seen = fresh[-1]["id"]
                     for e in fresh:
                         ts = format_ts(e["created_at"])
-                        print(f"[{ts}] {e['event_type']} :: {e['message']}")
+                        spec = (e.get("metadata") or {}).get("spec_hash")
+                        spec_suffix = f" [spec:{spec}]" if spec else ""
+                        print(f"[{ts}] {e['event_type']}{spec_suffix} :: {e['message']}")
                 time.sleep(args.interval)
         except KeyboardInterrupt:  # pragma: no cover - manual stop
             pass
@@ -342,6 +358,31 @@ def handle_codemachine(client: APIClient, args: argparse.Namespace) -> None:
         else:
             message = resp.get("message") if isinstance(resp, dict) else "OK"
             print(f"{message} Protocol {resp['protocol_run']['protocol_name']}")
+
+
+def handle_spec(args: argparse.Namespace) -> None:
+    config = load_config()
+    db = create_database(db_path=config.db_path, db_url=config.db_url, pool_size=config.db_pool_size)
+    db.init_schema()
+    results = audit_specs(
+        db,
+        project_id=getattr(args, "project", None),
+        protocol_id=getattr(args, "protocol", None),
+        backfill_missing=getattr(args, "backfill_missing", False),
+    )
+    if args.as_json:
+        print(json.dumps(results, indent=2))
+        return
+    if not results:
+        print("No matching protocol runs.")
+        return
+    for res in results:
+        status = "ok" if not res["errors"] else "error"
+        suffix = " (backfilled)" if res["backfilled"] else ""
+        spec_hash = res.get("spec_hash") or "-"
+        print(f"{res['protocol_name']} [{status}]{suffix} spec={spec_hash}")
+        for err in res["errors"]:
+            print(f"  - {err}")
 
 
 def run_interactive(client: APIClient) -> None:
@@ -412,10 +453,16 @@ q) Quit
                     print("No protocol runs.")
                     continue
                 rows = [
-                    {"ID": r["id"], "Name": r["protocol_name"], "Status": r["status"], "Updated": format_ts(r["updated_at"])}
+                    {
+                        "ID": r["id"],
+                        "Name": r["protocol_name"],
+                        "Status": r["status"],
+                        "Spec": r.get("spec_hash") or "-",
+                        "Updated": format_ts(r["updated_at"]),
+                    }
                     for r in runs
                 ]
-                print_table(["ID", "Name", "Status", "Updated"], rows)
+                print_table(["ID", "Name", "Status", "Spec", "Updated"], rows)
             elif choice == "5":
                 if not state["project_id"]:
                     print("Select a project first.")
@@ -541,6 +588,8 @@ def run_cli(argv: Optional[List[str]] = None, *, transport: Optional[Any] = None
             handle_queues(client, args)
         elif args.command == "codemachine":
             handle_codemachine(client, args)
+        elif args.command == "spec":
+            handle_spec(args)
         else:  # pragma: no cover - defensive
             print("Unknown command")
             return EXIT_RUNTIME_ERROR

@@ -2,7 +2,8 @@ from pathlib import Path
 
 from deksdenflow.domain import ProtocolStatus, StepStatus
 from deksdenflow.engines import EngineMetadata, EngineRequest, EngineResult, registry
-from deksdenflow.spec import PROTOCOL_SPEC_KEY
+from deksdenflow.prompt_utils import fingerprint_file
+from deksdenflow.spec import PROTOCOL_SPEC_KEY, protocol_spec_hash
 from deksdenflow.storage import Database
 from deksdenflow.workers import codex_worker
 
@@ -111,3 +112,92 @@ def test_spec_validation_failure_blocks_execution(tmp_path, monkeypatch) -> None
     assert step_after.status == StepStatus.FAILED
     events = [e.event_type for e in db.list_events(run.id)]
     assert "spec_validation_error" in events
+
+
+def test_prompt_ref_outside_protocols_records_version(tmp_path, monkeypatch) -> None:
+    _register_fake_engine()
+    db = Database(tmp_path / "db.sqlite")
+    db.init_schema()
+
+    workspace = _make_protocol_workspace(tmp_path, "9001-demo")
+    outputs_dir = workspace / "outputs"
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    external_prompt = workspace / "prompts" / "external.md"
+    external_prompt.parent.mkdir(parents=True, exist_ok=True)
+    external_prompt.write_text("external prompt", encoding="utf-8")
+
+    project = db.create_project("demo", str(workspace), "main", None, None)
+    run = db.create_protocol_run(project.id, "9001-demo", ProtocolStatus.PLANNED, "main", str(workspace), str(workspace / ".protocols" / "9001-demo"), "demo protocol")
+
+    spec = {
+        "steps": [
+            {
+                "id": "00-step",
+                "name": "00-step.md",
+                "engine_id": "fake-engine-out",
+                "model": "fake-model",
+                "prompt_ref": "prompts/external.md",
+                "outputs": {"protocol": "outputs/out.md"},
+                "qa": {"policy": "skip"},
+            }
+        ]
+    }
+    db.update_protocol_template(run.id, {PROTOCOL_SPEC_KEY: spec}, None)
+    step = db.create_step_run(run.id, 0, "00-step.md", "work", StepStatus.PENDING, model="fake-model", engine_id="fake-engine-out", policy=None)
+
+    monkeypatch.setattr(codex_worker.shutil, "which", lambda _: "codex")
+    monkeypatch.setattr(codex_worker, "load_project", lambda repo_root, protocol_name, base_branch: Path(repo_root))
+
+    codex_worker.handle_execute_step(step.id, db)
+
+    step_after = db.get_step_run(step.id)
+    assert step_after.status == StepStatus.NEEDS_QA
+    events = db.list_events(run.id)
+    completed = next(e for e in events if e.event_type == "step_completed")
+    assert completed.metadata["prompt_versions"]["exec"] == fingerprint_file(external_prompt)
+    assert completed.metadata["spec_hash"] == protocol_spec_hash(spec)
+
+
+def test_custom_qa_prompt_version_is_recorded(tmp_path, monkeypatch) -> None:
+    _register_fake_engine()
+    db = Database(tmp_path / "db.sqlite")
+    db.init_schema()
+
+    workspace = _make_protocol_workspace(tmp_path, "9002-demo")
+    outputs_dir = workspace / "outputs"
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    qa_prompt = workspace / "qa" / "custom.md"
+    qa_prompt.parent.mkdir(parents=True, exist_ok=True)
+    qa_prompt.write_text("QA prompt body", encoding="utf-8")
+
+    project = db.create_project("demo", str(workspace), "main", None, None)
+    run = db.create_protocol_run(project.id, "9002-demo", ProtocolStatus.PLANNED, "main", str(workspace), str(workspace / ".protocols" / "9002-demo"), "demo protocol")
+
+    spec = {
+        "steps": [
+            {
+                "id": "00-step",
+                "name": "00-step.md",
+                "engine_id": "fake-engine-out",
+                "model": "fake-model",
+                "prompt_ref": "00-step.md",
+                "outputs": {"protocol": "outputs/out.md"},
+                "qa": {"policy": "full", "prompt": "qa/custom.md", "model": "fake-model"},
+            }
+        ]
+    }
+    db.update_protocol_template(run.id, {PROTOCOL_SPEC_KEY: spec}, None)
+    step = db.create_step_run(run.id, 0, "00-step.md", "work", StepStatus.PENDING, model="fake-model", engine_id="fake-engine-out", policy=None)
+
+    monkeypatch.setattr(codex_worker.shutil, "which", lambda _: "codex")
+    monkeypatch.setattr(codex_worker, "load_project", lambda repo_root, protocol_name, base_branch: Path(repo_root))
+
+    codex_worker.handle_execute_step(step.id, db)
+
+    # Force stub QA path for portability but keep prompt version resolution
+    monkeypatch.setattr(codex_worker.shutil, "which", lambda _: None)
+    codex_worker.handle_quality(step.id, db)
+
+    qa_event = next(e for e in db.list_events(run.id) if e.event_type == "qa_passed")
+    assert qa_event.metadata["prompt_versions"]["qa"] == fingerprint_file(qa_prompt)
+    assert qa_event.metadata["spec_hash"] == protocol_spec_hash(spec)
