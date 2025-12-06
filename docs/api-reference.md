@@ -6,9 +6,10 @@ HTTP API for managing projects, protocol runs, steps, events, queues, and CI/web
 - Per-project token (optional): `X-Project-Token: <project secrets.api_token>`.
 - Content type: `application/json` for all JSON bodies. Responses use standard HTTP codes (400/401/404/409 on validation/auth/state conflicts).
 
-## Status enums
-- ProtocolRun: `pending`, `planning`, `planned`, `running`, `paused`, `blocked`, `failed`, `cancelled`, `completed`.
-- StepRun: `pending`, `running`, `needs_qa`, `completed`, `failed`, `cancelled`, `blocked`.
+## Status enums and models
+- ProtocolRun.status: `pending`, `planning`, `planned`, `running`, `paused`, `blocked`, `failed`, `cancelled`, `completed`.
+- StepRun.status: `pending`, `running`, `needs_qa`, `completed`, `failed`, `cancelled`, `blocked`.
+- StepRun.policy/runtime_state: arbitrary JSON from CodeMachine modules (loop/trigger metadata, inline trigger depth, loop_counts, etc.).
 
 ## Health & metrics
 - `GET /health` → `{"status": "ok"|"degraded"}`.
@@ -17,19 +18,23 @@ HTTP API for managing projects, protocol runs, steps, events, queues, and CI/web
 ## Projects
 - `POST /projects`
   - Body: `{ "name": str, "git_url": str, "base_branch": "main", "ci_provider": str|null, "default_models": obj|null, "secrets": obj|null }`
-  - Creates project and enqueues a `project_setup_job` protocol run.
+  - Response: Project object with `id`, timestamps.
+  - Side effects: enqueues `project_setup_job` protocol run for onboarding progress visibility.
 - `GET /projects` → list of projects.
 - `GET /projects/{id}` → project (401 if project token required and missing).
 
 ## CodeMachine import
 - `POST /projects/{id}/codemachine/import`
   - Body: `{ "protocol_name": str, "workspace_path": str, "base_branch": "main", "description": str|null, "enqueue": bool }`
-  - When `enqueue=true`, returns `{ protocol_run, job, message }` after enqueuing `codemachine_import_job`.
-  - When `enqueue=false` (default), imports immediately and returns `{ protocol_run, job: null, message }`.
+  - Response:
+    - `enqueue=true`: `{ protocol_run: ProtocolRun, job: {job_id,...}, message }` after enqueuing `codemachine_import_job`.
+    - `enqueue=false` (default): `{ protocol_run: ProtocolRun, job: null, message }` after immediate import.
+  - Behavior: parses `.codemachine/config/*.js` + `template.json`, persists `template_config`/`template_source`, and creates StepRuns for main agents with module policies attached.
 
 ## Protocol runs
 - `POST /projects/{id}/protocols`
   - Body: `{ "protocol_name": str, "status": "pending"|..., "base_branch": "main", "worktree_path": str|null, "protocol_root": str|null, "description": str|null, "template_config": obj|null, "template_source": obj|null }`
+  - Response: ProtocolRun object.
 - `GET /projects/{id}/protocols` → list protocol runs for project.
 - `GET /protocols/{id}` → protocol run.
 
@@ -40,6 +45,7 @@ All return `{ "message": str, "job": obj|null }` unless noted.
 - `POST /protocols/{id}/actions/run_next_step` → moves first pending/blocked/failed step to running and enqueues `execute_step_job`.
 - `POST /protocols/{id}/actions/retry_latest` → retries latest failed/blocked step.
 - `POST /protocols/{id}/actions/open_pr` → enqueues `open_pr_job`.
+Status conflicts return 409 (e.g., starting an already-running protocol).
 
 ## Steps
 - `POST /protocols/{id}/steps`
@@ -58,6 +64,7 @@ All return `{ "message": str, "job": obj|null }` unless noted.
 - `GET /events?project_id=<id>&limit=<int>` → recent events (default limit 50).
 - `GET /queues` → queue stats (per queue).
 - `GET /queues/jobs?status=queued|started|failed|finished` → jobs snapshot with payload/metadata.
+  - Jobs include `job_id`, `job_type`, `payload`, `status`, timestamps, and error/meta where present.
 
 ## Webhooks & CI callbacks
 - `POST /webhooks/github?protocol_run_id=<optional>`
@@ -72,6 +79,7 @@ All return `{ "message": str, "job": obj|null }` unless noted.
 - Backend: Redis/RQ; when `DEKSDENFLOW_REDIS_URL=fakeredis://`, the API starts a background RQ worker thread for inline job processing.
 - Jobs: `project_setup_job`, `plan_protocol_job`, `execute_step_job`, `run_quality_job`, `open_pr_job`, `codemachine_import_job`.
 - CodeMachine policies: loop/trigger policies on steps may reset statuses or inline-trigger other steps (depth-limited) with events and `runtime_state` recorded.
+- Token budgets: `DEKSDENFLOW_MAX_TOKENS_PER_STEP` / `DEKSDENFLOW_MAX_TOKENS_PER_PROTOCOL` with mode `DEKSDENFLOW_TOKEN_BUDGET_MODE=strict|warn|off`; overruns raise (strict) or log (warn).
 
 ## Curl examples
 
@@ -92,5 +100,11 @@ curl -X POST http://localhost:8000/protocols/1/actions/start \
 Run QA for a step:
 ```bash
 curl -X POST http://localhost:8000/steps/10/actions/run_qa \
+  -H "Authorization: Bearer $DEKSDENFLOW_API_TOKEN"
+```
+
+List queue jobs:
+```bash
+curl -X GET "http://localhost:8000/queues/jobs?status=queued" \
   -H "Authorization: Bearer $DEKSDENFLOW_API_TOKEN"
 ```
