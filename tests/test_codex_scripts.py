@@ -179,6 +179,11 @@ class CodexScriptTests(unittest.TestCase):
             self.assertEqual(captured["cwd"], repo_root)
             self.assertEqual(captured["input_text"], "hello discovery")
 
+    def test_determine_verdict_requires_verdict_line(self) -> None:
+        self.assertEqual(qa.determine_verdict("VERDICT: PASS"), "PASS")
+        self.assertEqual(qa.determine_verdict(""), "FAIL")
+        self.assertEqual(qa.determine_verdict("Some notes without verdict"), "FAIL")
+
 
 if __name__ == "__main__":
     unittest.main()

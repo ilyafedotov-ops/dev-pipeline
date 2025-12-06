@@ -891,4 +891,13 @@ async def gitlab_webhook(
     elif step and normalized in failure_states:
         db.update_step_status(step.id, StepStatus.FAILED, summary="CI failed")
         db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+        record_event(
+            db,
+            run.id,
+            object_kind,
+            "CI failed; protocol blocked",
+            step_run_id=step.id,
+            metadata={"status": status, "ref": branch},
+            request=request,
+        )
     return schemas.ActionResponse(message="Webhook recorded")

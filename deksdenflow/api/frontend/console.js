@@ -9,9 +9,18 @@ const state = {
   projectTokens: JSON.parse(localStorage.getItem("df_project_tokens") || "{}"),
   queueStats: null,
   queueJobs: [],
+  metrics: { qaVerdicts: {}, tokenUsageByPhase: {}, tokenUsageByModel: {} },
   selectedProject: null,
   selectedProtocol: null,
   poll: null,
+};
+
+// Rough price table (USD per 1k tokens). Extend as needed; unknown models default to 0.
+const MODEL_PRICING = {
+  "gpt-5.1-high": 0.003,
+  "gpt-5.1": 0.002,
+  "codex-5.1-max-xhigh": 0.02,
+  "codex-5.1-max": 0.01,
 };
 
 const statusEl = document.getElementById("authStatus");
@@ -73,6 +82,7 @@ function persistAuth() {
   loadProjects();
   loadOperations();
   loadQueue();
+  loadMetrics();
 }
 
 function persistProjectTokens() {
@@ -309,16 +319,28 @@ function renderEventsList() {
   }
   return state.events
     .map(
-      (e) => `
+      (e) => {
+        const meta = e.metadata || {};
+        const promptVersions = meta.prompt_versions || meta.promptVersions;
+        const promptLine = promptVersions
+          ? Object.entries(promptVersions)
+              .map(([k, v]) => `${k}:${v}`)
+              .join(" · ")
+          : null;
+        const modelLine = meta.model ? `model:${meta.model}` : null;
+        const extraLine = [promptLine, modelLine].filter(Boolean).join(" | ");
+        return `
         <div class="event">
           <div style="display:flex; justify-content:space-between;">
             <span class="pill">${e.event_type}</span>
             <span class="muted">${formatDate(e.created_at)}</span>
           </div>
           <div>${e.message}</div>
+          ${extraLine ? `<div class="muted" style="font-size:12px;">${extraLine}</div>` : ""}
           ${e.metadata ? `<div class="muted" style="font-size:12px;">${JSON.stringify(e.metadata)}</div>` : ""}
         </div>
-      `
+      `;
+      }
     )
     .join("");
 }
@@ -380,6 +402,41 @@ async function loadQueue() {
   }
 }
 
+async function loadMetrics() {
+  try {
+    const text = await apiFetch("/metrics");
+    const qaVerdicts = {};
+    const tokenUsageByPhase = {};
+    const tokenUsageByModel = {};
+    text
+      .split("\n")
+      .forEach((line) => {
+        if (line.startsWith("qa_verdict_total")) {
+          const match = line.match(/verdict="([^"]+)".*\s(\d+(?:\.\d+)?)/);
+          if (match) {
+            qaVerdicts[match[1]] = parseFloat(match[2]);
+          }
+        }
+        if (line.startsWith("codex_token_estimated_total")) {
+          const match = line.match(/phase="([^"]+)",model="([^"]+)".*\s(\d+(?:\.\d+)?)/);
+          if (match) {
+            const phase = match[1];
+            const value = parseFloat(match[3]);
+            tokenUsageByPhase[phase] = (tokenUsageByPhase[phase] || 0) + value;
+            if (!tokenUsageByModel[phase]) tokenUsageByModel[phase] = {};
+            tokenUsageByModel[phase][match[2]] = (tokenUsageByModel[phase][match[2]] || 0) + value;
+          }
+        }
+      });
+    state.metrics = { qaVerdicts, tokenUsageByPhase, tokenUsageByModel };
+    renderMetrics();
+  } catch (err) {
+    state.metrics = { qaVerdicts: {}, tokenUsageByPhase: {}, tokenUsageByModel: {} };
+    renderMetrics();
+    setStatus(err.message, "error");
+  }
+}
+
 function renderQueue() {
   const statsEl = document.getElementById("queueStats");
   const jobsEl = document.getElementById("queueJobs");
@@ -421,6 +478,110 @@ function renderQueue() {
         )
         .join("")
     : `<p class="muted">No jobs yet.</p>`;
+}
+
+function renderSparkline(values, dataset) {
+  const series = Array.isArray(values) ? values : Object.values(values || {});
+  const scale = dataset ? Object.values(dataset) : series;
+  if (!series.length || !scale.length) return "";
+  const max = Math.max(...scale);
+  if (max <= 0) return "";
+  const blocks = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+  const bars = series
+    .map((v) => {
+      const idx = Math.min(blocks.length - 1, Math.floor((v / max) * (blocks.length - 1)));
+      return blocks[idx];
+    })
+    .join("");
+  return `<div class="muted small" aria-label="sparkline">${bars}</div>`;
+}
+
+function renderBar(value, max, label) {
+  if (!max || max <= 0) return "";
+  const pct = Math.min(100, Math.round((value / max) * 100));
+  return `
+    <div class="bar-track" aria-label="${label} ${pct}%">
+      <div class="bar-fill" style="width:${pct}%;"></div>
+      <span class="bar-label">${pct}%</span>
+    </div>
+  `;
+}
+
+function estimateCost(modelTokens) {
+  const perModel = modelTokens || {};
+  let total = 0;
+  const unknown = [];
+  Object.entries(perModel).forEach(([model, tokens]) => {
+    const price = MODEL_PRICING[model];
+    if (price === undefined) {
+      unknown.push(model);
+      return;
+    }
+    total += (tokens / 1000) * price;
+  });
+  return { total, unknown };
+}
+
+function renderMetrics() {
+  const target = document.getElementById("metricsSummary");
+  if (!target) return;
+  const qaVerdicts = state.metrics.qaVerdicts || {};
+  const verdictKeys = Object.keys(qaVerdicts);
+  const passCount = qaVerdicts.pass || qaVerdicts.PASS || 0;
+  const failCount = qaVerdicts.fail || qaVerdicts.FAIL || 0;
+  const totalQa = passCount + failCount;
+  const passRate = totalQa ? Math.round((passCount / totalQa) * 100) : null;
+
+  const qaRows = verdictKeys.length
+    ? verdictKeys
+        .map(
+          (key) => `
+        <div class="event">
+          <div style="display:flex; justify-content:space-between;">
+            <span class="pill">${key}</span>
+            <span class="muted">${qaVerdicts[key]}</span>
+          </div>
+          ${renderBar(qaVerdicts[key], totalQa, "qa")}
+        </div>
+      `
+        )
+        .join("")
+    : `<p class="muted">QA metrics not yet available. Trigger QA to see verdict counts.</p>`;
+
+  const tokenUsage = state.metrics.tokenUsageByPhase || {};
+  const tokenModels = state.metrics.tokenUsageByModel || {};
+  const tokenRows = Object.keys(tokenUsage).length
+    ? Object.entries(tokenUsage)
+        .map(([phase, value]) => {
+          const costInfo = estimateCost(tokenModels[phase] || {});
+          return `
+        <div class="event">
+          <div style="display:flex; justify-content:space-between;">
+            <span class="pill">${phase}</span>
+            <span class="muted">${Math.round(value)} tok${costInfo.total > 0 ? ` · ~$${costInfo.total.toFixed(2)}` : ""}</span>
+          </div>
+          ${renderBar(value, Math.max(...Object.values(tokenUsage)), "tokens")}
+          ${costInfo.unknown.length ? `<div class="muted small">Unknown pricing for: ${costInfo.unknown.join(", ")}</div>` : ""}
+        </div>
+      `;
+        })
+        .join("")
+    : `<p class="muted">Token usage metrics not yet available.</p>`;
+
+  target.innerHTML = `
+    <div>
+      <div class="pane-heading" style="display:flex; justify-content:space-between; align-items:center;">
+        <h4>QA verdicts</h4>
+        <span class="muted small">/metrics</span>
+      </div>
+      ${passRate !== null ? `<div class="muted small">Pass rate: ${passRate}% (${passCount}/${totalQa})</div>` : ""}
+      ${qaRows}
+      <div class="pane-heading" style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+        <h4>Token usage (estimated)</h4>
+      </div>
+      ${tokenRows}
+    </div>
+  `;
 }
 
 async function loadOperations() {
@@ -483,6 +644,7 @@ function startPolling() {
     loadSteps();
     loadEvents();
     loadOperations();
+    loadMetrics();
   }, 4000);
 }
 
@@ -604,6 +766,10 @@ function wireForms() {
   if (refreshOpsBtn) {
     refreshOpsBtn.onclick = loadOperations;
   }
+  const refreshMetricsBtn = document.getElementById("refreshMetrics");
+  if (refreshMetricsBtn) {
+    refreshMetricsBtn.onclick = loadMetrics;
+  }
   if (saveProjectTokenBtn) {
     saveProjectTokenBtn.onclick = () => {
       if (!state.selectedProject) {
@@ -693,11 +859,13 @@ function init() {
   apiTokenInput.value = state.token;
   renderQueue();
   renderOperations();
+  renderMetrics();
   wireForms();
   if (state.token) {
     setStatus("Using saved token.");
     loadProjects();
     loadQueue();
+    loadMetrics();
   } else {
     setStatus("Add a bearer token to start.");
   }

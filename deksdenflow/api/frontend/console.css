@@ -292,6 +292,30 @@ header {
   border-bottom: none;
 }
 
+.bar-track {
+  position: relative;
+  height: 8px;
+  background: var(--panel-1);
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
+.bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 8px;
+  background: linear-gradient(90deg, #60a5fa, #a855f7);
+  border-radius: 6px;
+}
+
+.bar-label {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .code-block {
   background: #0b1220;
   border: 1px solid var(--border);

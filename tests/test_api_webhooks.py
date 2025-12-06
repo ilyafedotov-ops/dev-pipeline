@@ -81,6 +81,44 @@ def test_gitlab_webhook_updates_step() -> None:
 
 
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_gitlab_webhook_failure_blocks_and_records_event() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        os.environ["DEKSDENFLOW_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
+        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
+        os.environ["DEKSDENFLOW_REDIS_URL"] = "fakeredis://"
+
+        with TestClient(app) as client:  # type: ignore[arg-type]
+            proj = client.post(
+                "/projects",
+                json={"name": "demo", "git_url": "git@example.com/demo.git", "base_branch": "main"},
+            ).json()
+            run = client.post(
+                f"/projects/{proj['id']}/protocols",
+                json={"protocol_name": "0002b-demo", "status": "running", "base_branch": "main"},
+            ).json()
+            client.post(
+                f"/protocols/{run['id']}/steps",
+                json={"step_index": 0, "step_name": "00-setup", "step_type": "setup"},
+            )
+
+            payload = {"object_kind": "pipeline", "object_attributes": {"status": "failed"}, "ref": "0002b-demo"}
+            resp = client.post(
+                "/webhooks/gitlab",
+                json=payload,
+                headers={"X-Gitlab-Event": "Pipeline Hook"},
+            )
+            assert resp.status_code == 200
+
+            step_after = client.get(f"/protocols/{run['id']}/steps").json()[0]
+            run_after = client.get(f"/protocols/{run['id']}").json()
+            assert step_after["status"] == "failed"
+            assert run_after["status"] == "blocked"
+
+            events = client.get(f"/protocols/{run['id']}/events").json()
+            assert any("blocked" in e["message"].lower() for e in events)
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_github_pr_merge_completes_protocol() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         os.environ["DEKSDENFLOW_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")

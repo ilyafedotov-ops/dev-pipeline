@@ -62,13 +62,17 @@ Use the format from the quality-validator prompt. If any blocking issue, verdict
 
 
 def determine_verdict(report_text: str) -> str:
-    upper = report_text.upper()
-    if "VERDICT: FAIL" in upper:
+    """
+    Guardrail: require an explicit VERDICT line. If the report is empty or the
+    verdict is missing, treat it as FAIL to avoid false positives.
+    """
+    if not report_text.strip():
         return "FAIL"
     lines = [line.strip().upper() for line in report_text.splitlines() if line.strip()]
-    if lines and lines[-1].startswith("VERDICT") and "FAIL" in lines[-1]:
+    verdict_line = next((line for line in reversed(lines) if line.startswith("VERDICT")), None)
+    if verdict_line is None:
         return "FAIL"
-    return "PASS"
+    return "FAIL" if "FAIL" in verdict_line else "PASS"
 
 
 def run_quality_check(

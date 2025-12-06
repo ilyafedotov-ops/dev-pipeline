@@ -20,6 +20,11 @@ token_usage_estimated_total = Counter(
     "Estimated Codex tokens sent (prompt-side) grouped by phase/model",
     ["phase", "model"],
 )
+qa_verdict_total = Counter(
+    "qa_verdict_total",
+    "QA verdicts observed",
+    ["verdict"],
+)
 
 
 class Metrics:
@@ -43,6 +48,9 @@ class Metrics:
 
     def observe_tokens(self, phase: str, model: str, tokens: int) -> None:
         token_usage_estimated_total.labels(phase=phase, model=model).inc(tokens)
+
+    def inc_qa_verdict(self, verdict: str) -> None:
+        qa_verdict_total.labels(verdict=verdict.lower()).inc()
 
     def to_prometheus(self) -> bytes:
         return generate_latest()
