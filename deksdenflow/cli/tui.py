@@ -491,8 +491,9 @@ class TuiDashboard(App):
         status_bar.update(value)
 
     def watch_refreshing(self, value: bool) -> None:
-        loader = self.query_one("#loader", LoadingIndicator)
-        loader.display = value
+        loader = self.query("#loader").first()
+        if loader:
+            loader.display = value
 
     async def action_step_menu(self) -> None:
         if not self.protocol_id:
