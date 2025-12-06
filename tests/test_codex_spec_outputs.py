@@ -201,3 +201,61 @@ def test_custom_qa_prompt_version_is_recorded(tmp_path, monkeypatch) -> None:
     qa_event = next(e for e in db.list_events(run.id) if e.event_type == "qa_passed")
     assert qa_event.metadata["prompt_versions"]["qa"] == fingerprint_file(qa_prompt)
     assert qa_event.metadata["spec_hash"] == protocol_spec_hash(spec)
+
+
+def test_quality_uses_spec_prompt_and_engine(monkeypatch, tmp_path) -> None:
+    from types import SimpleNamespace
+
+    from deksdenflow.qa import QualityResult, codex as qa_codex
+
+    _register_fake_engine()
+    db = Database(tmp_path / "db.sqlite")
+    db.init_schema()
+
+    workspace = _make_protocol_workspace(tmp_path, "9100-demo")
+    qa_prompt = workspace / "custom_prompts" / "qa.md"
+    qa_prompt.parent.mkdir(parents=True, exist_ok=True)
+    qa_prompt.write_text("Custom QA prompt", encoding="utf-8")
+
+    project = db.create_project("demo", str(workspace), "main", None, None)
+    run = db.create_protocol_run(project.id, "9100-demo", ProtocolStatus.PLANNED, "main", str(workspace), str(workspace / ".protocols" / "9100-demo"), "demo protocol")
+
+    spec = {
+        "steps": [
+            {
+                "id": "00-step",
+                "name": "00-step.md",
+                "engine_id": "fake-engine-out",
+                "model": "fake-model",
+                "prompt_ref": "00-step.md",
+                "outputs": {"protocol": "outputs/out.md"},
+                "qa": {"policy": "full", "prompt": "custom_prompts/qa.md", "engine_id": "qa-engine", "model": "qa-model"},
+            }
+        ]
+    }
+    db.update_protocol_template(run.id, {PROTOCOL_SPEC_KEY: spec}, None)
+    step = db.create_step_run(run.id, 0, "00-step.md", "work", StepStatus.NEEDS_QA, model="fake-model", engine_id="fake-engine-out", policy=None)
+
+    # Force real QA path without Codex CLI but with resolved worktree/prompt
+    monkeypatch.setattr(codex_worker.shutil, "which", lambda _: "codex")
+    monkeypatch.setattr(codex_worker, "load_project", lambda repo_root, protocol_name, base_branch: Path(repo_root))
+    monkeypatch.setattr(qa_codex, "run_process", lambda *args, **kwargs: SimpleNamespace(stdout=""))
+
+    captured: dict[str, object] = {}
+
+    def fake_run_quality_check(**kwargs):
+        captured.update(kwargs)
+        protocol_root = kwargs["protocol_root"]
+        return QualityResult(report_path=protocol_root / "quality-report.md", verdict="PASS", output="ok")
+
+    monkeypatch.setattr(codex_worker, "run_quality_check", fake_run_quality_check)
+
+    codex_worker.handle_quality(step.id, db)
+
+    step_after = db.get_step_run(step.id)
+    assert step_after.status == StepStatus.COMPLETED
+    assert captured.get("prompt_file") == qa_prompt.resolve()
+    assert captured.get("engine_id") == "qa-engine"
+    qa_event = next(e for e in db.list_events(run.id) if e.event_type == "qa_passed")
+    assert qa_event.metadata["prompt_versions"]["qa"] == fingerprint_file(qa_prompt)
+    assert qa_event.metadata["spec_hash"] == protocol_spec_hash(spec)

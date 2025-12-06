@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from deksdenflow.domain import ProtocolStatus
-from deksdenflow.spec import PROTOCOL_SPEC_KEY, protocol_spec_hash
+from deksdenflow.spec import PROTOCOL_SPEC_KEY, SPEC_META_KEY, protocol_spec_hash
 from deksdenflow.spec_tools import audit_specs
 from deksdenflow.storage import Database
 
@@ -34,6 +34,11 @@ def test_audit_specs_backfills_missing_spec(tmp_path) -> None:
     spec = run_after.template_config.get(PROTOCOL_SPEC_KEY)
     assert spec
     assert result["spec_hash"] == protocol_spec_hash(spec)
+    meta = (run_after.template_config or {}).get(SPEC_META_KEY)
+    assert meta
+    assert meta.get("status") == "valid"
+    assert meta.get("errors") == []
+    assert meta.get("validated_at")
 
 
 def test_audit_specs_reports_missing_without_backfill(tmp_path) -> None:
@@ -42,10 +47,15 @@ def test_audit_specs_reports_missing_without_backfill(tmp_path) -> None:
     db.init_schema()
 
     project = db.create_project("demo", str(workspace), "main", None, None)
-    db.create_protocol_run(project.id, "7002-demo", ProtocolStatus.PLANNED, "main", str(workspace), str(protocol_root), "demo protocol")
+    run = db.create_protocol_run(project.id, "7002-demo", ProtocolStatus.PLANNED, "main", str(workspace), str(protocol_root), "demo protocol")
 
     results = audit_specs(db, project_id=project.id, backfill_missing=False)
     assert results
     result = results[0]
     assert result["backfilled"] is False
     assert any("missing" in err for err in result["errors"])
+    run_after = db.get_protocol_run(run.id)
+    meta = (run_after.template_config or {}).get(SPEC_META_KEY)
+    assert meta
+    assert meta.get("status") == "missing"
+    assert meta.get("errors")

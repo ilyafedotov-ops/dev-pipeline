@@ -13,6 +13,7 @@ from deksdenflow.spec import (
     build_spec_from_codemachine_config,
     build_spec_from_protocol_files,
     protocol_spec_hash,
+    update_spec_meta,
     validate_protocol_spec,
 )
 from deksdenflow.storage import BaseDatabase
@@ -40,6 +41,7 @@ def audit_protocol_run_spec(
     spec = template_config.get(PROTOCOL_SPEC_KEY)
     backfilled = False
     errors: List[str] = []
+    status: Optional[str] = None
 
     if spec is None and backfill_missing:
         if is_codemachine_run(run):
@@ -74,6 +76,13 @@ def audit_protocol_run_spec(
         spec_hash = protocol_spec_hash(spec)
     else:
         errors.append("protocol spec missing")
+        status = "missing"
+
+    if spec is not None:
+        status = "valid" if not errors else "invalid"
+
+    if status:
+        template_config = update_spec_meta(db, run.id, template_config, run.template_source, status=status, errors=errors)
 
     return {
         "protocol_run_id": run.id,

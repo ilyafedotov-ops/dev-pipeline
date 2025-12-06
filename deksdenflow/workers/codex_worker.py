@@ -168,6 +168,27 @@ def _resolve_codex_exec_context(step: StepRun, run: ProtocolRun, project, step_s
     return repo_root, worktree, protocol_root, step_path, exec_prompt, outputs_cfg, errors
 
 
+def _protocol_and_workspace_paths(run: ProtocolRun, project) -> tuple[Path, Path]:
+    """
+    Best-effort resolution of workspace/protocol roots for prompt resolution
+    before a worktree is loaded.
+    """
+    workspace_root = Path(run.worktree_path or project.git_url or ".").resolve()
+    protocol_root = Path(run.protocol_root).resolve() if run.protocol_root else (workspace_root / ".protocols" / run.protocol_name)
+    return workspace_root, protocol_root
+
+
+def _resolve_qa_prompt_path(qa_cfg: dict, protocol_root: Path, workspace: Path) -> Path:
+    """
+    Resolve the QA prompt path (default or spec-provided) against the protocol
+    root and workspace, allowing prompts outside `.protocols/`.
+    """
+    prompt_ref = qa_cfg.get("prompt") if isinstance(qa_cfg, dict) else None
+    if prompt_ref:
+        return resolve_spec_path(str(prompt_ref), protocol_root, workspace=workspace)
+    return (workspace / "prompts" / "quality-validator.prompt.md").resolve()
+
+
 def infer_step_type(filename: str) -> str:
     lower = filename.lower()
     if lower.startswith("00-") or "setup" in lower:
@@ -836,7 +857,8 @@ def handle_quality(step_run_id: int, db: BaseDatabase) -> None:
         template_spec = run.template_config.get(PROTOCOL_SPEC_KEY)
         if template_spec:
             spec_hash_val = protocol_spec_hash(template_spec)
-    qa_policy = (step_spec.get("qa") or {}).get("policy") if step_spec else None
+    qa_cfg = (step_spec.get("qa") if step_spec else {}) or {}
+    qa_policy = qa_cfg.get("policy") if step_spec else None
     if qa_policy == "skip":
         event_type = "qa_skipped_codemachine" if is_codemachine_run(run) else "qa_skipped_policy"
         event_message = "QA skipped (CodeMachine policy)." if event_type == "qa_skipped_codemachine" else "QA skipped by policy."
@@ -860,6 +882,9 @@ def handle_quality(step_run_id: int, db: BaseDatabase) -> None:
             )
         maybe_complete_protocol(step.protocol_run_id, db)
         return
+    workspace_root, protocol_root_hint = _protocol_and_workspace_paths(run, project)
+    qa_prompt_path = _resolve_qa_prompt_path(qa_cfg, protocol_root_hint, workspace_root)
+    qa_prompt_version = prompt_version(qa_prompt_path)
     if qa_policy is None and is_codemachine_run(run):
         db.update_step_status(step.id, StepStatus.COMPLETED, summary="QA skipped for CodeMachine run")
         db.append_event(
@@ -881,19 +906,9 @@ def handle_quality(step_run_id: int, db: BaseDatabase) -> None:
             )
         maybe_complete_protocol(step.protocol_run_id, db)
         return
-    qa_cfg = (step_spec.get("qa") if step_spec else {}) or {}
     qa_model = qa_cfg.get("model") or (project.default_models.get("qa", "codex-5.1-max") if project.default_models else "codex-5.1-max")
     qa_engine_id = qa_cfg.get("engine_id") or step.engine_id
-    repo_path = Path(project.git_url) if Path(project.git_url).exists() else None
-    qa_prompt_path_cfg = qa_cfg.get("prompt")
-    prompt_path = None
-    if qa_prompt_path_cfg and repo_path:
-        prompt_path = Path(qa_prompt_path_cfg)
-        if not prompt_path.is_absolute():
-            prompt_path = (repo_path / qa_prompt_path_cfg).resolve()
-    elif repo_path:
-        prompt_path = repo_path / "prompts" / "quality-validator.prompt.md"
-    qa_prompt_version = prompt_version(prompt_path)
+    repo_path = workspace_root if workspace_root.exists() else None
     repo_missing = repo_path is None
     repo_not_git = bool(repo_path) and not (repo_path / ".git").exists()
     if shutil.which("codex") is None or (is_codemachine_run(run) and (repo_missing or repo_not_git)) or repo_path is None:
@@ -915,14 +930,14 @@ def handle_quality(step_run_id: int, db: BaseDatabase) -> None:
                 db,
                 source="qa_stub_pass",
                 inline_depth=trigger_decision.get("inline_depth", 0),
-            )
+        )
         maybe_complete_protocol(step.protocol_run_id, db)
         return
     repo_root = repo_path or detect_repo_root()
-    prompt_path = repo_root / "prompts" / "quality-validator.prompt.md"
-    qa_prompt_version = prompt_version(prompt_path)
     worktree = load_project(repo_root, run.protocol_name, run.base_branch)
     protocol_root = worktree / ".protocols" / run.protocol_name
+    qa_prompt_path = _resolve_qa_prompt_path(qa_cfg, protocol_root, worktree)
+    qa_prompt_version = prompt_version(qa_prompt_path)
     qa_prompt = build_prompt(protocol_root, protocol_root / step.step_name)
     qa_tokens = _budget_and_tokens(qa_prompt, qa_model, "qa", config.token_budget_mode, budget_limit)
     try:
@@ -930,7 +945,7 @@ def handle_quality(step_run_id: int, db: BaseDatabase) -> None:
             protocol_root=protocol_root,
             step_file=protocol_root / step.step_name,
             model=qa_model,
-            prompt_file=prompt_path,
+            prompt_file=qa_prompt_path,
             sandbox="read-only",
             max_tokens=budget_limit,
             token_budget_mode=config.token_budget_mode,

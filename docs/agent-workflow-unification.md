@@ -59,6 +59,6 @@ This document captures the current redundancy between Codex- and CodeMachine-dri
 - [x] Codex execution now uses spec for engine/model/prompt_ref and writes stdout to spec-declared outputs (protocol + aux).
 - [x] QA path reads spec QA policy/model/prompt and skips only when policy says so; CodeMachine QA can be enabled via spec.
 - [x] Prompt versions recorded for exec/QA events; outputs metadata attached.
-- [ ] Codex prompt resolver to support arbitrary prompt_ref outside `.protocols/` (with evented versioning).
-- [ ] Formal JSON Schema for `ProtocolSpec` + CLI to validate/backfill existing runs.
-- [ ] Expanded scenario tests for custom QA prompts/engines and spec hash/version observability.
+- [x] Codex prompt resolver to support arbitrary prompt_ref outside `.protocols/` (with evented versioning).
+- [x] Formal JSON Schema for `ProtocolSpec` + CLI to validate/backfill existing runs.
+- [x] Expanded scenario tests for custom QA prompts/engines and spec hash/version observability.
