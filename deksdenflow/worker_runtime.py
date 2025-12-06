@@ -7,7 +7,7 @@ from deksdenflow.domain import ProtocolStatus, StepStatus
 from deksdenflow.errors import DeksdenflowError
 from deksdenflow.jobs import BaseQueue, Job, RedisQueue
 from deksdenflow.storage import BaseDatabase, Database, create_database
-from deksdenflow.workers import codex_worker, onboarding_worker, codemachine_worker
+from deksdenflow.workers import codex_worker, onboarding_worker, codemachine_worker, spec_worker
 from deksdenflow.metrics import metrics
 from deksdenflow.logging import get_logger, log_extra, setup_logging, json_logging_from_env
 
@@ -47,6 +47,8 @@ def process_job(job: Job, db: BaseDatabase) -> None:
         codex_worker.handle_open_pr(job.payload["protocol_run_id"], db)
     elif job.job_type == "codemachine_import_job":
         codemachine_worker.handle_import_job(job.payload, db)
+    elif job.job_type == "spec_audit_job":
+        spec_worker.handle_spec_audit_job(job.payload, db)
     else:
         protocol_run_id = job.payload.get("protocol_run_id") or -1
         db.append_event(
