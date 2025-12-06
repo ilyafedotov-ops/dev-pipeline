@@ -74,6 +74,11 @@ def test_codex_spec_outputs_write_stdout(tmp_path, monkeypatch) -> None:
     mirror_out = (workspace / "outputs" / "mirror.md").read_text(encoding="utf-8")
     assert "hello world" in exec_out
     assert "hello world" in mirror_out
+    events = db.list_events(run.id)
+    completed = next(e for e in events if e.event_type == "step_completed")
+    outputs_meta = completed.metadata["outputs"]
+    assert outputs_meta["protocol"].endswith("outputs/exec.md")
+    assert outputs_meta["aux"]["mirror"].endswith("outputs/mirror.md")
 
 
 def test_spec_validation_failure_blocks_execution(tmp_path, monkeypatch) -> None:
