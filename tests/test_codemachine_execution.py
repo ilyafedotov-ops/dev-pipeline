@@ -186,3 +186,38 @@ def test_codemachine_exec_uses_spec_prompt_outside_codemachine(tmp_path) -> None
     events = db.list_events(run.id)
     completed = next(e for e in events if e.event_type == "codemachine_step_completed")
     assert completed.metadata["prompt_versions"]["exec"] == fingerprint_file(external_prompt)
+
+
+def test_codemachine_outputs_follow_spec_map(tmp_path) -> None:
+    _register_fake_engine()
+    db = Database(tmp_path / "db.sqlite")
+    db.init_schema()
+
+    workspace = _make_workspace(tmp_path)
+    project = db.create_project("demo", str(workspace), "main", None, None)
+    run = db.create_protocol_run(project.id, "9999-demo", ProtocolStatus.PLANNED, "main", str(workspace), str(workspace / ".codemachine"), "demo protocol")
+    codemachine_worker.import_codemachine_workspace(project.id, run.id, str(workspace), db)
+
+    run = db.get_protocol_run(run.id)
+    template_cfg = copy.deepcopy(run.template_config or {})
+    spec = template_cfg.get(PROTOCOL_SPEC_KEY) or {}
+    steps = spec.get("steps") or []
+    if steps:
+        steps[0]["outputs"] = {"protocol": "outputs/spec-protocol.md", "aux": {"codemachine": "outputs/spec-cm.md"}}
+    template_cfg[PROTOCOL_SPEC_KEY] = spec
+    db.update_protocol_template(run.id, template_cfg, run.template_source)
+
+    step = db.list_step_runs(run.id)[0]
+    codex_worker.handle_execute_step(step.id, db)
+
+    proto_out = workspace / "outputs" / "spec-protocol.md"
+    cm_out = workspace / "outputs" / "spec-cm.md"
+    assert proto_out.exists()
+    assert cm_out.exists()
+    assert proto_out.read_text(encoding="utf-8")
+    assert cm_out.read_text(encoding="utf-8")
+
+    event = next(e for e in db.list_events(run.id) if e.event_type == "codemachine_step_completed")
+    outputs_meta = event.metadata["outputs"]
+    assert outputs_meta["protocol"].endswith("spec-protocol.md")
+    assert outputs_meta["aux"]["codemachine"].endswith("spec-cm.md")

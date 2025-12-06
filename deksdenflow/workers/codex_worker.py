@@ -41,6 +41,7 @@ from deksdenflow.spec import (
     create_steps_from_spec,
     get_step_spec,
     protocol_spec_hash,
+    resolve_outputs_map,
     resolve_spec_path,
     update_spec_meta,
     validate_step_spec_paths,
@@ -572,27 +573,21 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
         else:
             db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
         return
-    # If outputs are specified in the spec, write stdout to those paths as well.
-    if outputs_cfg and isinstance(outputs_cfg, dict):
-        stdout_text = ""
-        if exec_result and getattr(exec_result, "stdout", None):
-            stdout_text = exec_result.stdout
-        protocol_output = outputs_cfg.get("protocol")
-        if protocol_output:
-            proto_path = Path(protocol_output)
-            if not proto_path.is_absolute():
-                proto_path = (worktree / proto_path).resolve()
-            proto_path.parent.mkdir(parents=True, exist_ok=True)
-            if stdout_text:
-                proto_path.write_text(stdout_text, encoding="utf-8")
-        aux_outputs = outputs_cfg.get("aux") if isinstance(outputs_cfg, dict) else {}
-        if aux_outputs and isinstance(aux_outputs, dict) and stdout_text:
-            for _, path_val in aux_outputs.items():
-                out_path = Path(path_val)
-                if not out_path.is_absolute():
-                    out_path = (worktree / out_path).resolve()
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(stdout_text, encoding="utf-8")
+    stdout_text = exec_result.stdout if exec_result and getattr(exec_result, "stdout", None) else ""
+    default_protocol_out = (protocol_root / step.step_name).resolve()
+    resolved_protocol_out, resolved_aux_outs = resolve_outputs_map(
+        outputs_cfg,
+        base=protocol_root,
+        workspace=worktree,
+        default_protocol=default_protocol_out,
+        default_aux={},
+    )
+    resolved_protocol_out.parent.mkdir(parents=True, exist_ok=True)
+    if stdout_text:
+        resolved_protocol_out.write_text(stdout_text, encoding="utf-8")
+        for out_path in resolved_aux_outs.values():
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(stdout_text, encoding="utf-8")
 
     pushed = git_push_and_open_pr(worktree, run.protocol_name, run.base_branch)
     if pushed:
@@ -609,7 +604,10 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
             "protocol_run_id": run.id,
             "step_run_id": step.id,
             "estimated_tokens": {"exec": exec_tokens},
-            "outputs": outputs_cfg,
+            "outputs": {
+                "protocol": str(resolved_protocol_out),
+                "aux": {k: str(v) for k, v in resolved_aux_outs.items()} if resolved_aux_outs else {},
+            },
             "prompt_versions": {"exec": prompt_ver},
             "spec_hash": spec_hash_val,
             "spec_validated": True,
@@ -634,37 +632,6 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
             metadata={"source": "auto_after_exec"},
         )
         handle_quality(step.id, db)
-
-
-def _resolve_output_paths_from_spec(
-    outputs: Optional[dict],
-    workspace: Path,
-    codemachine_root: Path,
-    run: ProtocolRun,
-    step: StepRun,
-    agent_id: str,
-):
-    """Resolve protocol/aux output paths from spec if present; fallback to default helper."""
-    default_protocol, default_codemachine = output_paths(workspace, codemachine_root, run, step, agent_id)
-    if not outputs:
-        return default_protocol, default_codemachine
-    protocol_path = outputs.get("protocol")
-    if protocol_path:
-        protocol_path = Path(protocol_path)
-        if not protocol_path.is_absolute():
-            protocol_path = (workspace / protocol_path).resolve()
-    else:
-        protocol_path = default_protocol
-    aux = outputs.get("aux") if isinstance(outputs, dict) else {}
-    cm_path = None
-    if isinstance(aux, dict):
-        cm_out = aux.get("codemachine")
-        if cm_out:
-            cm_path = Path(cm_out)
-            if not cm_path.is_absolute():
-                cm_path = (workspace / cm_path).resolve()
-    codemachine_path = cm_path or default_codemachine
-    return protocol_path, codemachine_path
 
 
 def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config, db: BaseDatabase, step_spec: Optional[dict] = None) -> None:
@@ -784,11 +751,22 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
 
     output_text = result.stdout or ""
     outputs_cfg = step_spec.get("outputs") if step_spec else None
-    protocol_output_path, codemachine_output_path = _resolve_output_paths_from_spec(outputs_cfg, workspace, codemachine_root, run, step, agent_id)
+    default_protocol, default_codemachine = output_paths(workspace, codemachine_root, run, step, agent_id)
+    protocol_output_path, aux_outputs = resolve_outputs_map(
+        outputs_cfg,
+        base=codemachine_root,
+        workspace=workspace,
+        default_protocol=default_protocol,
+        default_aux={"codemachine": default_codemachine},
+        prefer_workspace=True,
+    )
     protocol_output_path.parent.mkdir(parents=True, exist_ok=True)
-    codemachine_output_path.parent.mkdir(parents=True, exist_ok=True)
-    protocol_output_path.write_text(output_text, encoding="utf-8")
-    codemachine_output_path.write_text(output_text, encoding="utf-8")
+    for aux_path in aux_outputs.values():
+        aux_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_text:
+        protocol_output_path.write_text(output_text, encoding="utf-8")
+        for aux_path in aux_outputs.values():
+            aux_path.write_text(output_text, encoding="utf-8")
 
     db.update_step_status(
         step.id,
@@ -807,7 +785,10 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
             "model": model,
             "prompt_path": str(prompt_path),
             "prompt_versions": {"exec": cm_prompt_ver},
-            "outputs": {"protocol": str(protocol_output_path), "codemachine": str(codemachine_output_path)},
+            "outputs": {
+                "protocol": str(protocol_output_path),
+                "aux": {k: str(v) for k, v in aux_outputs.items()} if aux_outputs else {},
+            },
             "result_metadata": result.metadata,
             "spec_hash": spec_hash_val,
             "spec_validated": True,

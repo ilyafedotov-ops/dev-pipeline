@@ -74,7 +74,7 @@ def _resolve_path_candidates(path_value: str, base: Path, workspace: Path) -> tu
     return resolved, candidates
 
 
-def _resolve_output_path(path_value: str, base: Path, workspace: Path) -> Path:
+def _resolve_output_path(path_value: str, base: Path, workspace: Path, *, prefer_workspace: bool = False) -> Path:
     """
     Resolve an output path, preferring a candidate whose parent exists even if the
     file itself has not been created yet.
@@ -82,8 +82,11 @@ def _resolve_output_path(path_value: str, base: Path, workspace: Path) -> Path:
     path = Path(path_value)
     if path.is_absolute():
         return path
-    candidates: List[Path] = [(base / path).resolve()]
-    if workspace != base:
+    candidates: List[Path] = []
+    if prefer_workspace and workspace != base:
+        candidates.append((workspace / path).resolve())
+    candidates.append((base / path).resolve())
+    if not prefer_workspace and workspace != base:
         candidates.append((workspace / path).resolve())
     for cand in candidates:
         if cand.parent.exists():
@@ -314,3 +317,29 @@ def validate_protocol_spec(base: Path, spec: Dict[str, Any], workspace: Optional
         errs = validate_step_spec_paths(base, step, workspace=workspace)
         errors.extend([f"{step_name}: {e}" for e in errs])
     return errors
+
+
+def resolve_outputs_map(
+    outputs_cfg: Optional[dict],
+    *,
+    base: Path,
+    workspace: Path,
+    default_protocol: Path,
+    default_aux: Optional[Dict[str, Path]] = None,
+    prefer_workspace: bool = False,
+) -> tuple[Path, Dict[str, Path]]:
+    """
+    Resolve protocol/aux output paths for a step. Falls back to provided
+    defaults when spec values are absent. All returned paths are absolute.
+    """
+    protocol_path = default_protocol
+    aux_paths: Dict[str, Path] = dict(default_aux or {})
+    if outputs_cfg and isinstance(outputs_cfg, dict):
+        protocol_output = outputs_cfg.get("protocol")
+        if protocol_output:
+            protocol_path = _resolve_output_path(str(protocol_output), base, workspace, prefer_workspace=prefer_workspace)
+        aux_cfg = outputs_cfg.get("aux") if isinstance(outputs_cfg.get("aux"), dict) else {}
+        if isinstance(aux_cfg, dict):
+            for key, path_val in aux_cfg.items():
+                aux_paths[key] = _resolve_output_path(str(path_val), base, workspace, prefer_workspace=prefer_workspace)
+    return protocol_path, aux_paths
