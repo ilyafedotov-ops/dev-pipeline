@@ -2,15 +2,15 @@
 
 Both GitHub Actions and GitLab CI call the same shell hooks under `scripts/ci/`. Replace the stubs with real commands for your stack.
 
-## Scripts to implement (fill these)
+## Scripts implemented
 
-- `scripts/ci/bootstrap.sh` — install deps, set up toolchains. Examples: `npm ci`, `pip install -r requirements.txt`, `go mod download`, `mvn -B -DskipTests dependency:resolve`.
-- `scripts/ci/lint.sh` — static checks/linters. Examples: `npm run lint`, `ruff .`, `golangci-lint run ./...`, `mvn -B -DskipTests checkstyle:check`.
-- `scripts/ci/typecheck.sh` — type safety. Examples: `npm run typecheck`, `mypy .`, `tsc --noEmit`, `pyright`, `go vet ./...`.
-- `scripts/ci/test.sh` — automated tests. Examples: `npm test`, `pytest`, `go test ./...`, `mvn -B test`.
-- `scripts/ci/build.sh` — optional build/package step. Examples: `npm run build`, `go build ./...`, `mvn -B package`.
+- `scripts/ci/bootstrap.sh` — creates `.venv`, installs `requirements-orchestrator.txt` + `ruff`, exports `DEKSDENFLOW_DB_PATH=/tmp/deksdenflow-ci.sqlite` and `DEKSDENFLOW_REDIS_URL=fakeredis://`.
+- `scripts/ci/lint.sh` — `ruff check deksdenflow scripts tests --select E9,F63,F7,F82` (syntax/undefined names).
+- `scripts/ci/typecheck.sh` — `compileall` + import smoke for `deksdenflow.config`, API app, and CLI entrypoints.
+- `scripts/ci/test.sh` — `pytest -q --disable-warnings --maxfail=1` with fakeredis and temp SQLite.
+- `scripts/ci/build.sh` — `docker build -t deksdenflow-ci .` if Docker exists; otherwise `docker-compose config -q`.
 
-Each script should exit non-zero on failure and print useful logs. The pipelines skip a step if the script is missing or not executable, so you can adopt gradually.
+Each script exits non-zero on failure and reports status via `scripts/ci/report.sh` when configured.
 
 ## Local parity
 

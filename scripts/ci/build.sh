@@ -9,6 +9,14 @@ report_status() {
 }
 trap 'report_status failure' ERR
 
-echo "[ci] build: no commands defined yet. Replace with your build/package step (npm run build / go build ./... / cargo build --release)."
+if command -v docker >/dev/null 2>&1; then
+  DOCKER_BUILDKIT=1 docker build --pull -t deksdenflow-ci .
+  echo "[ci] build: docker image built (tag=deksdenflow-ci)."
+elif command -v docker-compose >/dev/null 2>&1; then
+  docker-compose config -q
+  echo "[ci] build: docker not available; validated docker-compose config instead."
+else
+  echo "[ci] build: docker/docker-compose not available; skipping build."
+fi
 
 report_status success

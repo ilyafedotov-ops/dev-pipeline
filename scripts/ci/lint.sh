@@ -9,6 +9,18 @@ report_status() {
 }
 trap 'report_status failure' ERR
 
-echo "[ci] lint: no commands defined yet. Replace this with your linters (npm run lint / ruff . / golangci-lint run ./...)."
+VENV_PATH="${VENV_PATH:-.venv}"
+RUFF_BIN="${RUFF_BIN:-${VENV_PATH}/bin/ruff}"
+
+if [ ! -x "${RUFF_BIN}" ]; then
+  echo "[ci] lint: ruff not found at ${RUFF_BIN}. Did bootstrap run?" >&2
+  exit 1
+fi
+
+export PYTHONPATH="${PYTHONPATH:-.}"
+
+# Focus on runtime-breaking issues (syntax/undefined names).
+"${RUFF_BIN}" check deksdenflow scripts tests --select E9,F63,F7,F82
+echo "[ci] lint: ruff error checks (E9,F63,F7,F82) passed."
 
 report_status success
