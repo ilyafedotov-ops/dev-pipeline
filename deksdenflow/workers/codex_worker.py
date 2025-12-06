@@ -852,6 +852,19 @@ def _handle_codemachine_execute(step: StepRun, run: ProtocolRun, project, config
             "spec_hash": spec_hash_val,
         },
     )
+    db.append_event(
+        step.protocol_run_id,
+        "step_started",
+        "Executing step via CodeMachine.",
+        step_run_id=step.id,
+        metadata={
+            "engine_id": engine_id,
+            "model": model,
+            "prompt_path": str(prompt_path),
+            "prompt_versions": {"exec": cm_prompt_ver},
+            "spec_hash": spec_hash_val,
+        },
+    )
     try:
         result = engine.execute(exec_request)
     except Exception as exc:  # pragma: no cover - best effort

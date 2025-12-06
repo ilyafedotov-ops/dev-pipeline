@@ -94,7 +94,13 @@ def test_codemachine_execute_writes_outputs_and_events(tmp_path) -> None:
     events = db.list_events(run.id)
     types = [e.event_type for e in events]
     assert "codemachine_step_completed" in types
+    assert "step_started" in types
     assert "step_completed" in types
+    started = next(e for e in events if e.event_type == "step_started")
+    assert started.metadata["engine_id"] == "fake-engine"
+    assert started.metadata["model"] == "fake-model"
+    assert started.metadata["prompt_path"].endswith("build.md")
+    assert started.metadata["prompt_versions"]["exec"] == fingerprint_file(workspace / ".codemachine" / "prompts" / "build.md")
     completed = next(e for e in events if e.event_type == "step_completed")
     outputs_meta = completed.metadata.get("outputs")
     assert outputs_meta["protocol"].endswith(f"{step.step_name}.md")
