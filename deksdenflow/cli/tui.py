@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Grid, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import ModalScreen
@@ -138,12 +138,7 @@ class TokenConfigScreen(ModalScreen[Optional[Dict[str, str]]]):
 
 class TuiDashboard(App):
     CSS = """
-    Screen {
-        layout: grid;
-        grid-size: 3 5;
-        grid-rows: auto 1fr 1fr auto auto;
-        grid-columns: 1fr 1fr 1fr;
-    }
+    Screen { layout: vertical; }
 
     Header {
         dock: top;
@@ -154,22 +149,14 @@ class TuiDashboard(App):
         background: $surface-darken-1;
     }
 
+    #main { layout: horizontal; height: 1fr; }
+    #left, #middle, #right { width: 1fr; padding: 1; }
     #projects-panel, #protocols-panel, #steps-panel, #events-panel, #step-details {
         border: solid $surface-darken-2;
         padding: 1;
     }
-    #projects-panel { grid-column: 1; grid-row-start: 2; grid-row-end: 4; }
-    #protocols-panel { grid-column: 2; grid-row: 2; }
-    #steps-panel { grid-column: 2; grid-row: 3; }
-    #events-panel { grid-column: 3; grid-row-start: 2; grid-row-end: 4; }
-    #step-details { grid-column-start: 1; grid-column-end: 4; grid-row: 4; }
-    #status_bar {
-        grid-column-start: 1;
-        grid-column-end: 4;
-        grid-row: 5;
-        height: 3;
-        padding: 0 1;
-    }
+    #step-details { padding: 1; }
+    #status_bar { padding: 0 1; height: 3; }
     .title { color: $primary; }
     .pill { border: tall $primary; padding: 0 1; }
     #step_meta, #step_policy, #step_runtime { padding: 0 1; }
@@ -211,21 +198,27 @@ class TuiDashboard(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
-        with Grid(id="layout"):
-            with Vertical(id="projects-panel"):
-                yield Static("Projects", classes="title")
-                yield ListView(id="projects")
-            with Vertical(id="protocols-panel"):
-                yield Static("Protocols", classes="title")
-                yield ListView(id="protocols")
-            with Vertical(id="steps-panel"):
-                yield Static("Steps", classes="title")
-                yield ListView(id="steps")
-            with VerticalScroll(id="events-panel"):
-                yield Static("Events", classes="title")
-                yield ListView(id="events")
-                yield LoadingIndicator(id="loader", classes="hidden")
+        with Vertical(id="layout"):
+            with Horizontal(id="main"):
+                with Vertical(id="left"):
+                    with Vertical(id="projects-panel"):
+                        yield Static("Projects", classes="title")
+                        yield ListView(id="projects")
+                    with Vertical(id="protocols-panel"):
+                        yield Static("Protocols", classes="title")
+                        yield ListView(id="protocols")
+                with Vertical(id="middle"):
+                    with Vertical(id="steps-panel"):
+                        yield Static("Steps", classes="title")
+                        yield ListView(id="steps")
+                with VerticalScroll(id="right"):
+                    with Vertical(id="events-panel"):
+                        yield Static("Events", classes="title")
+                        yield ListView(id="events")
+                        yield LoadingIndicator(id="loader", classes="hidden")
             with Vertical(id="step-details"):
+                yield Static("Protocol", classes="title")
+                yield Static("", id="protocol_meta")
                 yield Static("Step details", classes="title")
                 yield Static("", id="step_meta")
                 yield Static("Policy (loop/trigger)", classes="title")
