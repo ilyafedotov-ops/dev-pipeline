@@ -13,7 +13,7 @@ class Config(BaseModel):
     - DEKSDENFLOW_DB_URL (preferred) or DEKSDENFLOW_DB_PATH for SQLite fallback.
     - DEKSDENFLOW_ENV (default: local)
     - DEKSDENFLOW_API_TOKEN (optional bearer token)
-    - DEKSDENFLOW_REDIS_URL (queue backend; empty uses in-memory)
+    - DEKSDENFLOW_REDIS_URL (queue backend; required, use fakeredis:// for tests)
     - DEKSDENFLOW_LOG_LEVEL (default: INFO)
     - DEKSDENFLOW_WEBHOOK_TOKEN (optional shared secret)
     - PROTOCOL_*_MODEL (defaults for planning/decompose/exec/QA)
