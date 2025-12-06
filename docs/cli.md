@@ -82,16 +82,12 @@ Note: the TUI requires an interactive terminal (TTY). If running in a non-intera
 The right-hand panel shows engine/model info plus loop/trigger policy and runtime state for the selected step.
 
 Keybindings:
-- `r`: refresh
-- `n`: run next step
-- `t`: retry latest step
-- `y`: run QA on latest step
-- `a`: approve latest step
-- `o`: open PR
-- `i`: import CodeMachine workspace (opens a modal)
-- `q`: quit
+- Global: `r` refresh, `?` bindings, `tab/shift+tab` cycle panes, `c` configure API/token, `q` quit.
+- Steps: `enter` action menu; `n` run next; `t` retry latest; `y` run QA; `a` approve; `o` open PR; `f` cycle step filter (all/pending/running/needs_qa/failed).
+- CodeMachine: `i` import workspace (modal with path + enqueue option).
 
 Columns show projects/protocols/steps/events; selections drive the actions above.
+If the API is down or widgets are missing, errors are logged to the status bar; start the API first. The API base defaults to `http://localhost:8010` and can be updated via the `c` modal.
 
 ## Quick setup & URLs
 
