@@ -139,11 +139,24 @@ def _budget_and_tokens(prompt_text: str, model: str, phase: str, token_budget_mo
     return estimated
 
 
-def _resolve_codex_exec_context(step: StepRun, run: ProtocolRun, project, step_spec: Optional[dict] = None) -> tuple[Path, Path, Path, Path, str, Optional[dict], list[str]]:
+def _resolve_codex_context(
+    step: StepRun,
+    run: ProtocolRun,
+    project,
+    step_spec: Optional[dict],
+):
     """
-    Resolve repo/worktree/protocol paths, the prompt text, and outputs config for Codex execution based on step spec.
+    Resolve prompt, engine/model, outputs, and paths for a Codex-backed step.
+    Returns (context_dict, validation_errors).
     """
     step_spec = step_spec or get_step_spec(run.template_config, step.step_name)
+    template_cfg = run.template_config or {}
+    spec_hash_val = None
+    if isinstance(template_cfg, dict):
+        tmpl_spec = template_cfg.get(PROTOCOL_SPEC_KEY)
+        if tmpl_spec:
+            spec_hash_val = protocol_spec_hash(tmpl_spec)
+
     repo_root = Path(project.git_url) if Path(project.git_url).exists() else detect_repo_root()
     worktree = load_project(repo_root, run.protocol_name, run.base_branch)
     protocol_root = worktree / ".protocols" / run.protocol_name
@@ -164,9 +177,41 @@ def _resolve_codex_exec_context(step: StepRun, run: ProtocolRun, project, step_s
     step_content = step_path.read_text(encoding="utf-8") if step_path.exists() else ""
     exec_prompt = execute_step_prompt(run.protocol_name, run.protocol_name.split("-")[0], plan_md, step_path.name, step_content)
     outputs_cfg = step_spec.get("outputs") if step_spec else None
-    # Emit validation info to caller.
-    errors = validate_step_spec_paths(protocol_root, step_spec or {}, workspace=worktree)
-    return repo_root, worktree, protocol_root, step_path, exec_prompt, outputs_cfg, errors
+    resolved_protocol_out: Optional[Path] = None
+    resolved_aux_outs: Dict[str, Path] = {}
+    if outputs_cfg:
+        default_protocol_out = step_path if step_path else (protocol_root / step.step_name).resolve()
+        resolved_protocol_out, resolved_aux_outs = resolve_outputs_map(
+            outputs_cfg,
+            base=protocol_root,
+            workspace=worktree,
+            default_protocol=default_protocol_out,
+            default_aux={},
+            prefer_workspace=True,
+        )
+    spec_errors = validate_step_spec_paths(protocol_root, step_spec or {}, workspace=worktree)
+    exec_model = (
+        (step_spec.get("model") if step_spec else None)
+        or step.model
+        or (project.default_models.get("exec") if project.default_models else None)
+        or "codex-5.1-max-xhigh"
+    )
+    engine_id = (step_spec.get("engine_id") if step_spec else None) or step.engine_id or registry.get_default().metadata.id
+    ctx = {
+        "repo_root": repo_root,
+        "worktree": worktree,
+        "protocol_root": protocol_root,
+        "step_path": step_path,
+        "exec_prompt": exec_prompt,
+        "prompt_version": prompt_version(step_path),
+        "outputs_cfg": outputs_cfg,
+        "protocol_output_path": resolved_protocol_out,
+        "aux_outputs": resolved_aux_outs,
+        "spec_hash": spec_hash_val,
+        "engine_id": engine_id,
+        "model": exec_model,
+    }
+    return ctx, spec_errors
 
 
 def _protocol_and_workspace_paths(run: ProtocolRun, project) -> tuple[Path, Path]:
@@ -583,7 +628,16 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
             )
             handle_quality(step.id, db)
         return
-    repo_root, worktree, protocol_root, step_path, exec_prompt, outputs_cfg, spec_errors = _resolve_codex_exec_context(step, run, project, step_spec=step_spec)
+    ctx, spec_errors = _resolve_codex_context(step, run, project, step_spec)
+    repo_root = ctx["repo_root"]
+    worktree = ctx["worktree"]
+    protocol_root = ctx["protocol_root"]
+    step_path = ctx["step_path"]
+    exec_prompt = ctx["exec_prompt"]
+    outputs_cfg = ctx["outputs_cfg"]
+    resolved_protocol_out = ctx["protocol_output_path"]
+    resolved_aux_outs = ctx["aux_outputs"]
+    spec_hash_val = spec_hash_val or ctx.get("spec_hash")
     if spec_errors:
         for err in spec_errors:
             db.append_event(
@@ -596,17 +650,12 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
         db.update_step_status(step.id, StepStatus.FAILED, summary="Spec validation failed")
         db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
         return
-    exec_model = (
-        (step_spec.get("model") if step_spec else None)
-        or step.model
-        or (project.default_models.get("exec") if project.default_models else None)
-        or "codex-5.1-max-xhigh"
-    )
+    exec_model = ctx["model"]
     exec_tokens = _budget_and_tokens(exec_prompt, exec_model, "exec", config.token_budget_mode, budget_limit)
 
-    engine_id = (step_spec.get("engine_id") if step_spec else None) or step.engine_id or registry.get_default().metadata.id
+    engine_id = ctx["engine_id"]
     engine = registry.get(engine_id)
-    prompt_ver = prompt_version(step_path)
+    prompt_ver = ctx["prompt_version"]
     exec_request = EngineRequest(
         project_id=project.id,
         protocol_run_id=run.id,
@@ -648,20 +697,13 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
             db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
         return
     stdout_text = exec_result.stdout if exec_result and getattr(exec_result, "stdout", None) else ""
-    default_protocol_out = (protocol_root / step.step_name).resolve()
-    resolved_protocol_out, resolved_aux_outs = resolve_outputs_map(
-        outputs_cfg,
-        base=protocol_root,
-        workspace=worktree,
-        default_protocol=default_protocol_out,
-        default_aux={},
-    )
-    resolved_protocol_out.parent.mkdir(parents=True, exist_ok=True)
-    if stdout_text:
-        resolved_protocol_out.write_text(stdout_text, encoding="utf-8")
-        for out_path in resolved_aux_outs.values():
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(stdout_text, encoding="utf-8")
+    if outputs_cfg and resolved_protocol_out:
+        resolved_protocol_out.parent.mkdir(parents=True, exist_ok=True)
+        if stdout_text:
+            resolved_protocol_out.write_text(stdout_text, encoding="utf-8")
+            for out_path in resolved_aux_outs.values():
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(stdout_text, encoding="utf-8")
 
     pushed = git_push_and_open_pr(worktree, run.protocol_name, run.base_branch)
     if pushed:
@@ -678,10 +720,14 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase) -> None:
             "protocol_run_id": run.id,
             "step_run_id": step.id,
             "estimated_tokens": {"exec": exec_tokens},
-            "outputs": {
-                "protocol": str(resolved_protocol_out),
-                "aux": {k: str(v) for k, v in resolved_aux_outs.items()} if resolved_aux_outs else {},
-            },
+            "outputs": (
+                {
+                    "protocol": str(resolved_protocol_out),
+                    "aux": {k: str(v) for k, v in resolved_aux_outs.items()} if resolved_aux_outs else {},
+                }
+                if resolved_protocol_out
+                else outputs_cfg
+            ),
             "prompt_versions": {"exec": prompt_ver},
             "spec_hash": spec_hash_val,
             "spec_validated": True,
