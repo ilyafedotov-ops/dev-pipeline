@@ -37,3 +37,8 @@ This is an append-only log:
 - Env: `TASKSGODZILLA_REDIS_URL=fakeredis://`, `TASKSGODZILLA_DB_PATH=/tmp/tasksgodzilla-ci.sqlite`, `VENV_PATH=.venv`, worktree venv active.
 - Execution: `.venv/bin/python scripts/demo_harness.py` (passed, 1 test); collected harness planning output to `.protocols/0002-demo-app-workflow/artifacts/step-03/planning.json`.
 - Observations: fakeredis inline worker processed jobs; no errors. CI already green from earlier; no code changes beyond artifacts/log/context.
+
+## Step 4 — Validate and stabilize
+- Evidence: demo harness run logs (stdout); artifact `artifacts/step-03/planning.json` present. No additional outputs required for the harness scenario.
+- Validation: reran local CI via worktree venv — `scripts/ci/lint.sh`, `scripts/ci/typecheck.sh`, `scripts/ci/test.sh` all passed (no failures to triage).
+- No regressions observed; nothing new to fix. Next step: finalize (update context, prepare final report/PR state).
