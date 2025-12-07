@@ -13,3 +13,8 @@ This is an append-only log:
 6. Push branch to origin and open a draft PR to `main` summarizing protocol 0002 scope and current status.
 7. Update `.protocols/0002-demo-app-workflow/context.md` to `Current Step` 1, `Status` In Progress, and `Next Action` pointing to Step 1; leave this change uncommitted.
 8. Append log.md with commit hash, check results, PR link, and any gotchas; verify `main` has no stray files from this branch after push.
+
+## Step 0 — Execution log
+- Generated protocol artifacts via Codex planning/decompose; committed as `chore: add protocol plan [protocol-0002/00]` (27b228c) on branch `0002-demo-app-workflow`.
+- CI checks from worktree using root venv: `scripts/ci/lint.sh`, `scripts/ci/typecheck.sh`, `scripts/ci/test.sh` all passed (VENV_PATH=/home/ilya/Documents/dev-pipeline/.venv).
+- Draft PR opened to main for tracking: https://github.com/ilyafedotov-ops/dev-pipeline/pull/1.
