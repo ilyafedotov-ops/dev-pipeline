@@ -146,6 +146,20 @@ def _repo_root_or_block(
     return repo_root
 
 
+def _remote_branch_exists(repo_root: Path, branch: str) -> bool:
+    try:
+        result = run_process(
+            ["git", "ls-remote", "--exit-code", "--heads", "origin", f"refs/heads/{branch}"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def _enqueue_trigger_target(
     step_run_id: int,
     protocol_run_id: int,
@@ -535,6 +549,7 @@ def git_push_and_open_pr(
     job_id: Optional[str] = None,
 ) -> bool:
     pushed = False
+    branch_exists = False
     try:
         run_process(["git", "add", "."], cwd=worktree, capture_output=True, text=True)
         run_process(
@@ -551,6 +566,7 @@ def git_push_and_open_pr(
         )
         pushed = True
     except Exception as exc:
+        branch_exists = _remote_branch_exists(worktree, protocol_name)
         log.warning(
             "Failed to push branch",
             extra={
@@ -559,9 +575,11 @@ def git_push_and_open_pr(
                 "base_branch": base_branch,
                 "error": str(exc),
                 "error_type": exc.__class__.__name__,
+                "branch_exists": branch_exists,
             },
         )
-        return False
+        if not branch_exists:
+            return False
     # Attempt PR/MR creation if CLI is available
     if shutil.which("gh"):
         try:
@@ -603,7 +621,7 @@ def git_push_and_open_pr(
             )
         except Exception:
             pass
-    return pushed
+    return pushed or branch_exists
 
 
 def trigger_ci_pipeline(
@@ -968,6 +986,24 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
             )
             if triggered:
                 db.append_event(step.protocol_run_id, "ci_triggered", "CI triggered after push.", step_run_id=step.id, metadata={"branch": run.protocol_name})
+        else:
+            if _remote_branch_exists(ctx.repo_root, run.protocol_name):
+                db.append_event(
+                    step.protocol_run_id,
+                    "open_pr_branch_exists",
+                    "Branch already exists remotely; skipping push/PR.",
+                    step_run_id=step.id,
+                    metadata={"branch": run.protocol_name},
+                )
+            else:
+                db.append_event(
+                    step.protocol_run_id,
+                    "open_pr_failed",
+                    "Failed to push branch or open PR/MR.",
+                    step_run_id=step.id,
+                    metadata={"branch": run.protocol_name},
+                )
+                db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
     db.update_step_status(step.id, StepStatus.NEEDS_QA, summary="Executed via Codex; pending QA")
     outputs_meta = (
         {
@@ -1494,13 +1530,21 @@ def handle_open_pr(protocol_run_id: int, db: BaseDatabase, job_id: Optional[str]
                     metadata={"branch": run.protocol_name},
                 )
         else:
-            db.append_event(
-                run.id,
-                "open_pr_failed",
-                "Failed to push branch or open PR/MR.",
-                metadata={"branch": run.protocol_name},
-            )
-            db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+            if _remote_branch_exists(repo_root, run.protocol_name):
+                db.append_event(
+                    run.id,
+                    "open_pr_branch_exists",
+                    "Branch already exists remotely; skipping push/PR.",
+                    metadata={"branch": run.protocol_name},
+                )
+            else:
+                db.append_event(
+                    run.id,
+                    "open_pr_failed",
+                    "Failed to push branch or open PR/MR.",
+                    metadata={"branch": run.protocol_name},
+                )
+                db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
     except Exception as exc:  # pragma: no cover - best effort
         log.warning(
             "Open PR job failed",
