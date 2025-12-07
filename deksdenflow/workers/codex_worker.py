@@ -550,14 +550,30 @@ def git_push_and_open_pr(
 ) -> bool:
     pushed = False
     branch_exists = False
+    commit_attempted = False
     try:
         run_process(["git", "add", "."], cwd=worktree, capture_output=True, text=True)
-        run_process(
-            ["git", "commit", "-m", f"chore: sync protocol {protocol_name}"],
-            cwd=worktree,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            commit_attempted = True
+            run_process(
+                ["git", "commit", "-m", f"chore: sync protocol {protocol_name}"],
+                cwd=worktree,
+                capture_output=True,
+                text=True,
+            )
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "nothing to commit" in msg or "no changes added to commit" in msg or "clean" in msg:
+                log.info(
+                    "No changes to commit; pushing existing branch state",
+                    extra={
+                        **_log_context(protocol_run_id=protocol_run_id, project_id=project_id, job_id=job_id),
+                        "protocol_name": protocol_name,
+                        "base_branch": base_branch,
+                    },
+                )
+            else:
+                raise
         run_process(
             ["git", "push", "--set-upstream", "origin", protocol_name],
             cwd=worktree,
@@ -576,10 +592,20 @@ def git_push_and_open_pr(
                 "error": str(exc),
                 "error_type": exc.__class__.__name__,
                 "branch_exists": branch_exists,
+                "commit_attempted": commit_attempted,
             },
         )
         if not branch_exists:
-            return False
+            try:
+                run_process(
+                    ["git", "push", "--set-upstream", "origin", protocol_name],
+                    cwd=worktree,
+                    capture_output=True,
+                    text=True,
+                )
+                return True
+            except Exception:
+                return False
     # Attempt PR/MR creation if CLI is available
     if shutil.which("gh"):
         try:
@@ -986,6 +1012,7 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
             )
             if triggered:
                 db.append_event(step.protocol_run_id, "ci_triggered", "CI triggered after push.", step_run_id=step.id, metadata={"branch": run.protocol_name})
+            db.update_protocol_status(run.id, ProtocolStatus.RUNNING)
         else:
             if _remote_branch_exists(ctx.repo_root, run.protocol_name):
                 db.append_event(
@@ -995,6 +1022,7 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
                     step_run_id=step.id,
                     metadata={"branch": run.protocol_name},
                 )
+                db.update_protocol_status(run.id, ProtocolStatus.RUNNING)
             else:
                 db.append_event(
                     step.protocol_run_id,
@@ -1529,6 +1557,7 @@ def handle_open_pr(protocol_run_id: int, db: BaseDatabase, job_id: Optional[str]
                     "CI triggered after PR/MR request.",
                     metadata={"branch": run.protocol_name},
                 )
+            db.update_protocol_status(run.id, ProtocolStatus.RUNNING)
         else:
             if _remote_branch_exists(repo_root, run.protocol_name):
                 db.append_event(
@@ -1537,6 +1566,7 @@ def handle_open_pr(protocol_run_id: int, db: BaseDatabase, job_id: Optional[str]
                     "Branch already exists remotely; skipping push/PR.",
                     metadata={"branch": run.protocol_name},
                 )
+                db.update_protocol_status(run.id, ProtocolStatus.RUNNING)
             else:
                 db.append_event(
                     run.id,
