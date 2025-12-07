@@ -13,6 +13,7 @@
 - Console now includes a recent activity feed backed by `/events` (project-filterable) so ops can monitor runs without drilling into each protocol.
 - CI reporter supports `DEKSDENFLOW_PROTOCOL_RUN_ID` to disambiguate branches when posting webhook-style status updates.
 - Observability: events capture request IDs, token budgets are enforced in Codex workers with estimated token counters, and job durations are exported as Prometheus histograms.
+- Logging: uvicorn runs with `log_config=None` so the shared formatter/filter stays active; workers/CodeMachine imports/loop+trigger flows now emit job/project/protocol/step IDs and errors via centralized `log_extra`.
 
 ## How to run now
 ```bash
@@ -24,11 +25,11 @@ Then start API: `.venv/bin/python scripts/api_server.py`
 # Redis URL required: set `DEKSDENFLOW_REDIS_URL` (use `fakeredis://` for local/testing).
 
 ## Next focus
-- Harden logging/error handling across all CLIs/workers with richer structured fields (protocol/step IDs everywhere).
 - Refine token accounting with real usage data instead of heuristic.
 - Extend Postgres path with connection pooling and Alembic-managed upgrades in CI.
 - Console/API polish: surface DB choice/status, expose migrations health endpoint, richer console filters.
+- Logging follow-ups: harmonize CLI-only print paths and CI shell helpers with the structured logger.
 
 ## Phase 0 gaps to close
-- Logging normalization: codex/CI helpers should emit structured fields (protocol/step IDs, branch) consistently.
+- Logging normalization: remaining gaps are CLI print paths and CI shell helpers that bypass the logger; everything else now emits protocol/step/job/project IDs.
 - Container hardening: publish images, add secrets templates for DB/Redis/API tokens, and include readiness/liveness for codex/generic workers.

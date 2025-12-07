@@ -6,7 +6,7 @@ from pathlib import Path
 
 from deksdenflow.codemachine import ConfigError, config_to_template_payload, load_codemachine_config
 from deksdenflow.domain import ProtocolStatus
-from deksdenflow.logging import get_logger
+from deksdenflow.logging import get_logger, log_extra
 from deksdenflow.spec import (
     PROTOCOL_SPEC_KEY,
     build_spec_from_codemachine_config,
@@ -79,10 +79,26 @@ def handle_import_job(payload: dict, db: BaseDatabase) -> None:
     except ConfigError as exc:
         db.append_event(run_id, "codemachine_import_failed", f"Config error: {exc}")
         db.update_protocol_status(run_id, ProtocolStatus.BLOCKED)
-        log.warning("CodeMachine import failed", extra={"protocol_run_id": run_id, "error": str(exc)})
+        log.warning(
+            "CodeMachine import failed",
+            extra={
+                **log_extra(job_id=payload.get("job_id"), project_id=project_id, protocol_run_id=run_id),
+                "workspace_path": workspace,
+                "error": str(exc),
+                "error_type": exc.__class__.__name__,
+            },
+        )
         raise
     except Exception as exc:  # pragma: no cover - best effort
         db.append_event(run_id, "codemachine_import_failed", f"Unexpected error: {exc}")
         db.update_protocol_status(run_id, ProtocolStatus.BLOCKED)
-        log.warning("CodeMachine import failed", extra={"protocol_run_id": run_id, "error": str(exc)})
+        log.warning(
+            "CodeMachine import failed",
+            extra={
+                **log_extra(job_id=payload.get("job_id"), project_id=project_id, protocol_run_id=run_id),
+                "workspace_path": workspace,
+                "error": str(exc),
+                "error_type": exc.__class__.__name__,
+            },
+        )
         raise

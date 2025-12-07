@@ -32,11 +32,11 @@ def process_job(job: Job, db: BaseDatabase) -> None:
         },
     )
     if job.job_type == "plan_protocol_job":
-        codex_worker.handle_plan_protocol(job.payload["protocol_run_id"], db)
+        codex_worker.handle_plan_protocol(job.payload["protocol_run_id"], db, job_id=job.job_id)
     elif job.job_type == "execute_step_job":
-        codex_worker.handle_execute_step(job.payload["step_run_id"], db)
+        codex_worker.handle_execute_step(job.payload["step_run_id"], db, job_id=job.job_id)
     elif job.job_type == "run_quality_job":
-        codex_worker.handle_quality(job.payload["step_run_id"], db)
+        codex_worker.handle_quality(job.payload["step_run_id"], db, job_id=job.job_id)
     elif job.job_type == "project_setup_job":
         onboarding_worker.handle_project_setup(
             job.payload["project_id"],
@@ -44,7 +44,7 @@ def process_job(job: Job, db: BaseDatabase) -> None:
             protocol_run_id=job.payload.get("protocol_run_id"),
         )
     elif job.job_type == "open_pr_job":
-        codex_worker.handle_open_pr(job.payload["protocol_run_id"], db)
+        codex_worker.handle_open_pr(job.payload["protocol_run_id"], db, job_id=job.job_id)
     elif job.job_type == "codemachine_import_job":
         codemachine_worker.handle_import_job(job.payload, db)
     elif job.job_type == "spec_audit_job":

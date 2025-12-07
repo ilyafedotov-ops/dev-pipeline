@@ -23,7 +23,8 @@ def main() -> None:
     host = os.environ.get("DEKSDENFLOW_API_HOST", "0.0.0.0")
     port = int(os.environ.get("DEKSDENFLOW_API_PORT", "8010"))
     try:
-        uvicorn.run("deksdenflow.api.app:app", host=host, port=port, reload=False)
+        # Allow our central logging config to drive output (structured/JSON) instead of uvicorn defaults.
+        uvicorn.run("deksdenflow.api.app:app", host=host, port=port, reload=False, log_config=None)
     except Exception as exc:  # pragma: no cover - best effort
         logger.error("API server failed", extra=log_extra(error=str(exc), error_type=exc.__class__.__name__))
         sys.exit(1)

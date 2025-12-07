@@ -4,7 +4,7 @@ and workers.
 """
 
 from deksdenflow.domain import ProtocolStatus, StepStatus
-from deksdenflow.logging import get_logger
+from deksdenflow.logging import get_logger, log_extra
 from deksdenflow.storage import BaseDatabase
 
 log = get_logger(__name__)
@@ -29,5 +29,5 @@ def maybe_complete_protocol(protocol_run_id: int, db: BaseDatabase) -> bool:
 
     run = db.update_protocol_status(protocol_run_id, ProtocolStatus.COMPLETED)
     db.append_event(protocol_run_id, "protocol_completed", "All steps completed; protocol closed.")
-    log.info("protocol_completed", extra={"protocol_run_id": run.id})
+    log.info("protocol_completed", extra=log_extra(protocol_run_id=run.id, project_id=run.project_id))
     return True

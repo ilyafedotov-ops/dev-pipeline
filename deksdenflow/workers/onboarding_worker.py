@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 from deksdenflow.domain import ProtocolStatus
-from deksdenflow.logging import get_logger
+from deksdenflow.logging import get_logger, log_extra
 from deksdenflow.project_setup import ensure_assets
 from deksdenflow.storage import BaseDatabase
 
@@ -57,6 +57,13 @@ def handle_project_setup(project_id: int, db: BaseDatabase, protocol_run_id: Opt
         db.update_protocol_status(protocol_run_id, ProtocolStatus.COMPLETED)
         db.append_event(protocol_run_id, "setup_completed", "Project setup job finished.")
     except Exception as exc:  # pragma: no cover - defensive
-        log.exception("Project setup failed", extra={"project": project_id})
+        log.exception(
+            "Project setup failed",
+            extra={
+                **log_extra(project_id=project_id, protocol_run_id=protocol_run_id),
+                "error": str(exc),
+                "error_type": exc.__class__.__name__,
+            },
+        )
         db.update_protocol_status(protocol_run_id, ProtocolStatus.FAILED)
         db.append_event(protocol_run_id, "setup_failed", f"Setup failed: {exc}")

@@ -133,7 +133,7 @@ flowchart LR
 
 ## Observability
 - Metrics: `/metrics` exposes Prometheus counters/histograms for requests, jobs, tokens, webhooks.
-- Logging: structured logs via `deksdenflow.logging` with request/job/step IDs; JSON toggle via env.
+- Logging: structured logs via `deksdenflow.logging` with request/job/project/protocol/step IDs; JSON toggle via env. API runs uvicorn with `log_config=None` so the central formatter/filter stays active; workers/QA/CI helpers pass job IDs through.
 - Events: persisted timeline per protocol/step; surfaced in console and `/events` API.
 
 ## Core building blocks
