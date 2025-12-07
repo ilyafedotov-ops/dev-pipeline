@@ -17,11 +17,18 @@ HTTP API for managing projects, protocol runs, steps, events, queues, and CI/web
 
 ## Projects
 - `POST /projects`
-  - Body: `{ "name": str, "git_url": str, "base_branch": "main", "ci_provider": str|null, "default_models": obj|null, "secrets": obj|null }`
+  - Body: `{ "name": str, "git_url": str, "base_branch": "main", "ci_provider": str|null, "default_models": obj|null, "secrets": obj|null, "local_path": str|null }`
   - Response: Project object with `id`, timestamps.
-  - Side effects: enqueues `project_setup_job` protocol run for onboarding progress visibility.
+  - Behavior: persists `local_path` when provided so future jobs resolve the repo without recomputing; falls back to cloning under `TASKSGODZILLA_PROJECTS_ROOT` when missing.
+  - Side effects: enqueues `project_setup_job` protocol run for onboarding progress visibility and onboarding clarifications.
 - `GET /projects` → list of projects.
 - `GET /projects/{id}` → project (401 if project token required and missing).
+- `GET /projects/{id}/branches`
+  - Response: `{ "branches": [str] }`
+  - Behavior: resolves repo via stored `local_path` or `git_url`; clones when allowed; records an event.
+- `POST /projects/{id}/branches/{branch:path}/delete`
+  - Body: `{ "confirm": true }` (required)
+  - Behavior: deletes the remote branch on origin, records an event; 409 when the repo is unavailable locally.
 
 ## CodeMachine import
 - `POST /projects/{id}/codemachine/import`

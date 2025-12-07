@@ -34,14 +34,14 @@ This document captures the current state of the system, the risks that block ful
 - **Job queue**: Redis/RQ/Celery or a DB-backed queue. Payloads carry only IDs; workers fetch context from the database. Per-job retry limits and exponential backoff govern behavior.
 - **Workers**:
   - Execution/QA Worker: uses ProtocolSpec/StepSpec and the engine registry (Codex + CodeMachine) to plan/decompose, resolve prompts/outputs, execute steps, and run QA; creates worktrees/protocol folders; writes artifacts; updates DB state; emits Events.
-  - Git/CI Worker: manages clones, worktrees, branch pushes, PR/MR creation, and processes CI/webhook signals to update statuses.
+  - Git/CI Worker: manages clones (persisting resolved local paths), worktrees, branch pushes, PR/MR creation, remote branch cleanup/listing, and processes CI/webhook signals to update statuses.
 - **Console**:
   - TUI (Rich/Textual) first for speed, consuming only the API.
   - Web UI later (React/Next.js or server-rendered) with dashboards, step timelines, QA verdicts, and controls to run/retry/approve steps.
 - **Onboarding wizard**: Frontend flow to register projects (git URL, base branch, CI platform, model defaults) and trigger `project_setup` jobs; displays progress via Events.
 
 ### 2.3 Domain model
-- **Project**: id, name, git_url, base_branch, CI provider, repo storage path, enabled protocol templates, default models/configs, org/team tags.
+- **Project**: id, name, git_url, base_branch, CI provider, persisted `local_path` (resolved clone path), enabled protocol templates, default models/configs, org/team tags.
 - **ProtocolRun**: id, project_id, protocol_name (`NNNN-[task]`), status (`pending`, `planning`, `planned`, `running`, `blocked`, `failed`, `completed`), base_branch, worktree_path, protocol_root.
 - **StepRun**: id, protocol_run_id, step_index, step_type (`setup`, `work`, `qa`), status, retries, Codex model used, last result summary.
 - **Event**: timestamped log with actor/context: step started/completed, QA verdicts, CI signals, approvals, failures.
@@ -53,6 +53,7 @@ This document captures the current state of the system, the risks that block ful
 
 ### 2.5 Core flows
 - **Project onboarding**: Console calls `/projects` to register; orchestrator enqueues `project_setup` job to clone and run `project_setup.py`/`codex_ci_bootstrap.py`; user selects models/QA strictness; project shows as ready.
+  - Repos resolve via stored `local_path` or namespaced clones under `TASKSGODZILLA_PROJECTS_ROOT`; onboarding records the path, configures git origin/identity when env vars are set, and emits clarifications (blocking when `TASKSGODZILLA_REQUIRE_ONBOARDING_CLARIFICATIONS=true`) for CI/model/branch policy choices.
 - **Open a protocol**: `/projects/{id}/protocols` creates a ProtocolRun; orchestrator enqueues `plan_protocol` to run planning/decomposition; artifacts live under `.protocols/NNNN-[task]/`.
 - **Execute steps**: `/steps/{id}/actions/run` dispatches execution; the execution worker resolves prompts/outputs from the StepSpec and dispatches via the engine registry; status and summaries recorded; optional auto-PR/MR via Git/CI Worker.
 - **QA loop**: `/steps/{id}/actions/run_qa` builds the QA context and runs the validator prompt; verdict updates StepRun and may block/unblock the protocol.

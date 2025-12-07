@@ -18,7 +18,7 @@ This plan turns the target architecture into executable work. Phases can run seq
 
 - 0.1 Stabilize the core package: move shared logic from `scripts/protocol_pipeline.py`, `scripts/quality_orchestrator.py`, `scripts/project_setup.py`, and `scripts/codex_ci_bootstrap.py` into `tasksgodzilla.*` modules with clean APIs. Keep behaviors parity with current CLIs.
 - 0.2 Thin CLIs: refactor each script to pure arg parsing plus a call into the library. Preserve flags and defaults; add unit tests around CLI entrypoints.
-- 0.3 Centralize configuration: introduce a Pydantic config object for paths, model defaults, retries, budgets, and CI settings. Replace ad hoc `os.environ[...]` reads with explicit config injection.
+- 0.3 Centralize configuration: introduce a Pydantic config object for paths (including `TASKSGODZILLA_PROJECTS_ROOT` and `local_path` overrides), model defaults, retries, budgets, and CI settings. Replace ad hoc `os.environ[...]` reads with explicit config injection.
 - 0.4 Standard logging and errors: add structured logging helpers, request/correlation IDs, and typed exceptions for Codex/Git/CI failures. Normalize exit codes for CLIs.
 - 0.5 Containerization: build `tasksgodzilla-core` image (library + CLIs) and optionally `codex-worker` image with tighter runtime limits. Document local vs. prod compose/Kubernetes layouts.
 
@@ -26,7 +26,7 @@ This plan turns the target architecture into executable work. Phases can run seq
 **Goal:** Introduce durable state for Projects, ProtocolRuns, StepRuns, and Events.
 
 - 1.1 Choose DB: Postgres for prod, SQLite for dev; wire connection management and pooling.
-- 1.2 Define schema: tables for projects, protocol_runs, step_runs, events with statuses, timestamps, git metadata, model selections, retries, summaries, prompt versions.
+- 1.2 Define schema: tables for projects, protocol_runs, step_runs, events with statuses, timestamps, git metadata (including persisted `local_path`), model selections, retries, summaries, prompt versions.
 - 1.3 Migrations: set up Alembic (or similar) with versioned migrations and CLI hooks.
 - 1.4 Data access layer: repositories/DAO or SQLAlchemy models for create/list/update per entity, plus event append helpers.
 - 1.5 Library integration: update protocol open/run/QA flows to create/update DB rows and emit events. Ensure idempotency on retries.
@@ -35,7 +35,7 @@ This plan turns the target architecture into executable work. Phases can run seq
 **Goal:** Single API surface for projects, protocols, and steps.
 
 - 2.1 API skeleton: FastAPI app with health, auth middleware, and dependency injection for config/DB.
-- 2.2 Endpoints: `/projects`, `/projects/{id}`, `/projects/{id}/protocols`, `/protocols/{id}`, `/protocols/{id}/steps`, `/steps/{id}` plus action endpoints (`start`, `run`, `run_qa`, `approve`, `pause/resume`, `cancel`).
+- 2.2 Endpoints: `/projects`, `/projects/{id}`, `/projects/{id}/branches` (list/delete), `/projects/{id}/protocols`, `/protocols/{id}`, `/protocols/{id}/steps`, `/steps/{id}` plus action endpoints (`start`, `run`, `run_qa`, `approve`, `pause/resume`, `cancel`).
 - 2.3 Workflows: handlers validate input, update DB state, and enqueue jobs (Phase 3). Include optimistic concurrency to avoid double-runs.
 - 2.4 Auth and tenancy: API tokens or basic auth; project/org scoping for multi-tenant readiness.
 - 2.5 Docs: OpenAPI/Swagger exposed; examples for common flows; smoke tests for happy paths.
@@ -46,7 +46,7 @@ This plan turns the target architecture into executable work. Phases can run seq
 - 3.1 Queue selection: Redis-backed (RQ/Celery) or DB-backed queue; configure serialization, visibility timeouts, and backoff policies.
 - 3.2 Job contracts: define payloads keyed by IDs (`project_id`, `protocol_run_id`, `step_run_id`). Job types: `project_setup_job`, `plan_protocol_job`, `execute_step_job`, `run_quality_job`, `open_pr_job`.
 - 3.3 Codex Worker: consume planning/execution/QA jobs; assemble context; call Codex via the library; write artifacts under `.protocols/NNNN-[task]/`; update DB status/events.
-- 3.4 Git/CI Worker: handle clones, worktrees, branch pushes, PR/MR creation, and CI webhook side effects. Reuse `scripts/ci_trigger.py` patterns where possible.
+- 3.4 Git/CI Worker: handle clones (persist resolved repo path back to Project), worktrees, branch pushes, PR/MR creation, remote branch listing/deletion, and CI webhook side effects. Reuse `scripts/ci_trigger.py` patterns where possible.
 - 3.5 Retry/error policies: per-job max attempts, exponential backoff caps, and terminal vs. recoverable failures mapped to StepRun/ProtocolRun statuses.
 - 3.6 Scheduler: periodic scan for pending/needs_qa steps to enqueue work; consider cron inside orchestrator or external scheduler.
 
@@ -56,7 +56,7 @@ This plan turns the target architecture into executable work. Phases can run seq
 - 4.1 UX flows: define onboarding (register project, run setup, pick models/QA strictness) and operations (project list, protocol table, step timeline).
 - 4.2 TUI console (fast path): implement with Rich/Textual consuming only the API; screens for projects, protocol runs, step details, recent events; controls to start/run/rerun/QA/approve.
 - 4.3 Web console (next): simple web frontend (React/Next.js or server-rendered) with auth; reuse the same API contracts and views.
-- 4.4 Onboarding integration: frontend calls `/projects` to register and shows job/event progress; orchestrator enqueues `project_setup_job`.
+- 4.4 Onboarding integration: frontend calls `/projects` to register and shows job/event progress; orchestrator enqueues `project_setup_job`, records the resolved `local_path`, configures git origin/identity when enabled, emits `setup_clarifications` with recommended CI/model/branch policies, and can block on responses when configured.
 - 4.5 Status/actions: surface buttons/shortcuts for “new protocol”, “run next step”, “retry step”, “run QA”, “open PR/MR now”, “manual approve”.
 
 ## Phase 5 – CI integration and automation loops

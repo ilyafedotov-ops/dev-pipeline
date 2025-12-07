@@ -14,6 +14,8 @@
 - CI reporter supports `TASKSGODZILLA_PROTOCOL_RUN_ID` to disambiguate branches when posting webhook-style status updates.
 - Observability: events capture request IDs, token budgets are enforced in Codex workers with estimated token counters, and job durations are exported as Prometheus histograms.
 - Logging: uvicorn runs with `log_config=None` so the shared formatter/filter stays active; workers/CodeMachine imports/loop+trigger flows now emit job/project/protocol/step IDs and errors via centralized `log_extra`. CLI prints are mirrored to structured logs and CI shell helpers emit JSON-style lines via `scripts/ci/logging.sh`.
+- Project onboarding improvements: Projects accept and persist `local_path`; onboarding resolves that path before cloning (namespaced under `TASKSGODZILLA_PROJECTS_ROOT`), records the resolved path, configures git origin (prefers GitHub SSH when enabled), optionally sets git identity from env, and emits `setup_clarifications` (blocking when configured) with recommended CI/model/branch policies.
+- Git/branch controls: new API endpoints to list remote branches and delete a branch on origin with confirmation; events are recorded for audit.
 
 ## How to run now
 ```bash
@@ -28,6 +30,7 @@ Then start API: `.venv/bin/python scripts/api_server.py`
 - Refine token accounting with real usage data instead of heuristic.
 - Extend Postgres path with connection pooling and Alembic-managed upgrades in CI.
 - Console/API polish: surface DB choice/status, expose migrations health endpoint, richer console filters.
+- Console UX for onboarding clarifications and branch management: surface `setup_clarifications` prompts in UI/TUI and add controls to confirm/resolve; wire branch list/delete actions into the console.
 
 ## Phase 0 gaps to close
 - Container hardening: publish images, add secrets templates for DB/Redis/API tokens, and include readiness/liveness for codex/generic workers.

@@ -27,6 +27,7 @@ For deeper design and delivery detail, see:
 ```mermaid
 graph LR
   User["Console / API clients"] --> API["FastAPI orchestrator"]
+  API --> Repo["Repo resolver\n(local_path or Projects/<host>/<owner>/<repo>)"]
   API --> DB[(SQLite or Postgres)]
   API --> Queue["Redis/RQ queue (fakeredis inline in dev)"]
   API --> Spec["ProtocolSpec/StepSpec\nstored on ProtocolRun.template_config"]
@@ -35,7 +36,7 @@ graph LR
   Runner --> Outputs["Outputs map\n(.protocols + aux paths)"]
   Outputs --> Protocols[".protocols/NNNN-[task] artifacts"]
   Outputs --> Aux["Aux outputs (e.g., .codemachine/outputs)"]
-  Queue --> GitW["Git/CI worker\n(worktrees/PR/webhooks)"]
+  Queue --> GitW["Git/CI worker\n(clone/worktrees/PR/webhooks/branches)"]
   Queue --> OnboardW["Onboarding worker\n(project setup/spec audit)"]
   GitW --> Git["Git + CI jobs"]
   Git --> Webhooks["CI webhooks/report.sh"]
@@ -49,7 +50,7 @@ graph LR
 
 ```mermaid
 flowchart TD
-  A[/POST /projects/] --> B["project_setup_job\nensure starter assets"]
+  A[/POST /projects/] --> B["project_setup_job\nresolve local_path, clone,\nensure starter assets, clarifications"]
   A --> C["optional codemachine_import_job\npersist ProtocolSpec + steps"]
   B --> D[/POST /projects/{id}/protocols + start/]
   D --> E["plan_protocol_job\nemit ProtocolSpec\nsync StepRuns from spec"]
@@ -89,6 +90,9 @@ flowchart LR
 - `TASKSGODZILLA_API_TOKEN` / `TASKSGODZILLA_WEBHOOK_TOKEN` — bearer auth + webhook HMAC/token validation.
 - `TASKSGODZILLA_AUTO_QA_AFTER_EXEC` / `TASKSGODZILLA_AUTO_QA_ON_CI` — enqueue QA after exec or on CI success.
 - `TASKSGODZILLA_MAX_TOKENS_PER_STEP` / `TASKSGODZILLA_MAX_TOKENS_PER_PROTOCOL` + `TASKSGODZILLA_TOKEN_BUDGET_MODE=strict|warn|off` — guardrails for Codex calls.
+- `TASKSGODZILLA_PROJECTS_ROOT` — base folder for auto-cloned repos (default `Projects`, namespaced as `<host>/<owner>/<repo>`). `TASKSGODZILLA_AUTO_CLONE=false` leaves onboarding blocked until the repo exists locally.
+- `TASKSGODZILLA_GH_SSH` — prefer rewriting GitHub origins to SSH during onboarding; `TASKSGODZILLA_GIT_USER` / `TASKSGODZILLA_GIT_EMAIL` set git identity when provided.
+- `TASKSGODZILLA_REQUIRE_ONBOARDING_CLARIFICATIONS` — when true, onboarding emits blocking clarifications for CI/model/branch policies in the console/TUI.
 - Logging: `TASKSGODZILLA_LOG_JSON=true` for structured logs; `TASKSGODZILLA_LOG_LEVEL=info|debug`.
 - Models: project `default_models` override per phase; fallbacks in `tasksgodzilla.config`.
 
@@ -102,7 +106,7 @@ flowchart LR
 - Workers: RQ workers (`scripts/rq_worker.py`) for Redis; API auto-starts a background RQ worker thread when `fakeredis://` is used.
 
 ## Data model (core fields)
-- Project: `id`, `name`, `git_url`, `base_branch`, `ci_provider`, `default_models`, `secrets` (optional `api_token`).
+- Project: `id`, `name`, `git_url`, `local_path`, `base_branch`, `ci_provider`, `default_models`, `secrets` (optional `api_token`).
 - ProtocolRun: `id`, `project_id`, `protocol_name`, `status`, `base_branch`, `worktree_path`, `protocol_root`, `description`, `template_config`/`template_source`, timestamps.
 - StepRun: `id`, `protocol_run_id`, `step_index`, `step_name`, `step_type`, `status`, `retries`, `model`, `engine_id`, `policy`, `runtime_state`, `summary`.
 - Event: `id`, `protocol_run_id`, `step_run_id`, `event_type`, `message`, `metadata`, `created_at` (+ joined protocol/project names in list views).
@@ -116,6 +120,8 @@ flowchart LR
 - Codex/Repo unavailable: workers stub execution/QA, set `needs_qa` or `completed` with events and avoid crashing pipelines.
 
 ## Git, CI, and webhooks
+- Project repos resolve via stored `local_path` when present; otherwise onboarding clones under `TASKSGODZILLA_PROJECTS_ROOT` with host/owner/repo namespacing, records the resolved path, configures `origin` (prefers GitHub SSH when enabled), and can set git identity from env.
+- Remote branch controls: `GET /projects/{id}/branches` lists origin branches and `POST /projects/{id}/branches/{branch}/delete` (with `confirm=true`) deletes them, recording events for audit.
 - Worktrees: created under `../worktrees/<protocol_name>` from `origin/<base_branch>`; branch name matches protocol.
 - Push/PR: best-effort push + `gh`/`glab` draft creation after planning/exec and in `open_pr_job`.
 - CI flows: `.github/workflows/ci.yml` and `.gitlab-ci.yml` call `scripts/ci/*.sh` hooks; failures are mirrored via webhooks or `scripts/ci/report.sh`.
@@ -178,6 +184,7 @@ flowchart LR
    - `make orchestrator-setup && TASKSGODZILLA_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py` (SQLite/fakeredis) or `docker-compose up --build` (Postgres/Redis). Visit `/console` for projects/protocols/steps/events; queue and metrics available at `/queues*` and `/metrics`. With fakeredis, the API auto-starts a background RQ worker thread for inline processing.
 2. **Bootstrap a repo**  
    - Run `python3 scripts/project_setup.py --base-branch <branch> [--init-if-needed] [--run-discovery]` or follow `prompts/project-init.prompt.md`. Creates docs/prompts/CI/scripts/schema, ensures git state, and optionally runs Codex discovery to prefill CI hooks.
+   - Onboarding records the resolved repo path (stored on the Project) and can auto-configure `origin`/git identity; it emits `setup_clarifications` with recommended CI/model/branch policies and can block when `TASKSGODZILLA_REQUIRE_ONBOARDING_CLARIFICATIONS=true`.
    - Optional: import an existing CodeMachine workspace via `POST /projects/{id}/codemachine/import` to materialize steps and template metadata before planning/exec flows.
 3. **Open a new protocol stream**  
    - From repo root, run `python3 scripts/protocol_pipeline.py ...`. It creates `../worktrees/NNNN-[task]/`, generates `.protocols/NNNN-[task]/` with plan + step files, optionally commits/pushes + Draft PR/MR, and can auto-run a step. Work happens in the new worktree; plan/step files are the execution contract.
