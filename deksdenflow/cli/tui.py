@@ -577,7 +577,7 @@ def run_tui() -> None:
         raise SystemExit(1)
     config = load_config()
     init_cli_logging(config.log_level, json_output=json_logging_from_env())
-    base_url = env_default("DEKSDENFLOW_API_BASE", "http://localhost:8010")
+    base_url = env_default("DEKSDENFLOW_API_BASE", "http://localhost:8011")
     client = APIClient(
         base_url=base_url,
         token=env_default("DEKSDENFLOW_API_TOKEN"),

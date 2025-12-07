@@ -12,8 +12,16 @@ DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py
 
 Docker Compose (Postgres + Redis):
 ```bash
-docker-compose up --build
-# API at http://localhost:8010 (token from DEKSDENFLOW_API_TOKEN)
+docker compose up --build
+# API at http://localhost:8011 (token from DEKSDENFLOW_API_TOKEN)
+```
+
+Local host app + compose dependencies (Postgres + Redis containers):
+```bash
+make compose-deps  # brings up db (5433) + redis (6380) containers
+DEKSDENFLOW_DB_URL=postgresql://deksdenflow:deksdenflow@localhost:5433/deksdenflow \
+DEKSDENFLOW_REDIS_URL=redis://localhost:6380/0 \
+.venv/bin/python scripts/api_server.py --host 0.0.0.0 --port 8010
 ```
 
 Redis is required; the API fails fast if it cannot reach `DEKSDENFLOW_REDIS_URL`.

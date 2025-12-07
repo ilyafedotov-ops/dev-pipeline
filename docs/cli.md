@@ -9,7 +9,7 @@ python -m deksdenflow.cli.main
 ```
 
 Defaults:
-- API base: `DEKSDENFLOW_API_BASE` (fallback `http://localhost:8010`)
+- API base: `DEKSDENFLOW_API_BASE` (fallback `http://localhost:8011`; use 8010 when running the API directly)
 - API token: `DEKSDENFLOW_API_TOKEN`
 - Project token: `DEKSDENFLOW_PROJECT_TOKEN`
 
@@ -87,7 +87,8 @@ Keybindings:
 - CodeMachine: `i` import workspace (modal with path + enqueue option).
 
 Columns show projects/protocols/steps/events; selections drive the actions above.
-If the API is down or widgets are missing, errors are logged to the status bar; start the API first. The API base defaults to `http://localhost:8010` and can be updated via the `c` modal.
+If the API is down or widgets are missing, errors are logged to the status bar; start the API first. The API base defaults to `http://localhost:8011` (compose) and can be updated via the `c` modal; use 8010 when running locally without compose.
+If using Docker Compose, point it at `http://localhost:8011`.
 
 ## Quick setup & URLs
 
@@ -95,20 +96,30 @@ Start the API locally (SQLite + fakeredis):
 ```bash
 make orchestrator-setup
 DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py
-# Console at http://localhost:8010/console (token from DEKSDENFLOW_API_TOKEN if set)
+# Console at http://localhost:8010/console (use 8011 if running via docker compose; token from DEKSDENFLOW_API_TOKEN if set)
+```
+
+Start the API locally but backed by compose-managed Postgres/Redis:
+```bash
+make compose-deps  # starts Postgres on 5433 and Redis on 6380
+DEKSDENFLOW_DB_URL=postgresql://deksdenflow:deksdenflow@localhost:5433/deksdenflow \
+DEKSDENFLOW_REDIS_URL=redis://localhost:6380/0 \
+.venv/bin/python scripts/api_server.py
 ```
 
 Run the CLI (interactive menu) pointing at the local API:
 ```bash
 DEKSDENFLOW_API_BASE=http://localhost:8010 .venv/bin/python -m deksdenflow.cli.main
+# or for docker compose: DEKSDENFLOW_API_BASE=http://localhost:8011 .venv/bin/python -m deksdenflow.cli.main
 ```
 
 Run the TUI dashboard:
 ```bash
 DEKSDENFLOW_API_BASE=http://localhost:8010 .venv/bin/python -m deksdenflow.cli.tui
+# or for docker compose: DEKSDENFLOW_API_BASE=http://localhost:8011 .venv/bin/python -m deksdenflow.cli.tui
 ```
 
 Environment variables:
-- `DEKSDENFLOW_API_BASE` (default `http://localhost:8010`)
+- `DEKSDENFLOW_API_BASE` (default `http://localhost:8011`; use 8010 for direct local runs)
 - `DEKSDENFLOW_API_TOKEN` (Bearer token; optional)
 - `DEKSDENFLOW_PROJECT_TOKEN` (optional per-project token)

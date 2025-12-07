@@ -18,11 +18,11 @@
 ## How to run now
 ```bash
 make orchestrator-setup \
-  DEKSDENFLOW_DB_URL=postgresql://user:pass@host:5432/dbname  # or use DEKSDENFLOW_DB_PATH for SQLite
+  DEKSDENFLOW_DB_URL=postgresql://user:pass@host:5433/dbname  # compose host port; or use DEKSDENFLOW_DB_PATH for SQLite
 ```
 Then start API: `.venv/bin/python scripts/api_server.py`
-# Or use docker-compose: `docker-compose up --build` (API on :8010)
-# Redis URL required: set `DEKSDENFLOW_REDIS_URL` (use `fakeredis://` for local/testing).
+# Or use docker-compose: `docker compose up --build` (API on :8011)
+# Redis URL required: set `DEKSDENFLOW_REDIS_URL` (use `fakeredis://` for local/testing; compose host is redis://localhost:6380/0).
 
 ## Next focus
 - Refine token accounting with real usage data instead of heuristic.

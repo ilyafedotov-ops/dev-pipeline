@@ -513,6 +513,15 @@ class Database:
             return None
 
     @staticmethod
+    def _coerce_ts(value: Any) -> Any:
+        if hasattr(value, "isoformat"):
+            try:
+                return value.isoformat()
+            except Exception:
+                return str(value)
+        return value
+
+    @staticmethod
     def _row_to_project(row: Any) -> Project:
         default_models = Database._parse_json(row["default_models"])
         secrets = Database._parse_json(row["secrets"])
@@ -524,8 +533,8 @@ class Database:
             ci_provider=row["ci_provider"],
             secrets=secrets,
             default_models=default_models,
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
+            created_at=Database._coerce_ts(row["created_at"]),
+            updated_at=Database._coerce_ts(row["updated_at"]),
         )
 
     @staticmethod
@@ -543,8 +552,8 @@ class Database:
             description=row["description"],
             template_config=template_config,
             template_source=template_source,
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
+            created_at=Database._coerce_ts(row["created_at"]),
+            updated_at=Database._coerce_ts(row["updated_at"]),
         )
 
     @staticmethod
@@ -565,8 +574,8 @@ class Database:
             policy=policy,
             runtime_state=runtime_state,
             summary=row["summary"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
+            created_at=Database._coerce_ts(row["created_at"]),
+            updated_at=Database._coerce_ts(row["updated_at"]),
         )
 
     @staticmethod
@@ -593,7 +602,7 @@ class Database:
             event_type=row["event_type"],
             message=row["message"],
             metadata=Database._parse_json(row.get("metadata") if isinstance(row, dict) else row["metadata"]),
-            created_at=row["created_at"],
+            created_at=Database._coerce_ts(row["created_at"]),
             protocol_name=protocol_name,
             project_id=project_id,
             project_name=project_name,
@@ -610,12 +619,27 @@ class PostgresDatabase:
         if psycopg is None:  # pragma: no cover - optional dependency
             raise ImportError("psycopg is required for Postgres support. Install psycopg[binary].")
         self.db_url = db_url
-        self.pool = ConnectionPool(conninfo=db_url, min_size=1, max_size=pool_size) if ConnectionPool else None
+        self.row_factory = dict_row
+        self.pool = None
+        if ConnectionPool:
+            # Ensure we always get dicts back from cursors when using pooled connections.
+            self.pool = ConnectionPool(
+                conninfo=db_url,
+                min_size=1,
+                max_size=pool_size,
+                kwargs={"row_factory": self.row_factory},
+            )
 
     def _connect(self):
         if self.pool:
-            return self.pool.connection()
-        return psycopg.connect(self.db_url, row_factory=dict_row)
+            conn = self.pool.connection()
+        else:
+            conn = psycopg.connect(self.db_url, row_factory=self.row_factory)
+        # Defensive: pool connections should already have the row factory set via kwargs,
+        # but set it here to be sure.
+        if self.row_factory is not None:
+            conn.row_factory = self.row_factory
+        return conn
 
     def init_schema(self) -> None:
         with self._connect() as conn:

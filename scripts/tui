@@ -21,6 +21,6 @@ if [[ -z "$PY_BIN" ]]; then
 fi
 
 # Default API base unless caller overrides.
-export DEKSDENFLOW_API_BASE="${DEKSDENFLOW_API_BASE:-http://localhost:8010}"
+export DEKSDENFLOW_API_BASE="${DEKSDENFLOW_API_BASE:-http://localhost:8011}"
 
 exec "$PY_BIN" -m deksdenflow.cli.tui "$@"

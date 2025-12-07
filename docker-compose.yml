@@ -9,7 +9,7 @@ services:
       DEKSDENFLOW_API_TOKEN: ${DEKSDENFLOW_API_TOKEN:-changeme}
       DEKSDENFLOW_LOG_LEVEL: INFO
     ports:
-      - "8010:8010"
+      - "8011:8010"
     depends_on:
       - db
       - redis
@@ -51,12 +51,12 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"
 
 volumes:
   pgdata:

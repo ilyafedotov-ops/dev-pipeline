@@ -591,7 +591,7 @@ function renderCiHints(run) {
         <span class="pill">${run.protocol_name}</span>
       </div>
       <p class="muted small">Report CI status from your pipeline or post a webhook manually.</p>
-      <div class="code-block">DEKSDENFLOW_API_BASE=${base || "http://localhost:8010"}
+      <div class="code-block">DEKSDENFLOW_API_BASE=${base || "http://localhost:8011"}
 scripts/ci/report.sh success
 # on failure
 scripts/ci/report.sh failure</div>

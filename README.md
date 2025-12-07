@@ -67,8 +67,8 @@ Redis is required for orchestration; set `DEKSDENFLOW_REDIS_URL` (use `fakeredis
 For a quick local stack with API, RQ worker, Redis, and Postgres:
 
 ```bash
-docker-compose up --build
-# API at http://localhost:8010 (token from DEKSDENFLOW_API_TOKEN env or compose default)
+docker compose up --build
+# API at http://localhost:8011 (token from DEKSDENFLOW_API_TOKEN env or compose default)
 ```
 
 Environment defaults live in `docker-compose.yml`; override with env vars as needed.
@@ -78,7 +78,15 @@ Local (SQLite + fakeredis) without Docker:
 ```bash
 make orchestrator-setup
 DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py
-# open http://localhost:8010/console and set API token if configured
+# open http://localhost:8010/console (use 8011 if running via docker compose) and set API token if configured
+```
+
+Local (containers for Redis + Postgres, app on host):
+```bash
+make compose-deps  # starts Redis on 6380 and Postgres on 5433
+DEKSDENFLOW_DB_URL=postgresql://deksdenflow:deksdenflow@localhost:5433/deksdenflow \
+DEKSDENFLOW_REDIS_URL=redis://localhost:6380/0 \
+.venv/bin/python scripts/api_server.py --host 0.0.0.0 --port 8010
 ```
 
 CLI (interactive):

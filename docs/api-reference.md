@@ -1,6 +1,6 @@
 # DeksdenFlow Orchestrator API Reference (alpha)
 
-HTTP API for managing projects, protocol runs, steps, events, queues, and CI/webhook signals. Default base: `http://localhost:8010`.
+HTTP API for managing projects, protocol runs, steps, events, queues, and CI/webhook signals. Default base: `http://localhost:8011` (compose; use 8010 for direct local runs).
 
 - Auth: set `DEKSDENFLOW_API_TOKEN` in the API env and send `Authorization: Bearer <token>`. If unset, auth is skipped.
 - Per-project token (optional): `X-Project-Token: <project secrets.api_token>`.
@@ -85,7 +85,7 @@ Status conflicts return 409 (e.g., starting an already-running protocol).
 
 Create project:
 ```bash
-curl -X POST http://localhost:8010/projects \
+curl -X POST http://localhost:8011/projects \
   -H "Authorization: Bearer $DEKSDENFLOW_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"demo","git_url":"/path/to/repo","base_branch":"main"}'
@@ -93,18 +93,18 @@ curl -X POST http://localhost:8010/projects \
 
 Start planning a protocol:
 ```bash
-curl -X POST http://localhost:8010/protocols/1/actions/start \
+curl -X POST http://localhost:8011/protocols/1/actions/start \
   -H "Authorization: Bearer $DEKSDENFLOW_API_TOKEN"
 ```
 
 Run QA for a step:
 ```bash
-curl -X POST http://localhost:8010/steps/10/actions/run_qa \
+curl -X POST http://localhost:8011/steps/10/actions/run_qa \
   -H "Authorization: Bearer $DEKSDENFLOW_API_TOKEN"
 ```
 
 List queue jobs:
 ```bash
-curl -X GET "http://localhost:8010/queues/jobs?status=queued" \
+curl -X GET "http://localhost:8011/queues/jobs?status=queued" \
   -H "Authorization: Bearer $DEKSDENFLOW_API_TOKEN"
 ```

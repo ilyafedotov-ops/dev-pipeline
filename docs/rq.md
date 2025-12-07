@@ -1,6 +1,6 @@
 # RQ Worker Setup (Durable Queue)
 
-1. Set `DEKSDENFLOW_REDIS_URL` (e.g., `redis://localhost:6379/0`).
+1. Set `DEKSDENFLOW_REDIS_URL` (e.g., `redis://localhost:6380/0` when using compose; 6379 if running Redis directly). Use `make compose-deps` to start the Redis/Postgres containers if you want durable queues without running the API in Docker.
 2. Run API server (it will not start an in-process worker when Redis is set):
    ```bash
    .venv/bin/python scripts/api_server.py

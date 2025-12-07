@@ -14,7 +14,7 @@ from deksdenflow.logging import EXIT_RUNTIME_ERROR, EXIT_OK, init_cli_logging, j
 from deksdenflow.spec_tools import audit_specs
 from deksdenflow.storage import create_database
 
-DEFAULT_API_BASE = os.environ.get("DEKSDENFLOW_API_BASE", "http://localhost:8010")
+DEFAULT_API_BASE = os.environ.get("DEKSDENFLOW_API_BASE", "http://localhost:8011")
 DEFAULT_TOKEN = os.environ.get("DEKSDENFLOW_API_TOKEN")
 DEFAULT_PROJECT_TOKEN = os.environ.get("DEKSDENFLOW_PROJECT_TOKEN")
 log = get_logger(__name__)
