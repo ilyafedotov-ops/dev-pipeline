@@ -9,6 +9,7 @@ from tasksgodzilla.workers import codex_worker
 
 def test_execute_step_auto_qa_runs_quality(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("TASKSGODZILLA_AUTO_QA_AFTER_EXEC", "true")
+    monkeypatch.setenv("TASKSGODZILLA_AUTO_CLONE", "false")
     db_path = tmp_path / "db.sqlite"
     db = Database(db_path)
     db.init_schema()

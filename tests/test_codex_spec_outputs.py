@@ -175,6 +175,7 @@ def test_custom_qa_prompt_version_is_recorded(tmp_path, monkeypatch) -> None:
     _register_fake_engine()
     db = Database(tmp_path / "db.sqlite")
     db.init_schema()
+    monkeypatch.setenv("TASKSGODZILLA_AUTO_CLONE", "false")
 
     workspace = _make_protocol_workspace(tmp_path, "9002-demo")
     outputs_dir = workspace / "outputs"
@@ -202,6 +203,8 @@ def test_custom_qa_prompt_version_is_recorded(tmp_path, monkeypatch) -> None:
     db.update_protocol_template(run.id, {PROTOCOL_SPEC_KEY: spec}, None)
     step = db.create_step_run(run.id, 0, "00-step.md", "work", StepStatus.PENDING, model="fake-model", engine_id="fake-engine-out", policy=None)
 
+    from types import SimpleNamespace
+
     monkeypatch.setattr(codex_worker.shutil, "which", lambda _: "codex")
     monkeypatch.setattr(codex_worker, "load_project", lambda repo_root, protocol_name, base_branch: Path(repo_root))
 
@@ -209,6 +212,7 @@ def test_custom_qa_prompt_version_is_recorded(tmp_path, monkeypatch) -> None:
 
     # Force stub QA path for portability but keep prompt version resolution
     monkeypatch.setattr(codex_worker.shutil, "which", lambda _: None)
+    monkeypatch.setattr(codex_worker, "run_qa_unified", lambda *_args, **_kwargs: SimpleNamespace(result=SimpleNamespace(stdout="VERDICT: PASS")))
     codex_worker.handle_quality(step.id, db)
 
     qa_event = next(e for e in db.list_events(run.id) if e.event_type == "qa_passed")
@@ -224,6 +228,7 @@ def test_quality_uses_spec_prompt_and_engine(monkeypatch, tmp_path) -> None:
     _register_fake_engine()
     db = Database(tmp_path / "db.sqlite")
     db.init_schema()
+    monkeypatch.setenv("TASKSGODZILLA_AUTO_CLONE", "false")
 
     workspace = _make_protocol_workspace(tmp_path, "9100-demo")
     qa_prompt = workspace / "custom_prompts" / "qa.md"
@@ -232,6 +237,23 @@ def test_quality_uses_spec_prompt_and_engine(monkeypatch, tmp_path) -> None:
 
     project = db.create_project("demo", str(workspace), "main", None, None)
     run = db.create_protocol_run(project.id, "9100-demo", ProtocolStatus.PLANNED, "main", str(workspace), str(workspace / ".protocols" / "9100-demo"), "demo protocol")
+
+    class QAEngine:
+        metadata = EngineMetadata(id="qa-engine", display_name="QA Engine", kind="cli", default_model="qa-model")
+
+        def plan(self, req):  # pragma: no cover - stub
+            return EngineResult(success=True, stdout="", stderr="")
+
+        def execute(self, req):  # pragma: no cover - stub
+            return EngineResult(success=True, stdout="", stderr="")
+
+        def qa(self, req):  # pragma: no cover - stub
+            return EngineResult(success=True, stdout="", stderr="")
+
+    try:
+        registry.register(QAEngine())
+    except ValueError:
+        pass
 
     spec = {
         "steps": [
@@ -256,19 +278,24 @@ def test_quality_uses_spec_prompt_and_engine(monkeypatch, tmp_path) -> None:
 
     captured: dict[str, object] = {}
 
-    def fake_run_quality_check(**kwargs):
-        captured.update(kwargs)
-        protocol_root = kwargs["protocol_root"]
-        return QualityResult(report_path=protocol_root / "quality-report.md", verdict="PASS", output="ok")
+    class FakeQAResult:
+        def __init__(self, stdout: str = "VERDICT: PASS") -> None:
+            self.result = SimpleNamespace(stdout=stdout)
 
-    monkeypatch.setattr(codex_worker, "run_quality_check", fake_run_quality_check)
+    def fake_run_qa_unified(*_args, **kwargs):
+        captured["qa_prompt_path"] = kwargs.get("qa_prompt_path")
+        captured["qa_engine_id"] = kwargs.get("qa_engine_id")
+        captured["qa_model"] = kwargs.get("qa_model")
+        return FakeQAResult()
+
+    monkeypatch.setattr(codex_worker, "run_qa_unified", fake_run_qa_unified)
 
     codex_worker.handle_quality(step.id, db)
 
     step_after = db.get_step_run(step.id)
     assert step_after.status == StepStatus.COMPLETED
-    assert captured.get("prompt_file") == qa_prompt.resolve()
-    assert captured.get("engine_id") == "qa-engine"
+    assert captured.get("qa_prompt_path") == qa_prompt.resolve()
+    assert captured.get("qa_engine_id") == "qa-engine"
     qa_event = next(e for e in db.list_events(run.id) if e.event_type == "qa_passed")
     assert qa_event.metadata["prompt_versions"]["qa"] == fingerprint_file(qa_prompt)
     assert qa_event.metadata["spec_hash"] == protocol_spec_hash(spec)

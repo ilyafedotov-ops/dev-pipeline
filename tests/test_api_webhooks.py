@@ -191,21 +191,39 @@ def test_gitlab_merge_request_updates_protocol() -> None:
 
 
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
-def test_github_webhook_triggers_auto_qa_when_enabled() -> None:
+def test_github_webhook_triggers_auto_qa_when_enabled(monkeypatch) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        os.environ["TASKSGODZILLA_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
-        os.environ.pop("TASKSGODZILLA_API_TOKEN", None)
-        os.environ["TASKSGODZILLA_REDIS_URL"] = "fakeredis://"
-        os.environ["TASKSGODZILLA_AUTO_QA_ON_CI"] = "true"
+        monkeypatch.setenv("TASKSGODZILLA_DB_PATH", str(Path(tmpdir) / "db.sqlite"))
+        monkeypatch.delenv("TASKSGODZILLA_API_TOKEN", raising=False)
+        monkeypatch.setenv("TASKSGODZILLA_REDIS_URL", "fakeredis://")
+        monkeypatch.setenv("TASKSGODZILLA_AUTO_QA_ON_CI", "true")
+        monkeypatch.setenv("TASKSGODZILLA_AUTO_CLONE", "false")
+        repo_root = Path(tmpdir) / "repo"
+        repo_root.mkdir(parents=True, exist_ok=True)
 
         with TestClient(app) as client:  # type: ignore[arg-type]
             proj = client.post(
                 "/projects",
-                json={"name": "demo", "git_url": "git@example.com/demo.git", "base_branch": "main"},
+                json={"name": "demo", "git_url": str(repo_root), "base_branch": "main"},
             ).json()
             run = client.post(
                 f"/projects/{proj['id']}/protocols",
-                json={"protocol_name": "0005-demo", "status": "running", "base_branch": "main"},
+                json={
+                    "protocol_name": "0005-demo",
+                    "status": "running",
+                    "base_branch": "main",
+                    "template_config": {
+                        "protocol_spec": {
+                            "steps": [
+                                {
+                                    "id": "00-setup",
+                                    "name": "00-setup",
+                                    "qa": {"policy": "skip"},
+                                }
+                            ]
+                        }
+                    },
+                },
             ).json()
             client.post(
                 f"/protocols/{run['id']}/steps",

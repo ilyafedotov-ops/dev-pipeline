@@ -216,7 +216,11 @@ def test_handle_quality_applies_loop_policy(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(codex_worker.shutil, "which", lambda _: "codex")
     monkeypatch.setattr(codex_worker, "load_project", lambda repo_root, protocol_name, base_branch: repo_root)
-    monkeypatch.setattr(codex_worker, "run_quality_check", lambda **_: FakeResult())
+    monkeypatch.setattr(
+        codex_worker,
+        "run_qa_unified",
+        lambda *_args, **_kwargs: type("FakeQAResult", (), {"result": DummyProc("VERDICT: FAIL")})(),
+    )
     monkeypatch.setattr(codex_worker, "run_process", lambda *args, **kwargs: DummyProc(""))
     monkeypatch.setattr("tasksgodzilla.qa.codex.run_process", lambda *args, **kwargs: DummyProc(""))
 
@@ -276,7 +280,11 @@ def test_handle_quality_triggers_followup(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(codex_worker.shutil, "which", lambda _: None)
     monkeypatch.setattr(codex_worker, "load_project", lambda repo_root, protocol_name, base_branch: repo_root)
-    monkeypatch.setattr(codex_worker, "run_quality_check", lambda **_: FakeResult())
+    monkeypatch.setattr(
+        codex_worker,
+        "run_qa_unified",
+        lambda *_args, **_kwargs: type("FakeQAResult", (), {"result": DummyProc("VERDICT: PASS")})(),
+    )
     monkeypatch.setattr("tasksgodzilla.qa.build_prompt", lambda *_args, **_kwargs: "prompt")
     monkeypatch.setattr("tasksgodzilla.qa.codex.run_process", lambda *args, **kwargs: DummyProc(""))
 

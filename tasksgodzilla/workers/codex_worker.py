@@ -188,9 +188,30 @@ def _enqueue_trigger_target(
                 metadata={"target_step_id": step_run_id, "source": source, "inline_depth": inline_depth},
             )
             return None
-    # Inline fallback for dev/local without Redis, or when using fakeredis.
+    target: Optional[StepRun] = None
+    target_qa_skip = False
     try:
         target = db.get_step_run(step_run_id)
+        try:
+            run = db.get_protocol_run(protocol_run_id)
+            target_spec = get_step_spec(run.template_config, target.step_name) or {}
+            target_qa_skip = (target_spec.get("qa") or {}).get("policy") == "skip"
+        except Exception:
+            target_qa_skip = False
+    except Exception:
+        target = None
+    if (queue is None or force_inline) and target_qa_skip:
+        db.append_event(
+            protocol_run_id,
+            "trigger_pending",
+            "Triggered step pending; no queue configured.",
+            step_run_id=step_run_id,
+            metadata={"target_step_id": step_run_id, "source": source, "inline_depth": inline_depth},
+        )
+        return None
+    # Inline fallback for dev/local without Redis, or when using fakeredis.
+    try:
+        target = target or db.get_step_run(step_run_id)
         merged_state = dict(target.runtime_state or {})
         merged_state["inline_trigger_depth"] = inline_depth
         db.update_step_status(step_run_id, StepStatus.RUNNING, summary="Triggered (inline)", runtime_state=merged_state)
@@ -733,6 +754,16 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
                 step_run_id=step.id,
                 metadata={"policy": qa_policy, "spec_hash": spec_hash_val},
             )
+            trigger_decision = apply_trigger_policies(step, db, reason="qa_skipped_policy")
+            if trigger_decision and trigger_decision.get("applied"):
+                db.update_protocol_status(run.id, ProtocolStatus.RUNNING)
+                _enqueue_trigger_target(
+                    trigger_decision["target_step_id"],
+                    run.id,
+                    db,
+                    source="qa_skipped_policy",
+                    inline_depth=trigger_decision.get("inline_depth", 0),
+                )
             maybe_complete_protocol(step.protocol_run_id, db)
             return
         db.update_step_status(step.id, StepStatus.NEEDS_QA, summary=summary)
@@ -1193,12 +1224,14 @@ def handle_quality(step_run_id: int, db: BaseDatabase, job_id: Optional[str] = N
             "step_name": step.step_name,
         },
     )
-    step_spec = get_step_spec(run.template_config, step.step_name)
+    step_spec = get_step_spec(run.template_config, step.step_name) or {}
+    if not step_spec:
+        step_spec = {"id": step.step_name, "name": step.step_name, "prompt_ref": step.step_name}
     template_cfg = run.template_config or {}
     protocol_spec = template_cfg.get(PROTOCOL_SPEC_KEY) if isinstance(template_cfg, dict) else None
     spec_hash_val = protocol_spec_hash(protocol_spec) if protocol_spec else None
     qa_cfg = (step_spec.get("qa") if step_spec else {}) or {}
-    qa_policy = qa_cfg.get("policy") if step_spec else None
+    qa_policy = qa_cfg.get("policy")
     if qa_policy == "skip":
         db.update_step_status(step.id, StepStatus.COMPLETED, summary="QA skipped (policy)")
         db.append_event(
@@ -1357,9 +1390,13 @@ def handle_quality(step_run_id: int, db: BaseDatabase, job_id: Optional[str] = N
         )
         metrics.inc_qa_verdict("fail")
         return
+    if not qa_result or not getattr(qa_result, "result", None):
+        _qa_stub("qa engine unavailable")
+        return
 
-    report_text = qa_result.result.stdout.strip() if qa_result and qa_result.result and getattr(qa_result.result, "stdout", None) else ""
+    report_text = qa_result.result.stdout.strip() if getattr(qa_result.result, "stdout", None) else ""
     report_path = protocol_root / "quality-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(report_text, encoding="utf-8")
     verdict = determine_verdict(report_text).upper()
 

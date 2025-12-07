@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Config(BaseModel):
@@ -42,8 +42,7 @@ class Config(BaseModel):
     spec_audit_interval_seconds: Optional[int] = Field(default=None)
     skip_simple_decompose: bool = Field(default=False)
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @property
     def default_models(self) -> Dict[str, str]:
