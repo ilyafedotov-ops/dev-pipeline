@@ -137,5 +137,28 @@ def test_protocol_spec_endpoint_exposes_hash_and_spec() -> None:
             assert resp.status_code == 200
             body = resp.json()
             assert body["spec"] == spec
-            assert body["spec_hash"]
-            assert body["validation_status"] in (None, "valid")
+    assert body["spec_hash"]
+    assert body["validation_status"] in (None, "valid")
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_spec_audit_endpoint_enqueues_job() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "api-test.sqlite"
+        os.environ["TASKSGODZILLA_DB_PATH"] = str(db_path)
+        os.environ.pop("TASKSGODZILLA_API_TOKEN", None)
+        os.environ["TASKSGODZILLA_REDIS_URL"] = "fakeredis://"
+
+        with TestClient(app) as client:  # type: ignore[arg-type]
+            project = client.post(
+                "/projects",
+                json={"name": "demo", "git_url": "/tmp/demo.git", "base_branch": "main"},
+            ).json()
+
+            resp = client.post(
+                "/specs/audit",
+                json={"project_id": project["id"], "backfill": True},
+            )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["job"]["job_type"] == "spec_audit_job"

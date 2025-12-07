@@ -122,6 +122,9 @@ python -m tasksgodzilla.cli.tui           # panel-based dashboard with keybindin
 
 ## Folder map
 
+- `scripts/spec_audit.py` — audit/backfill ProtocolSpec for existing runs (`--project-id/--protocol-id/--backfill`).
+
+
 - `docs/` — overview of TasksGodzilla_Ilyas_Edition_1.0 and CI notes. New: `docs/solution-design.md` (target architecture + risks) and `docs/implementation-plan.md` (phased plan).
 - `prompts/` — ready prompts: project bootstrap, new/resume protocols, review/merge flows.
 - `.github/workflows/ci.yml` — GitHub Actions using the shared CI scripts.
@@ -131,6 +134,7 @@ python -m tasksgodzilla.cli.tui           # panel-based dashboard with keybindin
 - `schemas/protocol-planning.schema.json` — JSON Schema for the planning agent’s output.
 - `scripts/project_setup.py` — prepares a repo with starter docs/prompts/CI/schema/pipeline if they’re missing.
 - `prompts/repo-discovery.prompt.md` — Codex prompt to auto-discover stack and fill CI scripts.
+- `scripts/spec_audit.py` — audit/backfill ProtocolSpec for existing runs (`--project-id/--protocol-id/--backfill`).
 - `scripts/codex_ci_bootstrap.py` — helper to run Codex (codex-5.1-max by default) with the discovery prompt to fill CI scripts.
 - `scripts/quality_orchestrator.py` — Codex QA validator that checks a protocol step and writes a report.
 - `Makefile` — helper targets: `deps` (install orchestrator deps in `.venv`), `migrate` (alembic upgrade), `orchestrator-setup` (deps + migrate).

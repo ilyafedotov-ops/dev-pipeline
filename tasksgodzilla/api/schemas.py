@@ -113,3 +113,9 @@ class CodeMachineImportResponse(BaseModel):
     protocol_run: ProtocolRunOut
     message: str
     job: Optional[dict] = None
+
+
+class SpecAuditRequest(BaseModel):
+    project_id: Optional[int] = None
+    protocol_id: Optional[int] = None
+    backfill: bool = False

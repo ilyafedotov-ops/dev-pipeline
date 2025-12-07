@@ -211,6 +211,26 @@ def _spec_validation_summary(protocol_run_id: int, db: BaseDatabase) -> dict:
     return {"status": status, "errors": errors or None, "validated_at": validated_at}
 
 
+@app.post("/specs/audit", response_model=schemas.ActionResponse, dependencies=[Depends(require_auth)])
+def enqueue_spec_audit(
+    payload: schemas.SpecAuditRequest,
+    queue: jobs.BaseQueue = Depends(get_queue),
+    db: BaseDatabase = Depends(get_db),
+    request: Request = None,  # type: ignore
+) -> schemas.ActionResponse:
+    if payload.project_id:
+        require_project_access(payload.project_id, request, db)
+    job = queue.enqueue(
+        "spec_audit_job",
+        {
+            "project_id": payload.project_id,
+            "protocol_id": payload.protocol_id,
+            "backfill_missing": payload.backfill,
+        },
+    ).asdict()
+    return schemas.ActionResponse(message="Spec audit enqueued.", job=job)
+
+
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
