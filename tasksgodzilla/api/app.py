@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 import json
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -19,6 +19,7 @@ from tasksgodzilla.logging import log_extra, setup_logging, json_logging_from_en
 from tasksgodzilla.metrics import metrics
 from tasksgodzilla.storage import BaseDatabase, create_database
 from tasksgodzilla.worker_runtime import BackgroundWorker, RQWorkerThread
+from tasksgodzilla.worker_runtime import drain_once
 from tasksgodzilla.health import check_db
 from tasksgodzilla.workers.state import maybe_complete_protocol
 from tasksgodzilla.workers import codemachine_worker
@@ -29,9 +30,38 @@ import hashlib
 
 from . import schemas
 from tasksgodzilla.git_utils import delete_remote_branch, list_remote_branches, resolve_project_repo_path
+from tasksgodzilla.project_setup import local_repo_dir
 
 logger = setup_logging(json_output=json_logging_from_env())
 auth_scheme = HTTPBearer(auto_error=False)
+
+ONBOARDING_STAGE_DEFS = [
+    {"key": "resolve", "name": "Resolve/Clone"},
+    {"key": "discovery", "name": "Discovery"},
+    {"key": "assets", "name": "Assets"},
+    {"key": "git", "name": "Git Config"},
+    {"key": "clarifications", "name": "Clarifications"},
+]
+
+ONBOARDING_EVENT_STAGE = {
+    "setup_started": ("resolve", "running"),
+    "setup_pending_clone": ("resolve", "blocked"),
+    "setup_cloned": ("resolve", "completed"),
+    "setup_local_path_recorded": ("resolve", "completed"),
+    "setup_discovery_started": ("discovery", "running"),
+    "setup_discovery_skipped": ("discovery", "skipped"),
+    "setup_discovery_completed": ("discovery", "completed"),
+    "setup_discovery_warning": ("discovery", "warning"),
+    "setup_assets": ("assets", "completed"),
+    "setup_warning": ("assets", "warning"),
+    "setup_git_remote": ("git", "completed"),
+    "setup_git_identity": ("git", "completed"),
+    "setup_clarifications": ("clarifications", "running"),
+    "setup_blocked": ("clarifications", "blocked"),
+    "setup_completed": ("clarifications", "completed"),
+}
+
+STAGE_RANK = {"pending": 0, "running": 1, "skipped": 1, "warning": 2, "blocked": 2, "completed": 3, "failed": 3}
 
 
 @asynccontextmanager
@@ -220,6 +250,59 @@ def _spec_hash_from_template(template_config: Optional[dict]) -> Optional[str]:
     return None
 
 
+def _onboarding_stages_from_events(events: list[schemas.EventOut]) -> list[schemas.OnboardingStage]:
+    stages = {d["key"]: schemas.OnboardingStage(key=d["key"], name=d["name"], status="pending") for d in ONBOARDING_STAGE_DEFS}
+    sorted_events = sorted(events, key=lambda e: e.created_at)
+    for ev in sorted_events:
+        stage_meta = ONBOARDING_EVENT_STAGE.get(ev.event_type)
+        if not stage_meta:
+            continue
+        stage_key, status = stage_meta
+        current = stages.get(stage_key)
+        if current is None:
+            continue
+        current_rank = STAGE_RANK.get(current.status, 0)
+        incoming_rank = STAGE_RANK.get(status, 0)
+        if incoming_rank >= current_rank:
+            stages[stage_key] = schemas.OnboardingStage(
+                key=stage_key,
+                name=current.name,
+                status=status,
+                event_type=ev.event_type,
+                message=ev.message,
+                created_at=ev.created_at,
+                metadata=ev.metadata,
+            )
+    return [stages[key] for key in stages]
+
+
+def _onboarding_summary(project, db: BaseDatabase) -> schemas.OnboardingSummary:
+    protocol_name = f"setup-{project.id}"
+    run = None
+    try:
+        run = db.find_protocol_run_by_name(protocol_name)
+    except Exception:
+        run = None
+    status = run.status if run else "pending"
+    try:
+        events = db.list_events(run.id) if run else []
+    except Exception:
+        events = []
+    ev_out = [schemas.EventOut(**e.__dict__) for e in events]
+    last_event = ev_out[-1] if ev_out else None
+    stages = _onboarding_stages_from_events(ev_out)
+    workspace_path = project.local_path or str(local_repo_dir(project.git_url, project.name, project_id=project.id))
+    return schemas.OnboardingSummary(
+        project_id=project.id,
+        protocol_run_id=run.id if run else None,
+        status=status,
+        workspace_path=workspace_path,
+        last_event=last_event,
+        stages=stages,
+        events=ev_out,
+    )
+
+
 def _spec_validation_summary(protocol_run_id: int, db: BaseDatabase) -> dict:
     run = db.get_protocol_run(protocol_run_id)
     status = None
@@ -388,7 +471,7 @@ def list_branches(project_id: int, db: BaseDatabase = Depends(get_db), request: 
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
-        repo_root = resolve_project_repo_path(project.git_url, project.name, project.local_path)
+        repo_root = resolve_project_repo_path(project.git_url, project.name, project.local_path, project_id=project.id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     branches = list_remote_branches(repo_root)
@@ -413,7 +496,7 @@ def delete_branch(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
-        repo_root = resolve_project_repo_path(project.git_url, project.name, project.local_path)
+        repo_root = resolve_project_repo_path(project.git_url, project.name, project.local_path, project_id=project.id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     try:
@@ -920,13 +1003,32 @@ def list_events(protocol_run_id: int, db: BaseDatabase = Depends(get_db), reques
 def recent_events(
     limit: int = 50,
     project_id: Optional[int] = None,
+    kind: Optional[str] = Query(default=None, description="Filter to onboarding events when kind=onboarding"),
     db: BaseDatabase = Depends(get_db),
     request: Request = None,
 ) -> list[schemas.EventOut]:
     if project_id and request:
         require_project_access(project_id, request, db)
     events = db.list_recent_events(limit=limit, project_id=project_id)
-    return [schemas.EventOut(**e.__dict__) for e in events]
+    filtered = []
+    for ev in events:
+        if kind == "onboarding":
+            if ev.event_type.startswith("setup_") or (ev.protocol_name or "").startswith("setup-"):
+                filtered.append(ev)
+        else:
+            filtered.append(ev)
+    return [schemas.EventOut(**e.__dict__) for e in filtered]
+
+
+@app.get("/projects/{project_id}/onboarding", response_model=schemas.OnboardingSummary, dependencies=[Depends(require_auth)])
+def onboarding_summary(project_id: int, db: BaseDatabase = Depends(get_db), request: Request = None) -> schemas.OnboardingSummary:
+    if request:
+        require_project_access(project_id, request, db)
+    try:
+        project = db.get_project(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _onboarding_summary(project, db)
 
 
 @app.get("/queues", dependencies=[Depends(require_auth)])
@@ -1045,6 +1147,12 @@ async def github_webhook(
                 metadata={"job_id": job["job_id"], "source": "ci_webhook", "provider": "github"},
                 request=request,
             )
+            try:
+                # Inline drain for fakeredis so auto-QA completes in dev/test without a separate worker.
+                if isinstance(queue, jobs.RedisQueue) and queue.is_fakeredis:
+                    drain_once(queue, db)
+            except Exception:
+                pass
         else:
             db.update_step_status(step.id, StepStatus.COMPLETED, summary="CI passed")
             maybe_complete_protocol(run.id, db)

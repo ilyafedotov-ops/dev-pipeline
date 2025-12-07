@@ -16,6 +16,7 @@ def run_process(
     text: bool = True,
     input_text: Optional[str] = None,
     check: bool = True,
+    timeout: Optional[int] = None,
 ) -> subprocess.CompletedProcess:
     """
     Run a subprocess command with consistent defaults across the codebase.
@@ -30,6 +31,7 @@ def run_process(
             check=check,
             capture_output=capture_output,
             text=text,
+            timeout=timeout,
             input=input_text if input_text is not None else None,
         )
     except subprocess.CalledProcessError as exc:  # pragma: no cover - passthrough to more specific errors

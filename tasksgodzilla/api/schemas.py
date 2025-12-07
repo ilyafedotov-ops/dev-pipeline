@@ -101,6 +101,26 @@ class ActionResponse(BaseModel):
     job: Optional[dict] = None
 
 
+class OnboardingStage(BaseModel):
+    key: str
+    name: str
+    status: str
+    event_type: Optional[str] = None
+    message: Optional[str] = None
+    created_at: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+class OnboardingSummary(BaseModel):
+    project_id: int
+    protocol_run_id: Optional[int]
+    status: str
+    workspace_path: Optional[str] = None
+    last_event: Optional[EventOut] = None
+    stages: list[OnboardingStage] = []
+    events: list[EventOut] = []
+
+
 class CodeMachineImportRequest(BaseModel):
     protocol_name: str
     workspace_path: str

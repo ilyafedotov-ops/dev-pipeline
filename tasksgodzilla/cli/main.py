@@ -79,6 +79,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     proj_show = proj_sub.add_parser("show", help="Show a project")
     proj_show.add_argument("project_id", type=int)
 
+    proj_onboarding = proj_sub.add_parser("onboarding", help="Show onboarding status for a project")
+    proj_onboarding.add_argument("project_id", type=int)
+
     # Protocols
     protocols = subparsers.add_parser("protocols", help="Protocol run commands")
     proto_sub = protocols.add_subparsers(dest="action")
@@ -225,6 +228,36 @@ def handle_projects(client: APIClient, args: argparse.Namespace) -> None:
     elif args.action == "show":
         project = client.get(f"/projects/{args.project_id}")
         print(json.dumps(project, indent=2) if args.as_json else project)
+    elif args.action == "onboarding":
+        summary = client.get(f"/projects/{args.project_id}/onboarding")
+        if args.as_json:
+            print(json.dumps(summary, indent=2))
+            return
+        if not summary:
+            print("No onboarding summary.")
+            return
+        print(f"Project {summary['project_id']} onboarding status: {summary['status']}")
+        print(f"Workspace: {summary.get('workspace_path') or '-'}")
+        if summary.get("last_event"):
+            le = summary["last_event"]
+            print(f"Last event: {le['event_type']} at {format_ts(le.get('created_at'))} — {le.get('message','')}")
+        stages = summary.get("stages") or []
+        if stages:
+            rows = [
+                {
+                    "Stage": st.get("name"),
+                    "Status": st.get("status"),
+                    "At": format_ts(st.get("created_at")),
+                    "Msg": (st.get("message") or "")[:50],
+                }
+                for st in stages
+            ]
+            print_table(["Stage", "Status", "At", "Msg"], rows)
+        events = summary.get("events") or []
+        if events:
+            print("Recent events:")
+            for ev in events[-8:]:
+                print(f"- {format_ts(ev.get('created_at'))} {ev.get('event_type')}: {ev.get('message','')}")
 
 
 def handle_protocols(client: APIClient, args: argparse.Namespace) -> None:

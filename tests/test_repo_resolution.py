@@ -25,22 +25,35 @@ def _init_origin_repo(origin: Path) -> None:
 def test_ensure_local_repo_clones_when_missing(tmp_path) -> None:
     origin = tmp_path / "origin"
     _init_origin_repo(origin)
-    projects_root = tmp_path / "Projects"
+    projects_root = tmp_path / "projects"
     git_url = origin.as_uri()
 
-    repo_path = project_setup.ensure_local_repo(git_url, "demo", projects_root=projects_root, clone_if_missing=True)
+    repo_path = project_setup.ensure_local_repo(
+        git_url,
+        "demo",
+        projects_root=projects_root,
+        project_id=42,
+        clone_if_missing=True,
+    )
 
     assert repo_path.exists()
-    assert repo_path.parent == projects_root
+    assert repo_path == projects_root / "42" / "origin"
+    assert repo_path.parent == projects_root / "42"
     assert (repo_path / ".git").exists()
     assert repo_path.name == "origin"
 
 
 def test_ensure_local_repo_respects_auto_clone_flag(tmp_path, monkeypatch) -> None:
-    projects_root = tmp_path / "Projects"
+    projects_root = tmp_path / "projects"
     monkeypatch.setenv("TASKSGODZILLA_AUTO_CLONE", "false")
     with pytest.raises(FileNotFoundError):
-        project_setup.ensure_local_repo("https://example.com/repo.git", "demo", projects_root=projects_root, clone_if_missing=None)
+        project_setup.ensure_local_repo(
+            "https://example.com/repo.git",
+            "demo",
+            projects_root=projects_root,
+            project_id=7,
+            clone_if_missing=None,
+        )
 
 
 def test_configure_git_remote_prefers_github_ssh(tmp_path, monkeypatch) -> None:

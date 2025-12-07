@@ -9,7 +9,7 @@ from . import codex
 from .logging import get_logger
 
 log = get_logger(__name__)
-DEFAULT_PROJECTS_ROOT = Path(os.environ.get("TASKSGODZILLA_PROJECTS_ROOT", "Projects")).expanduser()
+DEFAULT_PROJECTS_ROOT = Path(os.environ.get("TASKSGODZILLA_PROJECTS_ROOT", "projects")).expanduser()
 
 # Map of target paths -> template paths (relative to repo root of this starter)
 BASE_FILES = {
@@ -149,20 +149,42 @@ def _namespace_from_git_url(git_url: str, project_name: Optional[str], base_root
     return root / _repo_name_from_url(git_url, project_name)
 
 
-def local_repo_dir(git_url: str, project_name: Optional[str] = None, projects_root: Optional[Path] = None) -> Path:
+def _projects_root(projects_root: Optional[Path]) -> Path:
     """
-    Derive a local path for a repository. If git_url already points to an existing
-    path, return it; otherwise, map the URL to Projects/<host>/<owner>/<repo>.
+    Normalize the projects root, defaulting to TASKSGODZILLA_PROJECTS_ROOT or ./projects.
+    """
+    return (Path(projects_root) if projects_root else DEFAULT_PROJECTS_ROOT).expanduser()
+
+
+def local_repo_dir(
+    git_url: str,
+    project_name: Optional[str] = None,
+    projects_root: Optional[Path] = None,
+    *,
+    project_id: Optional[int] = None,
+) -> Path:
+    """
+    Derive a local path for a repository.
+
+    Resolution order:
+    1) If git_url is already a local path, return it unchanged.
+    2) When a project_id is provided, prefer projects/<project_id>/<repo_name>.
+    3) Fallback to host/owner/repo namespacing for remote URLs, or repo_name under projects_root.
     """
     url_path = Path(git_url).expanduser()
     if url_path.exists():
         return url_path
-    base_root = Path(projects_root) if projects_root else Path(DEFAULT_PROJECTS_ROOT)
-    base_root = base_root.expanduser()
-    if "github" in git_url or "gitlab" in git_url or git_url.startswith("git@"):
+
+    base_root = _projects_root(projects_root)
+    repo_name = _repo_name_from_url(git_url, project_name)
+
+    if project_id is not None:
+        target = base_root / str(project_id) / repo_name
+    elif "github" in git_url or "gitlab" in git_url or git_url.startswith("git@"):
         target = _namespace_from_git_url(git_url, project_name, base_root)
     else:
-        target = base_root / _repo_name_from_url(git_url, project_name)
+        target = base_root / repo_name
+
     target = target.resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
@@ -236,6 +258,7 @@ def ensure_local_repo(
     project_name: Optional[str] = None,
     *,
     projects_root: Optional[Path] = None,
+    project_id: Optional[int] = None,
     clone_if_missing: Optional[bool] = None,
 ) -> Path:
     """
@@ -244,7 +267,7 @@ def ensure_local_repo(
     clone_if_missing defaults to the TASKSGODZILLA_AUTO_CLONE env flag (true by default).
     Raises FileNotFoundError when cloning is disabled and the repo is missing.
     """
-    target = local_repo_dir(git_url, project_name, projects_root=projects_root)
+    target = local_repo_dir(git_url, project_name, projects_root=projects_root, project_id=project_id)
     if target.exists():
         return target
     should_clone = auto_clone_enabled() if clone_if_missing is None else clone_if_missing
@@ -260,6 +283,7 @@ def run_codex_discovery(
     sandbox: str = "workspace-write",
     skip_git_check: bool = True,
     strict: bool = False,
+    timeout_seconds: Optional[int] = None,
 ) -> None:
     """
     Run Codex discovery (repo analysis + CI suggestions) with the repo-discovery prompt.
@@ -311,12 +335,14 @@ def run_codex_discovery(
         cmd.append("--skip-git-repo-check")
     cmd.append("-")
 
-    codex.run_process(
-        cmd,
-        cwd=repo_root,
-        capture_output=False,
-        text=True,
-        check=True,
-        input_text=prompt_text,
-    )
+    run_kwargs = {
+        "cwd": repo_root,
+        "capture_output": False,
+        "text": True,
+        "check": True,
+        "input_text": prompt_text,
+    }
+    if timeout_seconds is not None:
+        run_kwargs["timeout"] = timeout_seconds
+    codex.run_process(cmd, **run_kwargs)
     log.info("codex_discovery_complete", extra={"repo_root": str(repo_root), "model": model})

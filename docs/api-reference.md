@@ -19,16 +19,20 @@ HTTP API for managing projects, protocol runs, steps, events, queues, and CI/web
 - `POST /projects`
   - Body: `{ "name": str, "git_url": str, "base_branch": "main", "ci_provider": str|null, "default_models": obj|null, "secrets": obj|null, "local_path": str|null }`
   - Response: Project object with `id`, timestamps.
-  - Behavior: persists `local_path` when provided so future jobs resolve the repo without recomputing; falls back to cloning under `TASKSGODZILLA_PROJECTS_ROOT` when missing.
+  - Behavior: persists `local_path` when provided so future jobs resolve the repo without recomputing; falls back to cloning under `TASKSGODZILLA_PROJECTS_ROOT` (default `projects/<project_id>/<repo_name>`) when missing.
   - Side effects: enqueues `project_setup_job` protocol run for onboarding progress visibility and onboarding clarifications.
 - `GET /projects` → list of projects.
 - `GET /projects/{id}` → project (401 if project token required and missing).
+- `GET /projects/{id}/onboarding` → onboarding summary (status, workspace, stages, recent events) for `setup-{id}`.
 - `GET /projects/{id}/branches`
   - Response: `{ "branches": [str] }`
-  - Behavior: resolves repo via stored `local_path` or `git_url`; clones when allowed; records an event.
+  - Behavior: resolves repo via stored `local_path` or `git_url` (defaulting to `projects/<project_id>/<repo_name>`); clones when allowed; records an event.
 - `POST /projects/{id}/branches/{branch:path}/delete`
   - Body: `{ "confirm": true }` (required)
   - Behavior: deletes the remote branch on origin, records an event; 409 when the repo is unavailable locally.
+
+Event visibility
+- Onboarding emits `setup_discovery_*` events (started/skipped/completed/warning) around Codex repo discovery so console/TUI/CLI can show discovery progress per project.
 
 ## CodeMachine import
 - `POST /projects/{id}/codemachine/import`

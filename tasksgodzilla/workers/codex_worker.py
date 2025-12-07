@@ -37,8 +37,8 @@ from tasksgodzilla.engines import EngineRequest, registry
 from tasksgodzilla.engine_resolver import resolve_prompt_and_outputs
 from tasksgodzilla.workers.unified_runner import execute_step_unified, run_qa_unified
 from tasksgodzilla.jobs import RedisQueue
-from tasksgodzilla.project_setup import ensure_local_repo, local_repo_dir, auto_clone_enabled
-from tasksgodzilla.git_utils import create_github_pr
+from tasksgodzilla.project_setup import auto_clone_enabled, local_repo_dir
+from tasksgodzilla.git_utils import create_github_pr, resolve_project_repo_path
 from tasksgodzilla.spec import (
     PROTOCOL_SPEC_KEY,
     build_spec_from_protocol_files,
@@ -87,7 +87,13 @@ def _repo_root_or_block(
     emits an event when the repo is unavailable.
     """
     try:
-        repo_root = ensure_local_repo(project.git_url, project.name, clone_if_missing=clone_if_missing)
+        repo_root = resolve_project_repo_path(
+            project.git_url,
+            project.name,
+            project.local_path,
+            project_id=project.id,
+            clone_if_missing=clone_if_missing,
+        )
     except FileNotFoundError as exc:
         db.append_event(
             run.id,
@@ -256,7 +262,12 @@ def _protocol_and_workspace_paths(run: ProtocolRun, project) -> tuple[Path, Path
     Best-effort resolution of workspace/protocol roots for prompt resolution
     before a worktree is loaded.
     """
-    workspace_base = Path(run.worktree_path).expanduser() if run.worktree_path else local_repo_dir(project.git_url, project.name)
+    if run.worktree_path:
+        workspace_base = Path(run.worktree_path).expanduser()
+    elif project.local_path and Path(project.local_path).expanduser().exists():
+        workspace_base = Path(project.local_path).expanduser()
+    else:
+        workspace_base = local_repo_dir(project.git_url, project.name, project_id=project.id)
     workspace_root = workspace_base.resolve()
     protocol_root = Path(run.protocol_root).resolve() if run.protocol_root else (workspace_root / ".protocols" / run.protocol_name)
     return workspace_root, protocol_root
@@ -472,6 +483,8 @@ def git_push_and_open_pr(
             except Exception:
                 return False
     # Attempt PR/MR creation if CLI is available
+    pr_title = f"WIP: {protocol_name}"
+    pr_body = f"Protocol {protocol_name} in progress"
     if shutil.which("gh"):
         try:
             run_process(
@@ -480,9 +493,9 @@ def git_push_and_open_pr(
                     "pr",
                     "create",
                     "--title",
-                    f"WIP: {protocol_name}",
+                    pr_title,
                     "--body",
-                    f"Protocol {protocol_name} in progress",
+                    pr_body,
                     "--base",
                     base_branch,
                 ],
@@ -492,11 +505,6 @@ def git_push_and_open_pr(
             )
         except Exception:
             pass
-    else:
-        pr_title = f"WIP: {protocol_name}"
-        pr_body = f"Protocol {protocol_name} in progress"
-        if create_github_pr(worktree, head=protocol_name, base=base_branch, title=pr_title, body=pr_body):
-            pushed = True
     elif shutil.which("glab"):
         try:
             run_process(
@@ -505,9 +513,9 @@ def git_push_and_open_pr(
                     "mr",
                     "create",
                     "--title",
-                    f"WIP: {protocol_name}",
+                    pr_title,
                     "--description",
-                    f"Protocol {protocol_name} in progress",
+                    pr_body,
                     "--target-branch",
                     base_branch,
                 ],
@@ -517,6 +525,9 @@ def git_push_and_open_pr(
             )
         except Exception:
             pass
+    else:
+        if create_github_pr(worktree, head=protocol_name, base=base_branch, title=pr_title, body=pr_body):
+            pushed = True
     return pushed or branch_exists
 
 
@@ -811,13 +822,10 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
             run,
             db,
             job_id=job_id,
-            block_on_missing=auto_clone,
+            block_on_missing=False,
             clone_if_missing=auto_clone,
         )
         if repo_root is None:
-            if auto_clone:
-                db.update_step_status(step.id, StepStatus.BLOCKED, summary="Repository unavailable")
-                return
             _stub_execute("repository unavailable")
             return
 
@@ -1289,17 +1297,6 @@ def handle_quality(step_run_id: int, db: BaseDatabase, job_id: Optional[str] = N
             project_id=run.project_id,
             job_id=job_id,
         )
-    elif auto_clone:
-        db.update_step_status(step.id, StepStatus.BLOCKED, summary="QA blocked; repository not initialized")
-        db.append_event(
-            step.protocol_run_id,
-            "repo_missing",
-            "Repository missing .git data; cannot run QA.",
-            step_run_id=step.id,
-            metadata={"git_url": project.git_url, "resolved_path": str(repo_root)},
-        )
-        db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
-        return
     else:
         worktree = repo_root
 

@@ -206,6 +206,7 @@ class TuiDashboard(App):
         self.events: List[Dict[str, Any]] = []
         self.step_filter: Optional[str] = None
         self.modal_open = False
+        self.onboarding: Optional[Dict[str, Any]] = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -237,6 +238,8 @@ class TuiDashboard(App):
                 yield Static("", id="step_policy")
                 yield Static("Runtime state", classes="title")
                 yield Static("", id="step_runtime")
+                yield Static("Onboarding", classes="title")
+                yield Static("", id="onboarding_meta")
             yield Static("", id="status_bar")
         yield Footer()
 
@@ -251,6 +254,7 @@ class TuiDashboard(App):
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.list_view.id == "projects":
             self.project_id = event.item.item_id if isinstance(event.item, DataListItem) else None
+            await self._load_onboarding()
             await self._load_protocols()
         elif event.list_view.id == "protocols":
             self.protocol_id = event.item.item_id if isinstance(event.item, DataListItem) else None
@@ -266,6 +270,7 @@ class TuiDashboard(App):
         self.refreshing = True
         try:
             await self._load_projects()
+            await self._load_onboarding()
             await self._load_protocols()
             await self._load_steps()
             await self._load_events()
@@ -296,6 +301,7 @@ class TuiDashboard(App):
             target = self.project_id or self.projects[0]["id"]
             self.project_id = target
             self._highlight(list_view, target)
+            await self._load_onboarding()
 
     async def _load_protocols(self) -> None:
         list_view = self._get_list("protocols")
@@ -368,6 +374,18 @@ class TuiDashboard(App):
         for ev in reversed(self.events[-50:]):
             text = f"{ev['event_type']}: {ev['message']}"
             list_view.append(DataListItem(text, ev["id"]))
+
+    async def _load_onboarding(self) -> None:
+        if not self.project_id:
+            return
+        try:
+            summary = await asyncio.to_thread(self.client.get, f"/projects/{self.project_id}/onboarding")
+        except Exception as exc:
+            self.status_message = f"Error loading onboarding: {exc}"
+            log.error("load_onboarding_failed", extra={"error": str(exc), "project_id": self.project_id})
+            return
+        self.onboarding = summary or None
+        self._render_onboarding()
 
     def _highlight(self, list_view: ListView, target_id: int) -> None:
         for idx, item in enumerate(list_view.children):
@@ -575,6 +593,27 @@ class TuiDashboard(App):
             counts[s["status"]] = counts.get(s["status"], 0) + 1
         counts_text = ", ".join(f"{k}:{v}" for k, v in counts.items()) if counts else "no steps"
         panel.update(f"{run['protocol_name']} [{status}] • base={base} • steps={counts_text}\n{desc}\nupdated={updated}")
+        self._render_onboarding()
+
+    def _render_onboarding(self) -> None:
+        panel = next(iter(self.query("#onboarding_meta")), None)
+        if not panel:
+            return
+        if not self.onboarding:
+            panel.update("Onboarding: n/a")
+            return
+        summary = self.onboarding
+        status = summary.get("status", "-")
+        path = summary.get("workspace_path") or "-"
+        last = summary.get("last_event")
+        last_line = ""
+        if last:
+            last_line = f"Last: {last.get('event_type')} {format_ts(last.get('created_at'))} {last.get('message','')}"
+        stage_bits = []
+        for st in summary.get("stages", []):
+            stage_bits.append(f"{st.get('name')}: {st.get('status')}")
+        stages_line = "; ".join(stage_bits) if stage_bits else "stages: -"
+        panel.update(f"Onboarding [{status}] • {path}\n{stages_line}\n{last_line}")
 
     async def action_cycle_filter(self) -> None:
         order = [None, "pending", "running", "needs_qa", "failed"]

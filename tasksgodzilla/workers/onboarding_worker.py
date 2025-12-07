@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 import os
+import shutil
 
 from tasksgodzilla.domain import ProtocolStatus
 from tasksgodzilla.logging import get_logger, log_extra
@@ -10,10 +11,12 @@ from tasksgodzilla.project_setup import (
     configure_git_identity,
     configure_git_remote,
     ensure_assets,
-    ensure_local_repo,
+    run_codex_discovery,
+    local_repo_dir,
     prefer_github_ssh,
 )
 from tasksgodzilla.storage import BaseDatabase
+from tasksgodzilla.git_utils import resolve_project_repo_path
 
 log = get_logger(__name__)
 
@@ -45,11 +48,19 @@ def handle_project_setup(project_id: int, db: BaseDatabase, protocol_run_id: Opt
     )
 
     try:
-        repo_hint = project.local_path or project.git_url
-        repo_path = Path(repo_hint).expanduser()
-        repo_preexisting = repo_path.exists()
+        default_repo_path = local_repo_dir(project.git_url, project.name, project_id=project.id)
+        repo_hint = project.local_path or str(default_repo_path)
+        candidate_paths = [default_repo_path]
+        if project.local_path:
+            candidate_paths.append(Path(project.local_path).expanduser())
+        repo_preexisting = any(path.exists() for path in candidate_paths)
         try:
-            repo_path = ensure_local_repo(repo_hint, project.name)
+            repo_path = resolve_project_repo_path(
+                project.git_url,
+                project.name,
+                project.local_path,
+                project_id=project.id,
+            )
         except FileNotFoundError:
             db.append_event(
                 protocol_run_id,
@@ -89,6 +100,8 @@ def handle_project_setup(project_id: int, db: BaseDatabase, protocol_run_id: Opt
                 )
             except Exception:
                 pass
+
+        _run_discovery(repo_path, protocol_run_id, db)
 
         try:
             ensure_assets(repo_path)
@@ -169,6 +182,64 @@ def handle_project_setup(project_id: int, db: BaseDatabase, protocol_run_id: Opt
         )
         db.update_protocol_status(protocol_run_id, ProtocolStatus.FAILED)
         db.append_event(protocol_run_id, "setup_failed", f"Setup failed: {exc}")
+
+
+def _run_discovery(repo_path: Path, protocol_run_id: int, db: BaseDatabase) -> None:
+    """
+    Trigger Codex discovery automatically during onboarding. Emits events so
+    console/TUI/CLI can show progress regardless of success/failure/skip.
+    """
+    model = os.environ.get("PROTOCOL_DISCOVERY_MODEL", "gpt-5.1-codex-max")
+    timeout_env = os.environ.get("TASKSGODZILLA_DISCOVERY_TIMEOUT", "15")
+    try:
+        timeout_seconds = int(timeout_env)
+    except Exception:
+        timeout_seconds = 15
+    prompt_path = repo_path / "prompts" / "repo-discovery.prompt.md"
+    fallback_prompt = Path(__file__).resolve().parents[2] / "prompts" / "repo-discovery.prompt.md"
+
+    if shutil.which("codex") is None:
+        db.append_event(
+            protocol_run_id,
+            "setup_discovery_skipped",
+            "Discovery skipped: codex CLI not available.",
+            metadata={"path": str(repo_path), "model": model},
+        )
+        return
+
+    if not prompt_path.exists() and fallback_prompt.exists():
+        prompt_path = fallback_prompt
+
+    if not prompt_path.exists():
+        db.append_event(
+            protocol_run_id,
+            "setup_discovery_skipped",
+            "Discovery skipped: repo-discovery prompt missing.",
+            metadata={"path": str(repo_path)},
+        )
+        return
+
+    db.append_event(
+        protocol_run_id,
+        "setup_discovery_started",
+        "Running Codex repository discovery.",
+        metadata={"path": str(repo_path), "model": model, "prompt": str(prompt_path), "timeout_seconds": timeout_seconds},
+    )
+    try:
+        run_codex_discovery(repo_path, model, prompt_file=prompt_path, timeout_seconds=timeout_seconds)
+        db.append_event(
+            protocol_run_id,
+            "setup_discovery_completed",
+            "Discovery finished.",
+            metadata={"path": str(repo_path), "model": model},
+        )
+    except Exception as exc:  # pragma: no cover - best effort
+        db.append_event(
+            protocol_run_id,
+            "setup_discovery_warning",
+            f"Discovery failed or was skipped: {exc}",
+            metadata={"path": str(repo_path), "model": model},
+        )
 
 
 def require_onboarding_clarifications() -> bool:

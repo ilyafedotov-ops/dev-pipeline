@@ -72,10 +72,22 @@ Redis is required for orchestration; set `TASKSGODZILLA_REDIS_URL` (use `fakered
 
 ## Git onboarding & branch controls
 
-- Projects accept an optional `local_path` and persist it; onboarding prefers that path before cloning. Missing repos are cloned under `TASKSGODZILLA_PROJECTS_ROOT` (default `Projects/<host>/<owner>/<repo>`), and the resolved path is recorded back to the project. Opt out of cloning with `TASKSGODZILLA_AUTO_CLONE=false`.
+- Projects accept an optional `local_path` and persist it. Onboarding uses that path when it already exists; otherwise it clones into `TASKSGODZILLA_PROJECTS_ROOT` (default `projects/<project_id>/<repo_name>`) and records the resolved path so every project has an isolated workspace. Opt out of cloning with `TASKSGODZILLA_AUTO_CLONE=false`.
+- After resolving the workspace, onboarding auto-runs Codex repository discovery (`prompts/repo-discovery.prompt.md`, model from `PROTOCOL_DISCOVERY_MODEL` or default `gpt-5.1-codex-max`) and logs events for visibility across console/TUI/CLI.
 - Onboarding auto-configures `origin` (rewrites to GitHub SSH when `TASKSGODZILLA_GH_SSH=true`) and can set git identity from `TASKSGODZILLA_GIT_USER` / `TASKSGODZILLA_GIT_EMAIL`.
 - Clarifications are emitted as a `setup_clarifications` event with recommended CI/models/branch policies; set `TASKSGODZILLA_REQUIRE_ONBOARDING_CLARIFICATIONS=true` to block until acknowledged in the console/TUI.
 - Remote branch management API: `GET /projects/{id}/branches` lists origin branches and `POST /projects/{id}/branches/{branch}/delete` with `{"confirm": true}` deletes a remote branch and records an event.
+
+Workspace layout (default):
+```text
+projects/
+  <project_id>/
+    <repo_name>/            # primary working copy (honors local_path when provided)
+      .protocols/<protocol>/...
+    worktrees/
+      <protocol_name>/      # branch+worktree created during plan/exec
+        .protocols/<protocol_name>/...
+```
 
 ## Containerized orchestrator (API + worker + Redis/Postgres)
 
@@ -172,7 +184,7 @@ The core idea: ship improvements in parallel streams with strict, explicit proto
 graph TD
   U["User (console/API client)"] --> Console["Console (web/TUI)"]
   Console --> API["Orchestrator API (FastAPI)"]
-  API --> Repo["Repo resolver\n(local_path or Projects/<host>/<owner>/<repo>)"]
+  API --> Repo["Repo resolver\n(local_path or projects/<project_id>/<repo>)"]
   API --> DB[(DB: Postgres/SQLite)]
   API --> Queue["Queue (Redis/RQ; fakeredis inline in dev)"]
   API --> Spec["ProtocolSpec/StepSpec\nstored on ProtocolRun.template_config"]
@@ -195,7 +207,7 @@ graph TD
 
 ```mermaid
 flowchart LR
-  A["Register project (/projects)"] --> B["project_setup_job\nresolve local_path, clone if needed,\nbootstrap assets, clarifications"]
+  A["Register project (/projects)"] --> B["project_setup_job\nresolve workspace projects/<id>/<repo>, discovery,\nassets, clarifications"]
   A --> B2["optional: codemachine_import_job\nemits ProtocolSpec + StepSpecs"]
   B --> C["plan_protocol_job\nplan + decompose → ProtocolSpec + StepRuns"]
   C --> D["execute_step_job\nspec-driven prompt/output resolver\nengine registry dispatch"]

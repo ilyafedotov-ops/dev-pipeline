@@ -32,7 +32,7 @@ When `fakeredis://` is used, the API also starts a background RQ worker thread f
 - `tasksgodzilla/storage.py`: SQLite/Postgres DAO for Projects/ProtocolRuns/StepRuns/Events; migrations under `alembic/`.
 - `tasksgodzilla/domain.py`: status enums and dataclasses for the core entities.
 - `tasksgodzilla/api/app.py`: FastAPI app with bearer/project-token auth, console assets at `/console`, queue stats, metrics, webhook listeners, and project/protocol/step actions.
-- `tasksgodzilla/git_utils.py`: repo resolution helpers (honor stored `projects.local_path` or clone under `TASKSGODZILLA_PROJECTS_ROOT`) plus remote branch list/delete.
+- `tasksgodzilla/git_utils.py`: repo resolution helpers (honor stored `projects.local_path` or clone under `TASKSGODZILLA_PROJECTS_ROOT` using `projects/<project_id>/<repo_name>`) plus remote branch list/delete.
 - `tasksgodzilla/jobs.py`: Redis/RQ-backed queue abstraction; fakeredis supported for tests/dev.
 - `tasksgodzilla/worker_runtime.py`: job processors and background worker helper (auto-starts when using fakeredis); `scripts/rq_worker.py` runs dedicated workers.
 - `tasksgodzilla/codemachine/*`: loader + runtime adapter for `.codemachine` workspaces, including loop/trigger policy helpers and prompt resolution with placeholders/specifications.
@@ -41,12 +41,25 @@ When `fakeredis://` is used, the API also starts a background RQ worker thread f
 - `scripts/api_server.py`: uvicorn runner for the API.
 - `scripts/ci_trigger.py` and `scripts/ci/report.sh`: optional helpers to trigger CI and to post webhook-style results back into the orchestrator.
 
+## Workspace layout (per project)
+```text
+projects/                  # TASKSGODZILLA_PROJECTS_ROOT (default)
+  <project_id>/            # per-project namespace
+    <repo_name>/           # main working copy (from git_url or local_path)
+      .git/
+      .protocols/<protocol>/...
+    worktrees/             # protocol worktrees created by plan/exec flows
+      <protocol_name>/
+        .protocols/<protocol_name>/...
+```
+`local_path` overrides this when provided; otherwise the orchestrator clones/resolves into `projects/<project_id>/<repo_name>`.
+
 ## Status model & automation knobs
 - ProtocolRun: `pending → planning → planned → running → (paused | blocked | failed | cancelled | completed)`.
 - StepRun: `pending → running → needs_qa → (completed | failed | cancelled | blocked)`.
 - Auto QA: `TASKSGODZILLA_AUTO_QA_AFTER_EXEC` triggers QA after execution; `TASKSGODZILLA_AUTO_QA_ON_CI` triggers QA on successful CI webhooks.
 - Token budgets: `TASKSGODZILLA_MAX_TOKENS_PER_STEP` / `TASKSGODZILLA_MAX_TOKENS_PER_PROTOCOL` with `TASKSGODZILLA_TOKEN_BUDGET_MODE=strict|warn|off`.
-- Onboarding: uses stored `local_path` when present, otherwise clones under `TASKSGODZILLA_PROJECTS_ROOT` (namespaced host/owner/repo). Auto-configures `origin` (prefers GitHub SSH when `TASKSGODZILLA_GH_SSH=true`), optionally sets git identity from `TASKSGODZILLA_GIT_USER` / `TASKSGODZILLA_GIT_EMAIL`, and emits `setup_clarifications` (blocking when `TASKSGODZILLA_REQUIRE_ONBOARDING_CLARIFICATIONS=true`).
+- Onboarding: uses stored `local_path` when present, otherwise clones under `TASKSGODZILLA_PROJECTS_ROOT` with the per-project layout `projects/<project_id>/<repo_name>`. Automatically runs Codex discovery (with `repo-discovery.prompt.md`), then ensures starter assets, configures `origin` (prefers GitHub SSH when `TASKSGODZILLA_GH_SSH=true`), optionally sets git identity from `TASKSGODZILLA_GIT_USER` / `TASKSGODZILLA_GIT_EMAIL`, and emits `setup_clarifications` (blocking when `TASKSGODZILLA_REQUIRE_ONBOARDING_CLARIFICATIONS=true`).
 - Queue: Redis/RQ with retries/backoff (defaults: 3 attempts, capped backoff); jobs append Events and carry IDs for tracing.
 - Policies: StepSpec policies (often from CodeMachine modules) attach loop/trigger behavior to steps; loops reset step statuses with bounded iteration counts, and triggers can enqueue or inline-run other steps (depth-limited to prevent recursion).
 

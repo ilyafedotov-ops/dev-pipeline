@@ -17,6 +17,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 Projects/
+projects/
 dataset_report.pdf
 dataset.csv
 docs/terraformmanager-workflow-plan.md

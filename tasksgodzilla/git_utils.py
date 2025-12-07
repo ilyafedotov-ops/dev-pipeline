@@ -9,16 +9,24 @@ from tasksgodzilla.errors import GitCommandError
 from tasksgodzilla.project_setup import ensure_local_repo
 
 
-def resolve_project_repo_path(git_url: str, project_name: Optional[str], local_path: Optional[str]) -> Path:
+def resolve_project_repo_path(
+    git_url: str,
+    project_name: Optional[str],
+    local_path: Optional[str],
+    *,
+    project_id: Optional[int] = None,
+    clone_if_missing: Optional[bool] = None,
+) -> Path:
     """
     Resolve a local repo path for a project, preferring the stored local_path when present.
-    Falls back to ensure_local_repo which may clone when permitted.
+    Falls back to ensure_local_repo which may clone when permitted (clone_if_missing controls
+    cloning). When project_id is provided, the default location is projects/<project_id>/<repo_name>.
     """
     if local_path:
         path = Path(local_path).expanduser()
         if path.exists():
             return path
-    return ensure_local_repo(git_url, project_name)
+    return ensure_local_repo(git_url, project_name, project_id=project_id, clone_if_missing=clone_if_missing)
 
 
 def list_remote_branches(repo_root: Path) -> List[str]:

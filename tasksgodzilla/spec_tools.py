@@ -21,7 +21,12 @@ from tasksgodzilla.storage import BaseDatabase
 
 
 def _workspace_and_protocol_root(run: ProtocolRun, project) -> Tuple[Path, Path]:
-    workspace_base = Path(run.worktree_path).expanduser() if run.worktree_path else local_repo_dir(project.git_url, project.name)
+    if run.worktree_path:
+        workspace_base = Path(run.worktree_path).expanduser()
+    elif project.local_path and Path(project.local_path).expanduser().exists():
+        workspace_base = Path(project.local_path).expanduser()
+    else:
+        workspace_base = local_repo_dir(project.git_url, project.name, project_id=project.id)
     workspace = workspace_base.resolve()
     protocol_root = Path(run.protocol_root).resolve() if run.protocol_root else (workspace / ".protocols" / run.protocol_name)
     return workspace, protocol_root

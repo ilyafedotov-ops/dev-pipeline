@@ -37,6 +37,7 @@ const state = {
   metrics: { qaVerdicts: {}, tokenUsageByPhase: {}, tokenUsageByModel: {} },
   selectedProject: null,
   selectedProtocol: null,
+  onboarding: {},
   poll: null,
 };
 
@@ -150,12 +151,30 @@ function persistAuditIntervals() {
   }
 }
 
+function onboardingPill(summary) {
+  if (!summary) return "";
+  return `<span class="pill ${statusClass(summary.status)}">${summary.status}</span>`;
+}
+
 async function loadProjects() {
   try {
     const projects = await apiFetch("/projects");
     state.projects = projects;
     renderProjects();
     setStatus(`Loaded ${projects.length} project(s).`);
+  } catch (err) {
+    setStatus(err.message, "error");
+  }
+}
+
+async function loadOnboarding(projectId = null) {
+  const targetId = projectId || state.selectedProject;
+  if (!targetId) return;
+  try {
+    const summary = await apiFetch(`/projects/${targetId}/onboarding`);
+    state.onboarding[targetId] = summary;
+    renderProjects();
+    renderOnboardingDetail();
   } catch (err) {
     setStatus(err.message, "error");
   }
@@ -203,6 +222,7 @@ function renderProjects() {
     const auditPill = latestAudit
       ? `<span class="pill">${latestAudit.created_at ? new Date(latestAudit.created_at).toLocaleTimeString() : "audit"}</span>`
       : "";
+    const onboarding = state.onboarding[proj.id];
     const card = document.createElement("div");
     card.className = `card ${state.selectedProject === proj.id ? "active" : ""}`;
     card.innerHTML = `
@@ -214,6 +234,7 @@ function renderProjects() {
         <div style="display:flex; gap:6px; align-items:center;">
           ${anyInvalid ? `<span class="pill spec-invalid">spec invalid</span>` : ""}
           ${auditPill}
+          ${onboardingPill(onboarding)}
           <span class="pill">${proj.base_branch}</span>
         </div>
       </div>
@@ -227,6 +248,7 @@ function renderProjects() {
       state.selectedProtocol = null;
       state.steps = [];
       state.events = [];
+      loadOnboarding(proj.id);
       if (projectTokenInput) {
         projectTokenInput.value = state.projectTokens[String(proj.id)] || "";
       }
@@ -258,6 +280,7 @@ async function loadProtocols() {
     const runs = await apiFetch(`/projects/${state.selectedProject}/protocols`);
     state.protocols = runs;
     renderProtocols();
+    renderOnboardingDetail();
     setStatus(`Loaded ${runs.length} protocol run(s).`);
   } catch (err) {
     setStatus(err.message, "error");
@@ -494,6 +517,64 @@ function renderTemplateMeta(run) {
   }
   if (!parts.length) return "";
   return `<div class="muted" style="font-size:12px;">${parts.join(" · ")}</div>`;
+}
+
+function renderOnboardingDetail() {
+  const container = document.getElementById("onboardingContent");
+  if (!container) return;
+  if (!state.selectedProject) {
+    container.innerHTML = `<p class="muted small">Select a project to view onboarding progress.</p>`;
+    return;
+  }
+  const summary = state.onboarding[state.selectedProject];
+  if (!summary) {
+    container.innerHTML = `<p class="muted small">Loading onboarding status...</p>`;
+    return;
+  }
+  const stages = (summary.stages || [])
+    .map((st) => {
+      const when = st.created_at ? formatDate(st.created_at) : "";
+      const msg = st.message || "";
+      return `<div class="stage">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h4>${st.name}</h4>
+          <span class="pill ${statusClass(st.status)} onboarding">${st.status}</span>
+        </div>
+        <div class="muted">${msg}</div>
+        <div class="muted small">${when}</div>
+      </div>`;
+    })
+    .join("");
+  const events = (summary.events || [])
+    .slice(-8)
+    .reverse()
+    .map((ev) => {
+      return `<tr>
+        <td class="muted small">${formatDate(ev.created_at)}</td>
+        <td>${ev.event_type}</td>
+        <td class="muted small">${ev.message || ""}</td>
+      </tr>`;
+    })
+    .join("");
+  const lastMsg = summary.last_event ? summary.last_event.message : "";
+  const lastTime = summary.last_event ? formatDate(summary.last_event.created_at) : "";
+  container.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+      <div>
+        <div class="muted small">Workspace</div>
+        <div>${summary.workspace_path || "-"}</div>
+        <div class="muted small">Last: ${lastMsg || "-"} ${lastTime ? `(${lastTime})` : ""}</div>
+      </div>
+      <span class="pill ${statusClass(summary.status)} onboarding">${summary.status}</span>
+    </div>
+    <div class="stage-list">${stages || `<div class="muted small">No stages yet.</div>`}</div>
+    <div class="timeline">
+      <table>
+        <thead><tr><th>Time</th><th>Event</th><th>Message</th></tr></thead>
+        <tbody>${events || `<tr><td colspan="3" class="muted small">No events yet.</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderStepsTable() {
@@ -1039,6 +1120,7 @@ function startPolling() {
     loadEvents();
     loadOperations();
     loadMetrics();
+    loadOnboarding();
   }, 4000);
 }
 
@@ -1187,6 +1269,10 @@ function wireForms() {
   const refreshMetricsBtn = document.getElementById("refreshMetrics");
   if (refreshMetricsBtn) {
     refreshMetricsBtn.onclick = loadMetrics;
+  }
+  const refreshOnboardingBtn = document.getElementById("refreshOnboarding");
+  if (refreshOnboardingBtn) {
+    refreshOnboardingBtn.onclick = () => loadOnboarding();
   }
   if (saveProjectTokenBtn) {
     saveProjectTokenBtn.onclick = () => {

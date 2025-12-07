@@ -53,7 +53,15 @@ This document captures the current state of the system, the risks that block ful
 
 ### 2.5 Core flows
 - **Project onboarding**: Console calls `/projects` to register; orchestrator enqueues `project_setup` job to clone and run `project_setup.py`/`codex_ci_bootstrap.py`; user selects models/QA strictness; project shows as ready.
-  - Repos resolve via stored `local_path` or namespaced clones under `TASKSGODZILLA_PROJECTS_ROOT`; onboarding records the path, configures git origin/identity when env vars are set, and emits clarifications (blocking when `TASKSGODZILLA_REQUIRE_ONBOARDING_CLARIFICATIONS=true`) for CI/model/branch policy choices.
+- Repos resolve via stored `local_path` or per-project clones under `TASKSGODZILLA_PROJECTS_ROOT` (`projects/<project_id>/<repo_name>`); onboarding auto-runs discovery, records the path, configures git origin/identity when env vars are set, and emits clarifications (blocking when `TASKSGODZILLA_REQUIRE_ONBOARDING_CLARIFICATIONS=true`) for CI/model/branch policy choices.
+
+Workspace layout (default):
+```text
+projects/
+  <project_id>/
+    <repo_name>/            # main working copy
+    worktrees/<protocol>/   # protocol worktrees created from origin/<base_branch>
+```
 - **Open a protocol**: `/projects/{id}/protocols` creates a ProtocolRun; orchestrator enqueues `plan_protocol` to run planning/decomposition; artifacts live under `.protocols/NNNN-[task]/`.
 - **Execute steps**: `/steps/{id}/actions/run` dispatches execution; the execution worker resolves prompts/outputs from the StepSpec and dispatches via the engine registry; status and summaries recorded; optional auto-PR/MR via Git/CI Worker.
 - **QA loop**: `/steps/{id}/actions/run_qa` builds the QA context and runs the validator prompt; verdict updates StepRun and may block/unblock the protocol.

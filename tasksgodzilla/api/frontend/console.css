@@ -175,6 +175,50 @@ header {
   gap: 8px;
 }
 
+.stage-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin: 8px 0 6px;
+}
+
+.stage {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  background: var(--panel-2);
+}
+
+.stage h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.stage .muted {
+  font-size: 11px;
+}
+
+.timeline {
+  margin-top: 10px;
+}
+
+.timeline table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.timeline th,
+.timeline td {
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.pill.onboarding {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+}
+
 .cards {
   display: flex;
   flex-direction: column;
