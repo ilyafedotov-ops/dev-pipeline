@@ -38,6 +38,7 @@ from tasksgodzilla.engine_resolver import resolve_prompt_and_outputs
 from tasksgodzilla.workers.unified_runner import execute_step_unified, run_qa_unified
 from tasksgodzilla.jobs import RedisQueue
 from tasksgodzilla.project_setup import ensure_local_repo, local_repo_dir, auto_clone_enabled
+from tasksgodzilla.git_utils import create_github_pr
 from tasksgodzilla.spec import (
     PROTOCOL_SPEC_KEY,
     build_spec_from_protocol_files,
@@ -491,6 +492,11 @@ def git_push_and_open_pr(
             )
         except Exception:
             pass
+    else:
+        pr_title = f"WIP: {protocol_name}"
+        pr_body = f"Protocol {protocol_name} in progress"
+        if create_github_pr(worktree, head=protocol_name, base=base_branch, title=pr_title, body=pr_body):
+            pushed = True
     elif shutil.which("glab"):
         try:
             run_process(
