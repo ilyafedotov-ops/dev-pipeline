@@ -19,7 +19,7 @@ When launched without subcommands, the CLI shows a menu to:
 - List/select projects and create a new project.
 - List protocols for the selected project, create + start a protocol.
 - Run the next step, list steps, run QA on the latest step, approve the latest step.
-- View recent events, show queue stats.
+- View recent events (including `setup_clarifications` from onboarding with recommended CI/model/branch settings), show queue stats.
 - Import a CodeMachine workspace (inline or enqueued).
 
 ## Subcommands (scriptable)
@@ -85,6 +85,8 @@ Keybindings:
 - Global: `r` refresh, `?` bindings, `tab/shift+tab` cycle panes, `c` configure API/token, `q` quit.
 - Steps: `enter` action menu; `n` run next; `t` retry latest; `y` run QA; `a` approve; `o` open PR; `f` cycle step filter (all/pending/running/needs_qa/failed).
 - CodeMachine: `i` import workspace (modal with path + enqueue option).
+- Events pane: shows onboarding `setup_clarifications` payloads with recommended CI/model/branch/git settings; use them to adjust project/env settings, then rerun setup if needed (no inline “acknowledge” UI yet).
+- Branch management is API-only today; use `GET /projects/{id}/branches` and `POST /projects/{id}/branches/{branch}/delete` (body `{"confirm": true}`) to list/delete remote branches until a TUI action is added.
 
 Columns show projects/protocols/steps/events; selections drive the actions above.
 If the API is down or widgets are missing, errors are logged to the status bar; start the API first. The API base defaults to `http://localhost:8011` (compose) and can be updated via the `c` modal; use 8010 when running locally without compose.
