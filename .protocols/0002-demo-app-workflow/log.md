@@ -18,3 +18,10 @@ This is an append-only log:
 - Generated protocol artifacts via Codex planning/decompose; committed as `chore: add protocol plan [protocol-0002/00]` (27b228c) on branch `0002-demo-app-workflow`.
 - CI checks from worktree using root venv: `scripts/ci/lint.sh`, `scripts/ci/typecheck.sh`, `scripts/ci/test.sh` all passed (VENV_PATH=/home/ilya/Documents/dev-pipeline/.venv).
 - Draft PR opened to main for tracking: https://github.com/ilyafedotov-ops/dev-pipeline/pull/1.
+
+## Step 1 — Scope and baseline (notes)
+- Read `AGENTS.md` for repo/CI conventions and env guidance; `README.md` for orchestration overview and quick start; docs and prompts reference the demo harness (`scripts/demo_harness.py`, `tests/test_demo_harness.py`).
+- Candidate demo workflow: reuse the offline demo harness flow (onboarding → planning stub → spec audit → step execution → QA skip) via `scripts/demo_harness.py` / `tests/test_demo_harness.py`; uses fakeredis + temp SQLite with `TASKSGODZILLA_AUTO_CLONE=false`.
+- Baseline repo state: branch `0002-demo-app-workflow` clean except for context updates, head `bba50d6`; CI scripts available in `scripts/ci/*.sh`.
+- Env/services: fakeredis (`TASKSGODZILLA_REDIS_URL=fakeredis://`), SQLite (`TASKSGODZILLA_DB_PATH=/tmp/tasksgodzilla-ci.sqlite`); API/worker entrypoints `scripts/api_server.py`, `scripts/rq_worker.py`.
+- Pending: proceed to execute Step 1 tasks and then advance context to Step 2.
