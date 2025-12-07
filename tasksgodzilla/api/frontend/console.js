@@ -181,6 +181,11 @@ function renderProjects() {
   });
   sorted.forEach((proj) => {
     const anyInvalid = (state.protocols || []).some((p) => p.project_id === proj.id && p.spec_validation_status === "invalid");
+    const audits = (state.operations || []).filter((o) => o.project_id === proj.id && o.event_type === "spec_audit");
+    const latestAudit = audits.length ? audits[0] : null;
+    const auditPill = latestAudit
+      ? `<span class="pill">${latestAudit.created_at ? new Date(latestAudit.created_at).toLocaleTimeString() : "audit"}</span>`
+      : "";
     const card = document.createElement("div");
     card.className = `card ${state.selectedProject === proj.id ? "active" : ""}`;
     card.innerHTML = `
@@ -191,6 +196,7 @@ function renderProjects() {
         </div>
         <div style="display:flex; gap:6px; align-items:center;">
           ${anyInvalid ? `<span class="pill spec-invalid">spec invalid</span>` : ""}
+          ${auditPill}
           <span class="pill">${proj.base_branch}</span>
         </div>
       </div>
@@ -278,6 +284,7 @@ function renderProtocols() {
           <th>Name</th>
           <th>Status</th>
           <th>Spec</th>
+          <th>Audit</th>
           <th>Updated</th>
         </tr>
       </thead>
@@ -292,10 +299,15 @@ function renderProtocols() {
       const specBadge = run.spec_hash
         ? `<span class="pill ${badgeClass}">${run.spec_hash} · ${specStatus}</span>`
         : `<span class="pill spec-unknown">spec: n/a</span>`;
+      const latestAudit = (state.operations || []).find((ev) => ev.protocol_run_id === run.id && ev.event_type === "spec_audit");
+      const auditBadge = latestAudit
+        ? `<span class="pill">${formatDate(latestAudit.created_at)}</span>`
+        : `<span class="pill muted">n/a</span>`;
       row.innerHTML = `
         <td>${run.protocol_name}</td>
         <td><span class="pill ${statusClass(run.status)}">${run.status}</span></td>
         <td>${specBadge}</td>
+        <td>${auditBadge}</td>
         <td class="muted">${formatDate(run.updated_at)}</td>
       `;
       row.onclick = () => {
