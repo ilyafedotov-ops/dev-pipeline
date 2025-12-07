@@ -25,3 +25,9 @@ This is an append-only log:
 - Baseline repo state: branch `0002-demo-app-workflow` clean except for context updates, head `bba50d6`; CI scripts available in `scripts/ci/*.sh`.
 - Env/services: fakeredis (`TASKSGODZILLA_REDIS_URL=fakeredis://`), SQLite (`TASKSGODZILLA_DB_PATH=/tmp/tasksgodzilla-ci.sqlite`); API/worker entrypoints `scripts/api_server.py`, `scripts/rq_worker.py`.
 - Pending: proceed to execute Step 1 tasks and then advance context to Step 2.
+
+## Step 2 — Bootstrap environment (execution)
+- Created local `.venv` in worktree and upgraded pip/setuptools/wheel; confirmed interpreter `/home/ilya/Documents/worktrees/0002-demo-app-workflow/.venv/bin/python` (Python 3.12.3).
+- Ran `scripts/ci/bootstrap.sh` with `VENV_PATH=.venv` and env `TASKSGODZILLA_DB_PATH=/tmp/tasksgodzilla-ci.sqlite`, `TASKSGODZILLA_REDIS_URL=fakeredis://`; installed orchestrator deps and ruff.
+- Smoke checks: `python - <<'PY' ...` imported `tasksgodzilla` (0.2.0); CI scripts run via worktree venv: `scripts/ci/lint.sh`, `scripts/ci/typecheck.sh`, `scripts/ci/test.sh` all passed.
+- No additional files modified beyond venv and protocol logs/context.
