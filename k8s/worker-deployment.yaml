@@ -1,32 +1,32 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: deksdenflow-worker
+  name: tasksgodzilla-worker
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: deksdenflow-worker
+      app: tasksgodzilla-worker
   template:
     metadata:
       labels:
-        app: deksdenflow-worker
+        app: tasksgodzilla-worker
     spec:
       containers:
         - name: worker
-          image: deksdenflow-core:latest
+          image: tasksgodzilla-core:latest
           imagePullPolicy: IfNotPresent
           command: ["python", "scripts/worker.py"]
           env:
-            - name: DEKSDENFLOW_DB_URL
+            - name: TASKSGODZILLA_DB_URL
               valueFrom:
                 secretKeyRef:
-                  name: deksdenflow-secrets
+                  name: tasksgodzilla-secrets
                   key: db_url
-            - name: DEKSDENFLOW_REDIS_URL
+            - name: TASKSGODZILLA_REDIS_URL
               valueFrom:
                 secretKeyRef:
-                  name: deksdenflow-secrets
+                  name: tasksgodzilla-secrets
                   key: redis_url
           resources:
             requests:

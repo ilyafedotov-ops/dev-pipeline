@@ -1,5 +1,5 @@
-from deksdenflow.cli.client import APIClient
-from deksdenflow.cli.tui import TuiDashboard
+from tasksgodzilla.cli.client import APIClient
+from tasksgodzilla.cli.tui import TuiDashboard
 
 
 def test_tui_instantiates() -> None:

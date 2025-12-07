@@ -4,10 +4,10 @@ services:
   api:
     build: .
     environment:
-      DEKSDENFLOW_DB_URL: postgresql://deksdenflow:deksdenflow@db:5432/deksdenflow
-      DEKSDENFLOW_REDIS_URL: redis://redis:6379/0
-      DEKSDENFLOW_API_TOKEN: ${DEKSDENFLOW_API_TOKEN:-changeme}
-      DEKSDENFLOW_LOG_LEVEL: INFO
+      TASKSGODZILLA_DB_URL: postgresql://tasksgodzilla:tasksgodzilla@db:5432/tasksgodzilla
+      TASKSGODZILLA_REDIS_URL: redis://redis:6379/0
+      TASKSGODZILLA_API_TOKEN: ${TASKSGODZILLA_API_TOKEN:-changeme}
+      TASKSGODZILLA_LOG_LEVEL: INFO
     ports:
       - "8011:8010"
     depends_on:
@@ -18,9 +18,9 @@ services:
   worker:
     build: .
     environment:
-      DEKSDENFLOW_DB_URL: postgresql://deksdenflow:deksdenflow@db:5432/deksdenflow
-      DEKSDENFLOW_REDIS_URL: redis://redis:6379/0
-      DEKSDENFLOW_LOG_LEVEL: INFO
+      TASKSGODZILLA_DB_URL: postgresql://tasksgodzilla:tasksgodzilla@db:5432/tasksgodzilla
+      TASKSGODZILLA_REDIS_URL: redis://redis:6379/0
+      TASKSGODZILLA_LOG_LEVEL: INFO
     depends_on:
       - db
       - redis
@@ -29,9 +29,9 @@ services:
   codex-worker:
     build: .
     environment:
-      DEKSDENFLOW_DB_URL: postgresql://deksdenflow:deksdenflow@db:5432/deksdenflow
-      DEKSDENFLOW_REDIS_URL: redis://redis:6379/0
-      DEKSDENFLOW_LOG_LEVEL: INFO
+      TASKSGODZILLA_DB_URL: postgresql://tasksgodzilla:tasksgodzilla@db:5432/tasksgodzilla
+      TASKSGODZILLA_REDIS_URL: redis://redis:6379/0
+      TASKSGODZILLA_LOG_LEVEL: INFO
     depends_on:
       - db
       - redis
@@ -45,9 +45,9 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: deksdenflow
-      POSTGRES_PASSWORD: deksdenflow
-      POSTGRES_DB: deksdenflow
+      POSTGRES_USER: tasksgodzilla
+      POSTGRES_PASSWORD: tasksgodzilla
+      POSTGRES_DB: tasksgodzilla
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:

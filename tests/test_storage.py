@@ -1,8 +1,8 @@
 import tempfile
 from pathlib import Path
 
-from deksdenflow.domain import ProtocolStatus, StepStatus
-from deksdenflow.storage import Database
+from tasksgodzilla.domain import ProtocolStatus, StepStatus
+from tasksgodzilla.storage import Database
 
 
 def test_storage_round_trip_creates_records() -> None:

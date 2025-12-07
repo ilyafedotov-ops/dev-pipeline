@@ -2,7 +2,7 @@
 """
 Run Codex CLI to infer stack and fill CI scripts for the current repository.
 
-This is a thin CLI wrapper around `deksdenflow.project_setup.run_codex_discovery`.
+This is a thin CLI wrapper around `tasksgodzilla.project_setup.run_codex_discovery`.
 """
 
 import argparse
@@ -14,9 +14,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from deksdenflow.project_setup import run_codex_discovery  # noqa: E402
-from deksdenflow.config import load_config  # noqa: E402
-from deksdenflow.logging import (  # noqa: E402
+from tasksgodzilla.project_setup import run_codex_discovery  # noqa: E402
+from tasksgodzilla.config import load_config  # noqa: E402
+from tasksgodzilla.logging import (  # noqa: E402
     init_cli_logging,
     json_logging_from_env,
     EXIT_DEP_MISSING,

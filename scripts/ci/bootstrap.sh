@@ -21,9 +21,9 @@ fi
 "${VENV_PATH}/bin/python" -m pip install --upgrade pip
 "${VENV_PATH}/bin/pip" install -r "${REQ_FILE}" ruff
 
-export DEKSDENFLOW_DB_PATH="${DEKSDENFLOW_DB_PATH:-/tmp/deksdenflow-ci.sqlite}"
-export DEKSDENFLOW_REDIS_URL="${DEKSDENFLOW_REDIS_URL:-fakeredis://}"
+export TASKSGODZILLA_DB_PATH="${TASKSGODZILLA_DB_PATH:-/tmp/tasksgodzilla-ci.sqlite}"
+export TASKSGODZILLA_REDIS_URL="${TASKSGODZILLA_REDIS_URL:-fakeredis://}"
 
-ci_info "bootstrap ready" "venv=${VENV_PATH} db=${DEKSDENFLOW_DB_PATH} redis=${DEKSDENFLOW_REDIS_URL}"
+ci_info "bootstrap ready" "venv=${VENV_PATH} db=${TASKSGODZILLA_DB_PATH} redis=${TASKSGODZILLA_REDIS_URL}"
 
 report_status success

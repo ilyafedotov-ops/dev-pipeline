@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from deksdenflow.domain import ProtocolStatus
-from deksdenflow.spec import PROTOCOL_SPEC_KEY, SPEC_META_KEY, protocol_spec_hash
-from deksdenflow.spec_tools import audit_specs
-from deksdenflow.storage import Database
+from tasksgodzilla.domain import ProtocolStatus
+from tasksgodzilla.spec import PROTOCOL_SPEC_KEY, SPEC_META_KEY, protocol_spec_hash
+from tasksgodzilla.spec_tools import audit_specs
+from tasksgodzilla.storage import Database
 
 
 def _make_workspace(tmp_path: Path, run_name: str) -> tuple[Path, Path]:

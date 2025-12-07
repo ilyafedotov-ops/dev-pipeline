@@ -1,36 +1,36 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: deksdenflow-api
+  name: tasksgodzilla-api
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: deksdenflow-api
+      app: tasksgodzilla-api
   template:
     metadata:
       labels:
-        app: deksdenflow-api
+        app: tasksgodzilla-api
     spec:
       containers:
         - name: api
-          image: deksdenflow-core:latest
+          image: tasksgodzilla-core:latest
           imagePullPolicy: IfNotPresent
           env:
-            - name: DEKSDENFLOW_DB_URL
+            - name: TASKSGODZILLA_DB_URL
               valueFrom:
                 secretKeyRef:
-                  name: deksdenflow-secrets
+                  name: tasksgodzilla-secrets
                   key: db_url
-            - name: DEKSDENFLOW_REDIS_URL
+            - name: TASKSGODZILLA_REDIS_URL
               valueFrom:
                 secretKeyRef:
-                  name: deksdenflow-secrets
+                  name: tasksgodzilla-secrets
                   key: redis_url
-            - name: DEKSDENFLOW_API_TOKEN
+            - name: TASKSGODZILLA_API_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: deksdenflow-secrets
+                  name: tasksgodzilla-secrets
                   key: api_token
           ports:
             - containerPort: 8010
@@ -57,10 +57,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: deksdenflow-api
+  name: tasksgodzilla-api
 spec:
   selector:
-    app: deksdenflow-api
+    app: tasksgodzilla-api
   ports:
     - name: http
       port: 80

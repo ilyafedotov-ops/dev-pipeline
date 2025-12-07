@@ -1,8 +1,8 @@
-# DeksdenFlow Orchestrator API Reference (alpha)
+# TasksGodzilla Orchestrator API Reference (alpha)
 
 HTTP API for managing projects, protocol runs, steps, events, queues, and CI/webhook signals. Default base: `http://localhost:8011` (compose; use 8010 for direct local runs).
 
-- Auth: set `DEKSDENFLOW_API_TOKEN` in the API env and send `Authorization: Bearer <token>`. If unset, auth is skipped.
+- Auth: set `TASKSGODZILLA_API_TOKEN` in the API env and send `Authorization: Bearer <token>`. If unset, auth is skipped.
 - Per-project token (optional): `X-Project-Token: <project secrets.api_token>`.
 - Content type: `application/json` for all JSON bodies. Responses use standard HTTP codes (400/401/404/409 on validation/auth/state conflicts).
 
@@ -68,25 +68,25 @@ Status conflicts return 409 (e.g., starting an already-running protocol).
 
 ## Webhooks & CI callbacks
 - `POST /webhooks/github?protocol_run_id=<optional>`
-  - Headers: `X-GitHub-Event`, optional `X-Hub-Signature-256` when `DEKSDENFLOW_WEBHOOK_TOKEN` set.
-  - Body: standard GitHub webhook payload. Maps by branch (or `protocol_run_id` query) to update step/protocol status, enqueue QA on success when `DEKSDENFLOW_AUTO_QA_ON_CI`=true, mark protocol completed on PR merge.
+  - Headers: `X-GitHub-Event`, optional `X-Hub-Signature-256` when `TASKSGODZILLA_WEBHOOK_TOKEN` set.
+  - Body: standard GitHub webhook payload. Maps by branch (or `protocol_run_id` query) to update step/protocol status, enqueue QA on success when `TASKSGODZILLA_AUTO_QA_ON_CI`=true, mark protocol completed on PR merge.
 - `POST /webhooks/gitlab?protocol_run_id=<optional>`
-  - Headers: `X-Gitlab-Event`, token via `X-Gitlab-Token` or `X-Deksdenflow-Webhook-Token`, optional HMAC `X-Gitlab-Signature-256`.
+  - Headers: `X-Gitlab-Event`, token via `X-Gitlab-Token` or `X-TasksGodzilla-Webhook-Token`, optional HMAC `X-Gitlab-Signature-256`.
   - Similar mapping and QA/autocomplete behavior to GitHub handler.
-- `scripts/ci/report.sh success|failure` can call these endpoints from CI with `DEKSDENFLOW_API_BASE`, `DEKSDENFLOW_API_TOKEN`, `DEKSDENFLOW_WEBHOOK_TOKEN`, `DEKSDENFLOW_PROTOCOL_RUN_ID` for explicit mapping.
+- `scripts/ci/report.sh success|failure` can call these endpoints from CI with `TASKSGODZILLA_API_BASE`, `TASKSGODZILLA_API_TOKEN`, `TASKSGODZILLA_WEBHOOK_TOKEN`, `TASKSGODZILLA_PROTOCOL_RUN_ID` for explicit mapping.
 
 ## Queue/runtime notes
-- Backend: Redis/RQ; when `DEKSDENFLOW_REDIS_URL=fakeredis://`, the API starts a background RQ worker thread for inline job processing.
+- Backend: Redis/RQ; when `TASKSGODZILLA_REDIS_URL=fakeredis://`, the API starts a background RQ worker thread for inline job processing.
 - Jobs: `project_setup_job`, `plan_protocol_job`, `execute_step_job`, `run_quality_job`, `open_pr_job`, `codemachine_import_job`.
 - CodeMachine policies: loop/trigger policies on steps may reset statuses or inline-trigger other steps (depth-limited) with events and `runtime_state` recorded.
-- Token budgets: `DEKSDENFLOW_MAX_TOKENS_PER_STEP` / `DEKSDENFLOW_MAX_TOKENS_PER_PROTOCOL` with mode `DEKSDENFLOW_TOKEN_BUDGET_MODE=strict|warn|off`; overruns raise (strict) or log (warn).
+- Token budgets: `TASKSGODZILLA_MAX_TOKENS_PER_STEP` / `TASKSGODZILLA_MAX_TOKENS_PER_PROTOCOL` with mode `TASKSGODZILLA_TOKEN_BUDGET_MODE=strict|warn|off`; overruns raise (strict) or log (warn).
 
 ## Curl examples
 
 Create project:
 ```bash
 curl -X POST http://localhost:8011/projects \
-  -H "Authorization: Bearer $DEKSDENFLOW_API_TOKEN" \
+  -H "Authorization: Bearer $TASKSGODZILLA_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"demo","git_url":"/path/to/repo","base_branch":"main"}'
 ```
@@ -94,17 +94,17 @@ curl -X POST http://localhost:8011/projects \
 Start planning a protocol:
 ```bash
 curl -X POST http://localhost:8011/protocols/1/actions/start \
-  -H "Authorization: Bearer $DEKSDENFLOW_API_TOKEN"
+  -H "Authorization: Bearer $TASKSGODZILLA_API_TOKEN"
 ```
 
 Run QA for a step:
 ```bash
 curl -X POST http://localhost:8011/steps/10/actions/run_qa \
-  -H "Authorization: Bearer $DEKSDENFLOW_API_TOKEN"
+  -H "Authorization: Bearer $TASKSGODZILLA_API_TOKEN"
 ```
 
 List queue jobs:
 ```bash
 curl -X GET "http://localhost:8011/queues/jobs?status=queued" \
-  -H "Authorization: Bearer $DEKSDENFLOW_API_TOKEN"
+  -H "Authorization: Bearer $TASKSGODZILLA_API_TOKEN"
 ```

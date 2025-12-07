@@ -17,7 +17,7 @@ migrate: $(VENV)
 
 # One-shot setup for the orchestrator: create venv, install deps, apply migrations.
 orchestrator-setup: deps migrate
-	@echo "Orchestrator ready. DB: $$DEKSDENFLOW_DB_URL or $$DEKSDENFLOW_DB_PATH (default .deksdenflow.sqlite)"
+	@echo "Orchestrator ready. DB: $$TASKSGODZILLA_DB_URL or $$TASKSGODZILLA_DB_PATH (default .tasksgodzilla.sqlite)"
 
 # Start only the Postgres/Redis containers (host ports 5433/6380) for local runs.
 compose-deps:

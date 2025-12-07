@@ -21,7 +21,7 @@ fi
 export PYTHONPATH="${PYTHONPATH:-.}"
 
 # Focus on runtime-breaking issues (syntax/undefined names).
-"${RUFF_BIN}" check deksdenflow scripts tests --select E9,F63,F7,F82
+"${RUFF_BIN}" check tasksgodzilla scripts tests --select E9,F63,F7,F82
 ci_info "lint passed" "checks=E9,F63,F7,F82"
 
 report_status success

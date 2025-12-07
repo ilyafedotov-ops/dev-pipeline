@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 
-from deksdenflow.cli.main import run_cli
-from deksdenflow.spec import PROTOCOL_SPEC_KEY
-from deksdenflow.domain import ProtocolStatus
-from deksdenflow.storage import Database
+from tasksgodzilla.cli.main import run_cli
+from tasksgodzilla.spec import PROTOCOL_SPEC_KEY
+from tasksgodzilla.domain import ProtocolStatus
+from tasksgodzilla.storage import Database
 
 
 def _make_codex_workspace(root: Path, name: str) -> Path:
@@ -50,9 +50,9 @@ def _make_codemachine_workspace(root: Path) -> Path:
 
 def test_spec_cli_reports_hashes_for_mixed_runs(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "cli.sqlite"
-    monkeypatch.setenv("DEKSDENFLOW_DB_PATH", str(db_path))
-    monkeypatch.delenv("DEKSDENFLOW_DB_URL", raising=False)
-    monkeypatch.delenv("DEKSDENFLOW_API_TOKEN", raising=False)
+    monkeypatch.setenv("TASKSGODZILLA_DB_PATH", str(db_path))
+    monkeypatch.delenv("TASKSGODZILLA_DB_URL", raising=False)
+    monkeypatch.delenv("TASKSGODZILLA_API_TOKEN", raising=False)
 
     db = Database(db_path)
     db.init_schema()

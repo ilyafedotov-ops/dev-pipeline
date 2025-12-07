@@ -9,7 +9,7 @@ This document captures the current state of the system, the risks that block ful
 - Codex CLI as the core engine. `protocol_pipeline.py` enforces a JSON schema for planning and step decomposition; `quality_orchestrator.py` builds rich QA context and gates pipelines via `quality-report.md` and exit codes.
 - Good bootstrap story. `project_setup.py` and `codex_ci_bootstrap.py` simplify repo prep and CI hook generation; dual GitHub/GitLab CI entrypoints keep portability.
 - Prompt library + schemas. Prompts live in `prompts/*.prompt.md`, separated from orchestration code, with JSON schemas defining contracts for agent output.
-- Early orchestrator slice already exists. `deksdenflow/storage.py`, `deksdenflow/api/app.py`, and `scripts/api_server.py` show the direction and reduce greenfield risk.
+- Early orchestrator slice already exists. `tasksgodzilla/storage.py`, `tasksgodzilla/api/app.py`, and `scripts/api_server.py` show the direction and reduce greenfield risk.
 
 ### 1.2 Risks and pain points (especially for full automation)
 - No persistent global orchestrator. State is fragmented across Git branches/worktrees, `.protocols/` folders, and CI logs; there is no service that understands Projects, ProtocolRuns, Steps, and lifecycle.
@@ -25,7 +25,7 @@ This document captures the current state of the system, the risks that block ful
 - User interacts via a central console (initially TUI, later web) that calls an Orchestrator API.
 - Orchestrator API (FastAPI) owns state machines for Projects, ProtocolRuns, and StepRuns and persists to a database (Postgres in prod, SQLite for dev).
 - A job queue sits between the API and workers. Workers handle long-running or LLM-heavy work with retries/backoff.
-- Workers are split by concern: an execution/QA worker that plans/executes/QA via the engine registry (Codex + CodeMachine) and a Git/CI worker (clones, worktrees, pushes, PR/MR, CI webhooks). Both call the shared `deksdenflow` library functions instead of shelling out directly.
+- Workers are split by concern: an execution/QA worker that plans/executes/QA via the engine registry (Codex + CodeMachine) and a Git/CI worker (clones, worktrees, pushes, PR/MR, CI webhooks). Both call the shared `tasksgodzilla` library functions instead of shelling out directly.
 - Events and metrics are emitted throughout to enable observability and cost controls.
 
 ### 2.2 Core components
@@ -71,7 +71,7 @@ This document captures the current state of the system, the risks that block ful
 - Spec validation and outputs: ProtocolSpec/StepSpec paths are validated; missing prompts/outputs emit `spec_validation_error` and block execution. Codex execution writes stdout to spec-declared protocol and aux outputs, mirroring CodeMachine artifact behavior.
 
 ### 2.8 Deployment and compatibility
-- Containerized services: `deksdenflow-core` (API + library), `codex-worker`, `git-ci-worker`, plus Redis/DB. Local dev uses SQLite and in-process queue; prod uses Postgres and external Redis.
+- Containerized services: `tasksgodzilla-core` (API + library), `codex-worker`, `git-ci-worker`, plus Redis/DB. Local dev uses SQLite and in-process queue; prod uses Postgres and external Redis.
 - Existing CLIs stay as thin wrappers over the library, keeping current workflows intact while enabling the orchestrator/console path.
 
 ### 2.9 Stack decisions (proposed defaults)
@@ -81,10 +81,10 @@ This document captures the current state of the system, the risks that block ful
 - Packaging: container images for API and workers; compose file for local; Kubernetes manifests later.
 
 ## 3. Current implementation alignment
-- Storage and migrations: SQLite default with Postgres available via `DEKSDENFLOW_DB_URL`; Alembic scaffolding plus initial migration under `alembic/`.
+- Storage and migrations: SQLite default with Postgres available via `TASKSGODZILLA_DB_URL`; Alembic scaffolding plus initial migration under `alembic/`.
 - API and console: FastAPI app exposes projects/protocols/steps/events, queue stats (`/queues*`), Prometheus metrics (`/metrics`), and webhook endpoints for GitHub/GitLab; a lightweight console at `/console` surfaces projects/runs/steps/events/queues.
 - Queue and workers: Redis/RQ (fakeredis in dev) with job types wired for planning, execution, QA, project setup, and PR open; background worker auto-starts when fakeredis is used. Request/step IDs, retries, and backoff are captured as events.
 - Spec-driven execution: `ProtocolSpec`/`StepSpec` schema is validated and stored on runs; steps sync from the spec; execution/QA use spec-defined engines/models/prompt_refs/output maps and `qa_policy` via the shared resolver/engine registry; spec audit/backfill exists for older runs.
 - CodeMachine integration: `.codemachine` workspaces can be imported via API to persist templates into ProtocolSpec/StepSpecs; execution uses the shared resolver/engine registry with placeholders/specifications, writes outputs to `.protocols` and `.codemachine/outputs`, applies loop/trigger policies (depth-limited), and honors StepSpec QA policy (skip/light/full) with events.
-- Automation flags and budgets: `DEKSDENFLOW_AUTO_QA_AFTER_EXEC` and `DEKSDENFLOW_AUTO_QA_ON_CI` drive QA scheduling; token budgets (`DEKSDENFLOW_MAX_TOKENS_*` with `strict|warn|off`) gate Codex calls.
-- CI callbacks: `scripts/ci/report.sh` posts GitHub/GitLab-shaped payloads to `/webhooks/*`, mapping by branch or explicit `DEKSDENFLOW_PROTOCOL_RUN_ID`. Webhook tokens and API tokens guard external access.
+- Automation flags and budgets: `TASKSGODZILLA_AUTO_QA_AFTER_EXEC` and `TASKSGODZILLA_AUTO_QA_ON_CI` drive QA scheduling; token budgets (`TASKSGODZILLA_MAX_TOKENS_*` with `strict|warn|off`) gate Codex calls.
+- CI callbacks: `scripts/ci/report.sh` posts GitHub/GitLab-shaped payloads to `/webhooks/*`, mapping by branch or explicit `TASKSGODZILLA_PROTOCOL_RUN_ID`. Webhook tokens and API tokens guard external access.

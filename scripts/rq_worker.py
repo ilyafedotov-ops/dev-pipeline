@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Run an RQ worker to process DeksdenFlow jobs from Redis.
+Run an RQ worker to process TasksGodzilla jobs from Redis.
 
 Environment:
-  - DEKSDENFLOW_REDIS_URL (required)
-  - DEKSDENFLOW_DB_PATH (for Database)
+  - TASKSGODZILLA_REDIS_URL (required)
+  - TASKSGODZILLA_DB_PATH (for Database)
 """
 
 import os
@@ -18,15 +18,16 @@ if str(PROJECT_ROOT) not in sys.path:
 from rq import Connection, Queue, Worker  # type: ignore
 import redis  # type: ignore
 
-from deksdenflow.config import load_config  # noqa: E402
-from deksdenflow.logging import setup_logging, json_logging_from_env, log_extra  # noqa: E402
+from tasksgodzilla.config import load_config  # noqa: E402
+from tasksgodzilla.logging import setup_logging, json_logging_from_env, log_extra  # noqa: E402
 
 
 def main() -> None:
-    logger = setup_logging(os.environ.get("DEKSDENFLOW_LOG_LEVEL", "INFO"), json_output=json_logging_from_env())
+    log_level = os.environ.get("TASKSGODZILLA_LOG_LEVEL") or "INFO"
+    logger = setup_logging(log_level, json_output=json_logging_from_env())
     config = load_config()
     if not config.redis_url:
-        logger.error("DEKSDENFLOW_REDIS_URL is required for RQ worker.")
+        logger.error("TASKSGODZILLA_REDIS_URL is required for RQ worker.")
         sys.exit(1)
     redis_conn = redis.from_url(config.redis_url)
     queues = [Queue("default", connection=redis_conn)]

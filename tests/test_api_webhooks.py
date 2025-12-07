@@ -6,7 +6,7 @@ import pytest
 
 try:
     from fastapi.testclient import TestClient  # type: ignore
-    from deksdenflow.api.app import app
+    from tasksgodzilla.api.app import app
 except ImportError:  # pragma: no cover
     TestClient = None  # type: ignore
     app = None  # type: ignore
@@ -15,9 +15,9 @@ except ImportError:  # pragma: no cover
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_github_webhook_updates_step_and_protocol() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        os.environ["DEKSDENFLOW_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
-        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
-        os.environ["DEKSDENFLOW_REDIS_URL"] = "fakeredis://"
+        os.environ["TASKSGODZILLA_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
+        os.environ.pop("TASKSGODZILLA_API_TOKEN", None)
+        os.environ["TASKSGODZILLA_REDIS_URL"] = "fakeredis://"
 
         with TestClient(app) as client:  # type: ignore[arg-type]
             proj = client.post(
@@ -51,9 +51,9 @@ def test_github_webhook_updates_step_and_protocol() -> None:
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_gitlab_webhook_updates_step() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        os.environ["DEKSDENFLOW_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
-        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
-        os.environ["DEKSDENFLOW_REDIS_URL"] = "fakeredis://"
+        os.environ["TASKSGODZILLA_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
+        os.environ.pop("TASKSGODZILLA_API_TOKEN", None)
+        os.environ["TASKSGODZILLA_REDIS_URL"] = "fakeredis://"
 
         with TestClient(app) as client:  # type: ignore[arg-type]
             proj = client.post(
@@ -83,9 +83,9 @@ def test_gitlab_webhook_updates_step() -> None:
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_gitlab_webhook_failure_blocks_and_records_event() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        os.environ["DEKSDENFLOW_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
-        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
-        os.environ["DEKSDENFLOW_REDIS_URL"] = "fakeredis://"
+        os.environ["TASKSGODZILLA_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
+        os.environ.pop("TASKSGODZILLA_API_TOKEN", None)
+        os.environ["TASKSGODZILLA_REDIS_URL"] = "fakeredis://"
 
         with TestClient(app) as client:  # type: ignore[arg-type]
             proj = client.post(
@@ -121,9 +121,9 @@ def test_gitlab_webhook_failure_blocks_and_records_event() -> None:
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_github_pr_merge_completes_protocol() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        os.environ["DEKSDENFLOW_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
-        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
-        os.environ["DEKSDENFLOW_REDIS_URL"] = "fakeredis://"
+        os.environ["TASKSGODZILLA_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
+        os.environ.pop("TASKSGODZILLA_API_TOKEN", None)
+        os.environ["TASKSGODZILLA_REDIS_URL"] = "fakeredis://"
 
         with TestClient(app) as client:  # type: ignore[arg-type]
             proj = client.post(
@@ -158,8 +158,8 @@ def test_github_pr_merge_completes_protocol() -> None:
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_gitlab_merge_request_updates_protocol() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        os.environ["DEKSDENFLOW_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
-        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
+        os.environ["TASKSGODZILLA_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
+        os.environ.pop("TASKSGODZILLA_API_TOKEN", None)
 
         with TestClient(app) as client:  # type: ignore[arg-type]
             proj = client.post(
@@ -193,10 +193,10 @@ def test_gitlab_merge_request_updates_protocol() -> None:
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_github_webhook_triggers_auto_qa_when_enabled() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        os.environ["DEKSDENFLOW_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
-        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
-        os.environ["DEKSDENFLOW_REDIS_URL"] = "fakeredis://"
-        os.environ["DEKSDENFLOW_AUTO_QA_ON_CI"] = "true"
+        os.environ["TASKSGODZILLA_DB_PATH"] = str(Path(tmpdir) / "db.sqlite")
+        os.environ.pop("TASKSGODZILLA_API_TOKEN", None)
+        os.environ["TASKSGODZILLA_REDIS_URL"] = "fakeredis://"
+        os.environ["TASKSGODZILLA_AUTO_QA_ON_CI"] = "true"
 
         with TestClient(app) as client:  # type: ignore[arg-type]
             proj = client.post(

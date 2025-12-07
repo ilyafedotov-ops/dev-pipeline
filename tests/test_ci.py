@@ -2,7 +2,7 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
-from deksdenflow import ci
+from tasksgodzilla import ci
 
 
 def test_trigger_ci_github_runs_workflow():

@@ -1,17 +1,17 @@
-# DeksdenFlow CLI (interactive)
+# TasksGodzilla CLI (interactive)
 
 The CLI provides a terminal-first way to work with the orchestrator API without opening the web console. Run it with no arguments to open the interactive menu:
 
 ```bash
-python -m deksdenflow.cli.main
+python -m tasksgodzilla.cli.main
 # or
-./scripts/deksdenflow_cli.py
+./scripts/tasksgodzilla_cli.py
 ```
 
 Defaults:
-- API base: `DEKSDENFLOW_API_BASE` (fallback `http://localhost:8011`; use 8010 when running the API directly)
-- API token: `DEKSDENFLOW_API_TOKEN`
-- Project token: `DEKSDENFLOW_PROJECT_TOKEN`
+- API base: `TASKSGODZILLA_API_BASE` (fallback `http://localhost:8011`; use 8010 when running the API directly)
+- API token: `TASKSGODZILLA_API_TOKEN`
+- Project token: `TASKSGODZILLA_PROJECT_TOKEN`
 
 ## Interactive menu (default)
 
@@ -28,38 +28,38 @@ All commands accept `--api-base`, `--token`, `--project-token`, and `--json` for
 
 Projects:
 ```bash
-./scripts/deksdenflow_cli.py projects list
-./scripts/deksdenflow_cli.py projects create --name demo --git-url /path/to/repo --base-branch main
-./scripts/deksdenflow_cli.py projects show 1
+./scripts/tasksgodzilla_cli.py projects list
+./scripts/tasksgodzilla_cli.py projects create --name demo --git-url /path/to/repo --base-branch main
+./scripts/tasksgodzilla_cli.py projects show 1
 ```
 
 Protocols:
 ```bash
-./scripts/deksdenflow_cli.py protocols list --project 1
-./scripts/deksdenflow_cli.py protocols create-and-start --project 1 --name 0001-demo --description "demo task"
-./scripts/deksdenflow_cli.py protocols run-next 2
-./scripts/deksdenflow_cli.py protocols retry-latest 2
+./scripts/tasksgodzilla_cli.py protocols list --project 1
+./scripts/tasksgodzilla_cli.py protocols create-and-start --project 1 --name 0001-demo --description "demo task"
+./scripts/tasksgodzilla_cli.py protocols run-next 2
+./scripts/tasksgodzilla_cli.py protocols retry-latest 2
 ```
 
 Steps:
 ```bash
-./scripts/deksdenflow_cli.py steps list --protocol 2
-./scripts/deksdenflow_cli.py steps run 5
-./scripts/deksdenflow_cli.py steps run-qa 5
-./scripts/deksdenflow_cli.py steps approve 5
+./scripts/tasksgodzilla_cli.py steps list --protocol 2
+./scripts/tasksgodzilla_cli.py steps run 5
+./scripts/tasksgodzilla_cli.py steps run-qa 5
+./scripts/tasksgodzilla_cli.py steps approve 5
 ```
 
 Events & queues:
 ```bash
-./scripts/deksdenflow_cli.py events recent --project 1 --limit 20
-./scripts/deksdenflow_cli.py events watch --protocol 2
-./scripts/deksdenflow_cli.py queues stats
-./scripts/deksdenflow_cli.py queues jobs --status queued
+./scripts/tasksgodzilla_cli.py events recent --project 1 --limit 20
+./scripts/tasksgodzilla_cli.py events watch --protocol 2
+./scripts/tasksgodzilla_cli.py queues stats
+./scripts/tasksgodzilla_cli.py queues jobs --status queued
 ```
 
 CodeMachine import:
 ```bash
-./scripts/deksdenflow_cli.py codemachine import \
+./scripts/tasksgodzilla_cli.py codemachine import \
   --project 1 \
   --protocol-name 0002-cm \
   --workspace-path /path/to/workspace \
@@ -72,9 +72,9 @@ A panel-based dashboard closer to the CodeMachine CLI feel, with live refresh an
 
 Run:
 ```bash
-python -m deksdenflow.cli.tui
+python -m tasksgodzilla.cli.tui
 # or
-./scripts/deksdenflow_tui.py
+./scripts/tasksgodzilla_tui.py
 ./scripts/tui                  # simple launcher (prefers .venv)
 ```
 
@@ -95,31 +95,31 @@ If using Docker Compose, point it at `http://localhost:8011`.
 Start the API locally (SQLite + fakeredis):
 ```bash
 make orchestrator-setup
-DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py
-# Console at http://localhost:8010/console (use 8011 if running via docker compose; token from DEKSDENFLOW_API_TOKEN if set)
+TASKSGODZILLA_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py
+# Console at http://localhost:8010/console (use 8011 if running via docker compose; token from TASKSGODZILLA_API_TOKEN if set)
 ```
 
 Start the API locally but backed by compose-managed Postgres/Redis:
 ```bash
 make compose-deps  # starts Postgres on 5433 and Redis on 6380
-DEKSDENFLOW_DB_URL=postgresql://deksdenflow:deksdenflow@localhost:5433/deksdenflow \
-DEKSDENFLOW_REDIS_URL=redis://localhost:6380/0 \
+TASKSGODZILLA_DB_URL=postgresql://tasksgodzilla:tasksgodzilla@localhost:5433/tasksgodzilla \
+TASKSGODZILLA_REDIS_URL=redis://localhost:6380/0 \
 .venv/bin/python scripts/api_server.py
 ```
 
 Run the CLI (interactive menu) pointing at the local API:
 ```bash
-DEKSDENFLOW_API_BASE=http://localhost:8010 .venv/bin/python -m deksdenflow.cli.main
-# or for docker compose: DEKSDENFLOW_API_BASE=http://localhost:8011 .venv/bin/python -m deksdenflow.cli.main
+TASKSGODZILLA_API_BASE=http://localhost:8010 .venv/bin/python -m tasksgodzilla.cli.main
+# or for docker compose: TASKSGODZILLA_API_BASE=http://localhost:8011 .venv/bin/python -m tasksgodzilla.cli.main
 ```
 
 Run the TUI dashboard:
 ```bash
-DEKSDENFLOW_API_BASE=http://localhost:8010 .venv/bin/python -m deksdenflow.cli.tui
-# or for docker compose: DEKSDENFLOW_API_BASE=http://localhost:8011 .venv/bin/python -m deksdenflow.cli.tui
+TASKSGODZILLA_API_BASE=http://localhost:8010 .venv/bin/python -m tasksgodzilla.cli.tui
+# or for docker compose: TASKSGODZILLA_API_BASE=http://localhost:8011 .venv/bin/python -m tasksgodzilla.cli.tui
 ```
 
 Environment variables:
-- `DEKSDENFLOW_API_BASE` (default `http://localhost:8011`; use 8010 for direct local runs)
-- `DEKSDENFLOW_API_TOKEN` (Bearer token; optional)
-- `DEKSDENFLOW_PROJECT_TOKEN` (optional per-project token)
+- `TASKSGODZILLA_API_BASE` (default `http://localhost:8011`; use 8010 for direct local runs)
+- `TASKSGODZILLA_API_TOKEN` (Bearer token; optional)
+- `TASKSGODZILLA_PROJECT_TOKEN` (optional per-project token)

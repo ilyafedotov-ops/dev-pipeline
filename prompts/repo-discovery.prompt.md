@@ -1,4 +1,4 @@
-You are a senior engineering agent. Perform a quick discovery of this repository and prepare it for DeksdenFlow_Ilyas_Edition_1.0:
+You are a senior engineering agent. Perform a quick discovery of this repository and prepare it for TasksGodzilla_Ilyas_Edition_1.0:
 
 Goals:
 1) Identify stack/framework/build tool (Java/JS/Python/etc.) and existing CI signals.

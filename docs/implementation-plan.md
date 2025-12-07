@@ -1,6 +1,6 @@
 # Detailed Implementation Plan
 
-This plan turns the target architecture into executable work. Phases can run sequentially or with limited parallelism when dependencies allow. Existing components in `deksdenflow/` (storage, API, queue/workers) should be reused rather than rebuilt.
+This plan turns the target architecture into executable work. Phases can run sequentially or with limited parallelism when dependencies allow. Existing components in `tasksgodzilla/` (storage, API, queue/workers) should be reused rather than rebuilt.
 
 ## Current decisions and priorities
 - Stack choice: Postgres for production (SQLite for dev/tests), Redis + RQ for the first queue/worker implementation.
@@ -9,18 +9,18 @@ This plan turns the target architecture into executable work. Phases can run seq
 ## Status model and QA defaults
 - ProtocolRun: `pending` → `planning` → `planned` → `running` → (`paused` | `blocked` | `failed` | `cancelled` | `completed`). CI failure or job failure moves to `blocked`; PR/MR merge completes the run.
 - StepRun: `pending` → `running` → `needs_qa` → (`completed` | `failed` | `cancelled` | `blocked`). Execution ends in `needs_qa`; QA or manual approval flips to `completed`; CI/webhook failures can block a step.
-- Automation flags: `DEKSDENFLOW_AUTO_QA_AFTER_EXEC=true` enqueues QA immediately after execution; `DEKSDENFLOW_AUTO_QA_ON_CI=true` enqueues QA when CI success webhooks arrive.
-- CI callbacks: `scripts/ci/report.sh success|failure` posts GitHub/GitLab-style payloads to the orchestrator using `DEKSDENFLOW_API_BASE` (optional `DEKSDENFLOW_API_TOKEN`/`DEKSDENFLOW_WEBHOOK_TOKEN`).
-- Auth tokens: API bearer token (`DEKSDENFLOW_API_TOKEN`) gates all non-health endpoints; per-project token (`X-Project-Token`) is optional; webhook token (`DEKSDENFLOW_WEBHOOK_TOKEN`) signs/verifies CI callbacks.
+- Automation flags: `TASKSGODZILLA_AUTO_QA_AFTER_EXEC=true` enqueues QA immediately after execution; `TASKSGODZILLA_AUTO_QA_ON_CI=true` enqueues QA when CI success webhooks arrive.
+- CI callbacks: `scripts/ci/report.sh success|failure` posts GitHub/GitLab-style payloads to the orchestrator using `TASKSGODZILLA_API_BASE` (optional `TASKSGODZILLA_API_TOKEN`/`TASKSGODZILLA_WEBHOOK_TOKEN`).
+- Auth tokens: API bearer token (`TASKSGODZILLA_API_TOKEN`) gates all non-health endpoints; per-project token (`X-Project-Token`) is optional; webhook token (`TASKSGODZILLA_WEBHOOK_TOKEN`) signs/verifies CI callbacks.
 
 ## Phase 0 – Foundations and refactoring
 **Goal:** Make the orchestration logic library-first, configurable, and container-ready.
 
-- 0.1 Stabilize the core package: move shared logic from `scripts/protocol_pipeline.py`, `scripts/quality_orchestrator.py`, `scripts/project_setup.py`, and `scripts/codex_ci_bootstrap.py` into `deksdenflow.*` modules with clean APIs. Keep behaviors parity with current CLIs.
+- 0.1 Stabilize the core package: move shared logic from `scripts/protocol_pipeline.py`, `scripts/quality_orchestrator.py`, `scripts/project_setup.py`, and `scripts/codex_ci_bootstrap.py` into `tasksgodzilla.*` modules with clean APIs. Keep behaviors parity with current CLIs.
 - 0.2 Thin CLIs: refactor each script to pure arg parsing plus a call into the library. Preserve flags and defaults; add unit tests around CLI entrypoints.
 - 0.3 Centralize configuration: introduce a Pydantic config object for paths, model defaults, retries, budgets, and CI settings. Replace ad hoc `os.environ[...]` reads with explicit config injection.
 - 0.4 Standard logging and errors: add structured logging helpers, request/correlation IDs, and typed exceptions for Codex/Git/CI failures. Normalize exit codes for CLIs.
-- 0.5 Containerization: build `deksdenflow-core` image (library + CLIs) and optionally `codex-worker` image with tighter runtime limits. Document local vs. prod compose/Kubernetes layouts.
+- 0.5 Containerization: build `tasksgodzilla-core` image (library + CLIs) and optionally `codex-worker` image with tighter runtime limits. Document local vs. prod compose/Kubernetes layouts.
 
 ## Phase 1 – Data model and persistence
 **Goal:** Introduce durable state for Projects, ProtocolRuns, StepRuns, and Events.

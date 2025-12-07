@@ -5,20 +5,20 @@ from pathlib import Path
 import httpx
 import pytest
 
-from deksdenflow.api.app import app
-from deksdenflow.config import load_config
-from deksdenflow.storage import create_database
-from deksdenflow.jobs import create_queue
-from deksdenflow.metrics import metrics
-from deksdenflow.cli.main import run_cli
+from tasksgodzilla.api.app import app
+from tasksgodzilla.config import load_config
+from tasksgodzilla.storage import create_database
+from tasksgodzilla.jobs import create_queue
+from tasksgodzilla.metrics import metrics
+from tasksgodzilla.cli.main import run_cli
 
 
 @pytest.fixture
 def transport(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> httpx.ASGITransport:
-    monkeypatch.setenv("DEKSDENFLOW_DB_PATH", str(tmp_path / "cli.sqlite"))
-    monkeypatch.setenv("DEKSDENFLOW_REDIS_URL", "fakeredis://")
-    monkeypatch.setenv("DEKSDENFLOW_API_BASE", "http://testserver")
-    monkeypatch.delenv("DEKSDENFLOW_API_TOKEN", raising=False)
+    monkeypatch.setenv("TASKSGODZILLA_DB_PATH", str(tmp_path / "cli.sqlite"))
+    monkeypatch.setenv("TASKSGODZILLA_REDIS_URL", "fakeredis://")
+    monkeypatch.setenv("TASKSGODZILLA_API_BASE", "http://testserver")
+    monkeypatch.delenv("TASKSGODZILLA_API_TOKEN", raising=False)
     config = load_config()
     db = create_database(db_path=config.db_path, db_url=config.db_url)
     db.init_schema()

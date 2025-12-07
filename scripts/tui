@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Minimal launcher to start the DeksdenFlow TUI like a standalone app.
+# Minimal launcher to start the TasksGodzilla TUI like a standalone app.
 
 set -euo pipefail
 
@@ -21,6 +21,6 @@ if [[ -z "$PY_BIN" ]]; then
 fi
 
 # Default API base unless caller overrides.
-export DEKSDENFLOW_API_BASE="${DEKSDENFLOW_API_BASE:-http://localhost:8011}"
+export TASKSGODZILLA_API_BASE="${TASKSGODZILLA_API_BASE:-http://localhost:8011}"
 
-exec "$PY_BIN" -m deksdenflow.cli.tui "$@"
+exec "$PY_BIN" -m tasksgodzilla.cli.tui "$@"

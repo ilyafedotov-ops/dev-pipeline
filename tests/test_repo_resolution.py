@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from deksdenflow import project_setup
+from tasksgodzilla import project_setup
 
 
 def _init_origin_repo(origin: Path) -> None:
@@ -38,7 +38,7 @@ def test_ensure_local_repo_clones_when_missing(tmp_path) -> None:
 
 def test_ensure_local_repo_respects_auto_clone_flag(tmp_path, monkeypatch) -> None:
     projects_root = tmp_path / "Projects"
-    monkeypatch.setenv("DEKSDENFLOW_AUTO_CLONE", "false")
+    monkeypatch.setenv("TASKSGODZILLA_AUTO_CLONE", "false")
     with pytest.raises(FileNotFoundError):
         project_setup.ensure_local_repo("https://example.com/repo.git", "demo", projects_root=projects_root, clone_if_missing=None)
 
@@ -48,7 +48,7 @@ def test_configure_git_remote_prefers_github_ssh(tmp_path, monkeypatch) -> None:
     repo_root.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init"], cwd=repo_root, check=True)
     subprocess.run(["git", "remote", "add", "origin", "https://github.com/example/demo.git"], cwd=repo_root, check=True)
-    monkeypatch.setenv("DEKSDENFLOW_GH_SSH", "true")
+    monkeypatch.setenv("TASKSGODZILLA_GH_SSH", "true")
 
     origin = project_setup.configure_git_remote(repo_root, "https://github.com/example/demo.git", prefer_ssh_remote=True)
 

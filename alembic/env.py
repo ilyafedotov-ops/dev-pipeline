@@ -10,9 +10,9 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Pull DB URL from env if provided; fallback to alembic.ini default.
-db_url = os.environ.get("DEKSDENFLOW_DB_URL")
+db_url = os.environ.get("TASKSGODZILLA_DB_URL")
 if not db_url:
-    db_path = os.environ.get("DEKSDENFLOW_DB_PATH")
+    db_path = os.environ.get("TASKSGODZILLA_DB_PATH")
     if db_path:
         db_url = f"sqlite:///{db_path}"
 if db_url:

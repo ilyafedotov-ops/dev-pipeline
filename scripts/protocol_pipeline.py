@@ -9,7 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from deksdenflow.pipeline import (  # noqa: E402
+from tasksgodzilla.pipeline import (  # noqa: E402
     create_worktree,
     decompose_step_prompt,
     detect_repo_root,
@@ -25,8 +25,8 @@ from deksdenflow.pipeline import (  # noqa: E402
     slugify,
     write_protocol_files,
 )
-from deksdenflow.config import load_config  # noqa: E402
-from deksdenflow.logging import (  # noqa: E402
+from tasksgodzilla.config import load_config  # noqa: E402
+from tasksgodzilla.logging import (  # noqa: E402
     init_cli_logging,
     json_logging_from_env,
     EXIT_DEP_MISSING,
@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Interactive DeksdenFlow_Ilyas_Edition_1.0 protocol pipeline using Codex CLI.",
+        description="Interactive TasksGodzilla_Ilyas_Edition_1.0 protocol pipeline using Codex CLI.",
     )
     parser.add_argument(
         "--base-branch",

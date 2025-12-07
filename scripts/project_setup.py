@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from deksdenflow.project_setup import (  # noqa: E402
+from tasksgodzilla.project_setup import (  # noqa: E402
     BASE_FILES,
     PLACEHOLDER,
     clone_repo,
@@ -21,11 +21,11 @@ from deksdenflow.project_setup import (  # noqa: E402
     run_codex_discovery,
 )
 try:
-    from deksdenflow.config import load_config  # type: ignore  # noqa: E402
+    from tasksgodzilla.config import load_config  # type: ignore  # noqa: E402
 except Exception:  # pragma: no cover - fallback when deps missing
     load_config = None
 try:
-    from deksdenflow.logging import (  # type: ignore  # noqa: E402
+    from tasksgodzilla.logging import (  # type: ignore  # noqa: E402
         init_cli_logging,
         json_logging_from_env,
         EXIT_DEP_MISSING,
@@ -44,7 +44,7 @@ log = get_logger(__name__)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Prepare an existing or new project with DeksdenFlow_Ilyas_Edition_1.0 starter assets.",
+        description="Prepare an existing or new project with TasksGodzilla_Ilyas_Edition_1.0 starter assets.",
     )
     parser.add_argument(
         "--base-branch",

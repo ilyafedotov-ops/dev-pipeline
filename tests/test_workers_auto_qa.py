@@ -1,14 +1,14 @@
 import os
 from pathlib import Path
 
-from deksdenflow.domain import ProtocolStatus, StepStatus
-from deksdenflow.prompt_utils import prompt_version
-from deksdenflow.storage import Database
-from deksdenflow.workers import codex_worker
+from tasksgodzilla.domain import ProtocolStatus, StepStatus
+from tasksgodzilla.prompt_utils import prompt_version
+from tasksgodzilla.storage import Database
+from tasksgodzilla.workers import codex_worker
 
 
 def test_execute_step_auto_qa_runs_quality(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("DEKSDENFLOW_AUTO_QA_AFTER_EXEC", "true")
+    monkeypatch.setenv("TASKSGODZILLA_AUTO_QA_AFTER_EXEC", "true")
     db_path = tmp_path / "db.sqlite"
     db = Database(db_path)
     db.init_schema()

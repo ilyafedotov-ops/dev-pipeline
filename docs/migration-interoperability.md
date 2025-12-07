@@ -1,6 +1,6 @@
 # Migration & Interoperability Plan: dev-pipeline ↔ CodeMachine-CLI
 
-This document defines how to integrate CodeMachine-CLI’s workflow/agent model with the dev-pipeline orchestrator (DeksdenFlow_Ilyas_Edition_1.0), and how to evolve our architecture to support multi-engine, CodeMachine-style workflows.
+This document defines how to integrate CodeMachine-CLI’s workflow/agent model with the dev-pipeline orchestrator (TasksGodzilla_Ilyas_Edition_1.0), and how to evolve our architecture to support multi-engine, CodeMachine-style workflows.
 
 ---
 
@@ -281,10 +281,10 @@ This document defines how to integrate CodeMachine-CLI’s workflow/agent model 
 
 ### 12.1 Architecture (Runtime vs Orchestrator)
 
-- **dev-pipeline / DeksdenFlow**
-  - Python/FastAPI control plane (`deksdenflow/api/app.py`) with a persistent domain model (`Project`, `ProtocolRun`, `StepRun`, `Event`) stored in Postgres/SQLite via Alembic.
-  - Redis/RQ-backed workers (`deksdenflow/worker_runtime.py`, `deksdenflow/workers/*`) handle planning, execution, QA, onboarding, and git/CI jobs; the orchestrator is a long‑running multi-project service.
-  - Protocol artifacts live in git worktrees under `.protocols/NNNN-[task]/` (see `docs/architecture.md` and `docs/deksdenflow.md`), and Codex CLI is the only production engine today.
+- **dev-pipeline / TasksGodzilla**
+  - Python/FastAPI control plane (`tasksgodzilla/api/app.py`) with a persistent domain model (`Project`, `ProtocolRun`, `StepRun`, `Event`) stored in Postgres/SQLite via Alembic.
+  - Redis/RQ-backed workers (`tasksgodzilla/worker_runtime.py`, `tasksgodzilla/workers/*`) handle planning, execution, QA, onboarding, and git/CI jobs; the orchestrator is a long‑running multi-project service.
+  - Protocol artifacts live in git worktrees under `.protocols/NNNN-[task]/` (see `docs/architecture.md` and `docs/tasksgodzilla.md`), and Codex CLI is the only production engine today.
 
 - **CodeMachine-CLI**
   - Bun/TypeScript CLI (`src/runtime/cli-setup.ts`) that runs either a TUI-first workflow (Ink + SolidJS under `src/cli/tui`) or explicit subcommands (`codemachine start`, `codemachine run`, `codemachine templates`, etc.).
@@ -338,8 +338,8 @@ This document defines how to integrate CodeMachine-CLI’s workflow/agent model 
 ### 12.4 Engine Integration
 
 - **dev-pipeline**
-  - Currently hard-wired to Codex CLI with model/budget configuration via env vars (`PROTOCOL_*_MODEL`, `DEKSDENFLOW_MAX_TOKENS_*`) and policies described in `docs/solution-design.md`.
-  - §7 sketches an engine interface and registry, but there is no concrete `Engine` abstraction or provider catalogue implemented in `deksdenflow/` yet.
+  - Currently hard-wired to Codex CLI with model/budget configuration via env vars (`PROTOCOL_*_MODEL`, `TASKSGODZILLA_MAX_TOKENS_*`) and policies described in `docs/solution-design.md`.
+  - §7 sketches an engine interface and registry, but there is no concrete `Engine` abstraction or provider catalogue implemented in `tasksgodzilla/` yet.
 
 - **CodeMachine-CLI**
   - Implements a full engine registry under `src/infra/engines/**` with provider-specific modules for Codex, Claude, CCR, Cursor, OpenCode, and Auggie (auth, config sync, command construction, telemetry parsing).
@@ -372,7 +372,7 @@ This document defines how to integrate CodeMachine-CLI’s workflow/agent model 
 The sections above surface several concrete gaps between dev-pipeline and CodeMachine-CLI. For tracking purposes:
 
 - **Interop-critical implementation gaps**
-  - Implement `config/*.js` + `.codemachine/template.json` ingestion and validation inside `deksdenflow` (or a dedicated adapter module), producing a stored template graph compatible with `ProtocolRun`/`StepRun`.
+  - Implement `config/*.js` + `.codemachine/template.json` ingestion and validation inside `tasksgodzilla` (or a dedicated adapter module), producing a stored template graph compatible with `ProtocolRun`/`StepRun`.
   - Materialize loop/trigger behavior as first-class StepRun policies, including persistence and console visualization.
   - Define and implement how CodeMachine’s file-based memory and outputs map into `.protocols/` + Events (what we mirror, what we derive, and what remains `.codemachine`-only).
 
@@ -394,14 +394,14 @@ This section captures concrete implementation steps for closing two of the key g
 
 ### 14.1 StepRun and Database Schema Changes
 
-**Domain model (`deksdenflow/domain.py`)**
+**Domain model (`tasksgodzilla/domain.py`)**
 
 - Extend `StepRun` with engine and policy fields (keeping existing fields intact):
   - `engine_id: Optional[str]` — logical engine key (`"codex"`, `"claude_code"`, `"cursor"`, etc.).
   - `policy: Optional[dict]` — static, template-derived loop/trigger policy for this step.
   - `runtime_state: Optional[dict]` — mutable state for this step (loop counters, last decision, etc.).
 
-**SQLite schema (`SCHEMA_SQLITE` in `deksdenflow/storage.py`)**
+**SQLite schema (`SCHEMA_SQLITE` in `tasksgodzilla/storage.py`)**
 
 - Update the `step_runs` table definition to include:
   - `engine_id TEXT`
@@ -428,14 +428,14 @@ CREATE TABLE IF NOT EXISTS step_runs (
 );
 ```
 
-**Postgres schema (`SCHEMA_POSTGRES` in `deksdenflow/storage.py`)**
+**Postgres schema (`SCHEMA_POSTGRES` in `tasksgodzilla/storage.py`)**
 
 - Update the `step_runs` table definition to include:
   - `engine_id TEXT`
   - `policy JSONB`
   - `runtime_state JSONB`
 
-**Storage interface (`BaseDatabase` in `deksdenflow/storage.py`)**
+**Storage interface (`BaseDatabase` in `tasksgodzilla/storage.py`)**
 
 - Widen method signatures to carry engine and policy:
   - `create_step_run(..., model: Optional[str] = None, engine_id: Optional[str] = None, retries: int = 0, summary: Optional[str] = None, policy: Optional[dict] = None) -> StepRun`
@@ -476,7 +476,7 @@ CREATE TABLE IF NOT EXISTS step_runs (
 
 ### 14.2 Engine Registry and Providers
 
-**Engine interfaces (`deksdenflow/engines.py` or `deksdenflow/engines/__init__.py`)**
+**Engine interfaces (`tasksgodzilla/engines.py` or `tasksgodzilla/engines/__init__.py`)**
 
 - Define a small engine abstraction:
   - `EngineMetadata` — id, display name, kind (`"cli"`/`"api"`), default model.
@@ -494,13 +494,13 @@ CREATE TABLE IF NOT EXISTS step_runs (
 - Expose a process-global instance:
   - `registry = EngineRegistry()`
 
-**Codex provider (`deksdenflow/engines/codex_engine.py`)**
+**Codex provider (`tasksgodzilla/engines/codex_engine.py`)**
 
 - Implement `CodexEngine` wrapping existing Codex helpers (used by `protocol_pipeline`/`quality_orchestrator`):
   - `metadata.id = "codex"`
   - Implement `plan/execute/qa` by delegating to Codex CLI with the appropriate prompts and models.
   - Implement `sync_config` as a lightweight sanity check (or no-op).
-- Register it at import time (e.g. in `deksdenflow/engines/__init__.py`):
+- Register it at import time (e.g. in `tasksgodzilla/engines/__init__.py`):
   - `registry.register(CodexEngine(), default=True)`
 
 **Second engine provider (e.g., Claude Code or Cursor)**
@@ -517,7 +517,7 @@ CREATE TABLE IF NOT EXISTS step_runs (
 - When creating `StepRun` from a CodeMachine template:
   - Set `engine_id` from the template if specified; otherwise use `registry.get_default().metadata.id`.
   - Record the chosen `model` alongside `engine_id`.
-- During execution (e.g. in `deksdenflow/workers/codex_worker.py` or a future generic engine worker):
+- During execution (e.g. in `tasksgodzilla/workers/codex_worker.py` or a future generic engine worker):
   - Resolve an engine via:
     - `engine = registry.get(step.engine_id or registry.get_default().metadata.id)`
   - Build an `EngineRequest` (project/protocol/step IDs, model, prompt paths, working directory).
@@ -527,13 +527,13 @@ CREATE TABLE IF NOT EXISTS step_runs (
     - Updated `runtime_state` if a loop/trigger decision was taken.
   - Append `Event`s capturing engine choice, results, and any loop/trigger transitions.
 
-These implementation notes are intended as the concrete blueprint for wiring CodeMachine-style loop/trigger semantics and multi-engine support into `deksdenflow`. Once implemented, this document should be updated with links to the final modules and any deviations from the plan.
+These implementation notes are intended as the concrete blueprint for wiring CodeMachine-style loop/trigger semantics and multi-engine support into `tasksgodzilla`. Once implemented, this document should be updated with links to the final modules and any deviations from the plan.
 
 ---
 
 ## 15) Current implementation slice (dev-pipeline)
 
-- **Workspace import**: `/projects/{id}/codemachine/import` (inline or queued) ingests `.codemachine` configs, persists the template graph on the `ProtocolRun` (`template_config` + `template_source`), and materializes `StepRun`s from main agents. Worker: `deksdenflow/workers/codemachine_worker.py`.
+- **Workspace import**: `/projects/{id}/codemachine/import` (inline or queued) ingests `.codemachine` configs, persists the template graph on the `ProtocolRun` (`template_config` + `template_source`), and materializes `StepRun`s from main agents. Worker: `tasksgodzilla/workers/codemachine_worker.py`.
 - **Engine + policy per step**: `StepRun` now stores `engine_id`, `policy` (list/dict), and `runtime_state`; schema added via Alembic `0002/0003`.
 - **Strict module attachment**: Modules attach only when explicitly referenced (agent `moduleId/module/module_id`, module `targetAgentId`, or trigger `trigger_agent_id`). All matching modules attach; no default loop fallback.
 - **Console hints**: Protocol detail shows template name/version; steps table shows engine and attached policies.

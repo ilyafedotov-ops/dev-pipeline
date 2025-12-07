@@ -11,7 +11,7 @@ This document captures the current redundancy between Codex- and CodeMachine-dri
 
 ## Target Design (Single Protocol Runner)
 - One `ProtocolSpec`/`StepSpec` drives all runs: each step records `engine_id`, `model`, `prompt_ref`, `inputs`, `outputs`, and `policies` (loop/trigger).
-- Engines plug in via `deksdenflow.engines.registry`; Codex and CodeMachine become interchangeable backends. Prompt resolution/output paths live in a shared adapter that uses the spec rather than branching.
+- Engines plug in via `tasksgodzilla.engines.registry`; Codex and CodeMachine become interchangeable backends. Prompt resolution/output paths live in a shared adapter that uses the spec rather than branching.
 - QA is explicit on every step: spec carries QA config (engine/model/prompt/policy). “Skip QA” is a declared policy, not implicit for CodeMachine.
 - Planning/import unify: Codex planning and CodeMachine import both emit the same `ProtocolSpec` and the same `.protocols/<run>/` artifacts; step rows are created from the spec, not inferred separately.
 - Observability unified: events include prompt versions, models, token estimates, outputs map, and policy decisions for every engine.

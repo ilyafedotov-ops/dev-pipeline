@@ -1,11 +1,11 @@
 from pathlib import Path
 
-from deksdenflow.domain import ProtocolStatus, StepStatus
-from deksdenflow.engines import EngineMetadata, EngineRequest, EngineResult, registry
-from deksdenflow.prompt_utils import fingerprint_file
-from deksdenflow.spec import PROTOCOL_SPEC_KEY, protocol_spec_hash
-from deksdenflow.storage import Database
-from deksdenflow.workers import codex_worker
+from tasksgodzilla.domain import ProtocolStatus, StepStatus
+from tasksgodzilla.engines import EngineMetadata, EngineRequest, EngineResult, registry
+from tasksgodzilla.prompt_utils import fingerprint_file
+from tasksgodzilla.spec import PROTOCOL_SPEC_KEY, protocol_spec_hash
+from tasksgodzilla.storage import Database
+from tasksgodzilla.workers import codex_worker
 
 
 class FakeEngine:
@@ -219,7 +219,7 @@ def test_custom_qa_prompt_version_is_recorded(tmp_path, monkeypatch) -> None:
 def test_quality_uses_spec_prompt_and_engine(monkeypatch, tmp_path) -> None:
     from types import SimpleNamespace
 
-    from deksdenflow.qa import QualityResult, codex as qa_codex
+    from tasksgodzilla.qa import QualityResult, codex as qa_codex
 
     _register_fake_engine()
     db = Database(tmp_path / "db.sqlite")

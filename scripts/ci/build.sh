@@ -11,8 +11,8 @@ report_status() {
 trap 'report_status failure' ERR
 
 if command -v docker >/dev/null 2>&1; then
-  DOCKER_BUILDKIT=1 docker build --pull -t deksdenflow-ci .
-  ci_info "build docker image" "tag=deksdenflow-ci"
+  DOCKER_BUILDKIT=1 docker build --pull -t tasksgodzilla-ci .
+  ci_info "build docker image" "tag=tasksgodzilla-ci"
 elif command -v docker-compose >/dev/null 2>&1; then
   docker-compose config -q
   ci_warn "build skipped docker" "reason=docker_missing action=validate_compose"

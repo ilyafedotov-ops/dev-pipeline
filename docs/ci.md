@@ -1,14 +1,14 @@
-# CI Notes for DeksdenFlow_Ilyas_Edition_1.0
+# CI Notes for TasksGodzilla_Ilyas_Edition_1.0
 
 Both GitHub Actions and GitLab CI call the same shell hooks under `scripts/ci/`. Replace the stubs with real commands for your stack.
 
 ## Scripts implemented
 
-- `scripts/ci/bootstrap.sh` — creates `.venv`, installs `requirements-orchestrator.txt` + `ruff`, exports `DEKSDENFLOW_DB_PATH=/tmp/deksdenflow-ci.sqlite` and `DEKSDENFLOW_REDIS_URL=fakeredis://`.
-- `scripts/ci/lint.sh` — `ruff check deksdenflow scripts tests --select E9,F63,F7,F82` (syntax/undefined names).
-- `scripts/ci/typecheck.sh` — `compileall` + import smoke for `deksdenflow.config`, API app, and CLI entrypoints.
+- `scripts/ci/bootstrap.sh` — creates `.venv`, installs `requirements-orchestrator.txt` + `ruff`, exports `TASKSGODZILLA_DB_PATH=/tmp/tasksgodzilla-ci.sqlite` and `TASKSGODZILLA_REDIS_URL=fakeredis://`.
+- `scripts/ci/lint.sh` — `ruff check tasksgodzilla scripts tests --select E9,F63,F7,F82` (syntax/undefined names).
+- `scripts/ci/typecheck.sh` — `compileall` + import smoke for `tasksgodzilla.config`, API app, and CLI entrypoints.
 - `scripts/ci/test.sh` — `pytest -q --disable-warnings --maxfail=1` with fakeredis and temp SQLite.
-- `scripts/ci/build.sh` — `docker build -t deksdenflow-ci .` if Docker exists; otherwise `docker-compose config -q`.
+- `scripts/ci/build.sh` — `docker build -t tasksgodzilla-ci .` if Docker exists; otherwise `docker-compose config -q`.
 
 Each script exits non-zero on failure and reports status via `scripts/ci/report.sh` when configured.
 

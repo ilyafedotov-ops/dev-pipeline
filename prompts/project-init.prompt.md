@@ -1,4 +1,4 @@
-You are an engineering agent bootstrapping a **new repository** using DeksdenFlow_Ilyas_Edition_1.0. Create the folder structure, prompts, and CI for GitHub Actions and GitLab so the team can start shipping in parallel streams.
+You are an engineering agent bootstrapping a **new repository** using TasksGodzilla_Ilyas_Edition_1.0. Create the folder structure, prompts, and CI for GitHub Actions and GitLab so the team can start shipping in parallel streams.
 
 ## Inputs to confirm with the user
 - `PROJECT_NAME`
@@ -23,8 +23,8 @@ You are an engineering agent bootstrapping a **new repository** using DeksdenFlo
 ### 1) Scaffold the structure
 - Create directories: `docs/`, `prompts/`, `scripts/ci/`, `.github/workflows/` (if GitHub requested).
 - Add `.gitignore` with common ignores (`node_modules`, `dist`, `.venv`, `.env`, `coverage`, `.DS_Store`).
-- Add `README.md` describing the project, DeksdenFlow_Ilyas_Edition_1.0 usage, CI entry points, and how to use prompts.
-- Add `docs/deksdenflow.md` (overview of the 7-step flow) and `docs/ci.md` (how to customize CI scripts).
+- Add `README.md` describing the project, TasksGodzilla_Ilyas_Edition_1.0 usage, CI entry points, and how to use prompts.
+- Add `docs/tasksgodzilla.md` (overview of the 7-step flow) and `docs/ci.md` (how to customize CI scripts).
 
 ### 2) Add prompts (as Markdown in `prompts/`)
 - `project-init.prompt.md` — this file; keep it updated with the concrete repo name and defaults.
@@ -52,7 +52,7 @@ You are an engineering agent bootstrapping a **new repository** using DeksdenFlo
 
 ### 6) Finalize
 - Ensure all new files are added: `git status` then `git add .`.
-- Commit with message `chore: scaffold DeksdenFlow_Ilyas_Edition_1.0 starter` (or user-provided format).
+- Commit with message `chore: scaffold TasksGodzilla_Ilyas_Edition_1.0 starter` (or user-provided format).
 - Echo next steps for the user: fill CI scripts, add code, create first protocol using `protocol-new.prompt.md`.
 
 ## Constraints

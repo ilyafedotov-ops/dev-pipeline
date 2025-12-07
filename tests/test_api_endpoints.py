@@ -6,7 +6,7 @@ import pytest
 
 try:
     from fastapi.testclient import TestClient  # type: ignore
-    from deksdenflow.api.app import app
+    from tasksgodzilla.api.app import app
 except ImportError:  # pragma: no cover - fastapi not installed in minimal envs
     TestClient = None  # type: ignore
     app = None  # type: ignore
@@ -16,9 +16,9 @@ except ImportError:  # pragma: no cover - fastapi not installed in minimal envs
 def test_api_projects_protocols_steps_end_to_end() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "api-test.sqlite"
-        os.environ["DEKSDENFLOW_DB_PATH"] = str(db_path)
-        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
-        os.environ["DEKSDENFLOW_REDIS_URL"] = "fakeredis://"
+        os.environ["TASKSGODZILLA_DB_PATH"] = str(db_path)
+        os.environ.pop("TASKSGODZILLA_API_TOKEN", None)
+        os.environ["TASKSGODZILLA_REDIS_URL"] = "fakeredis://"
 
         with TestClient(app) as client:  # type: ignore[arg-type]
             queue = client.app.state.queue  # type: ignore[attr-defined]
@@ -110,9 +110,9 @@ def test_api_projects_protocols_steps_end_to_end() -> None:
 def test_protocol_spec_endpoint_exposes_hash_and_spec() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "api-test.sqlite"
-        os.environ["DEKSDENFLOW_DB_PATH"] = str(db_path)
-        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
-        os.environ["DEKSDENFLOW_REDIS_URL"] = "fakeredis://"
+        os.environ["TASKSGODZILLA_DB_PATH"] = str(db_path)
+        os.environ.pop("TASKSGODZILLA_API_TOKEN", None)
+        os.environ["TASKSGODZILLA_REDIS_URL"] = "fakeredis://"
 
         with TestClient(app) as client:  # type: ignore[arg-type]
             project = client.post(

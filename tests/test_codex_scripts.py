@@ -10,7 +10,7 @@ SCRIPT_DIR = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import codex_ci_bootstrap  # type: ignore  # noqa: E402
-from deksdenflow import pipeline, project_setup, qa, codex  # noqa: E402
+from tasksgodzilla import pipeline, project_setup, qa, codex  # noqa: E402
 
 
 class DummyResult:

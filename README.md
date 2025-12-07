@@ -1,6 +1,6 @@
-# DeksdenFlow_Ilyas_Edition_1.0 Project Starter
+# TasksGodzilla_Ilyas_Edition_1.0 Project Starter
 
-This repo is a lightweight starter kit for agent-driven development using the DeksdenFlow_Ilyas_Edition_1.0 protocols. It includes:
+This repo is a lightweight starter kit for agent-driven development using the TasksGodzilla_Ilyas_Edition_1.0 protocols. It includes:
 
 - Generic folder layout and documentation to keep parallel workstreams organized.
 - Ready-to-use prompts (new/resume/review) adapted from the published gists.
@@ -44,15 +44,15 @@ This repo is a lightweight starter kit for agent-driven development using the De
      --model codex-5.1-max
    ```
 
-Logging tip: set `DEKSDENFLOW_LOG_JSON=true` to emit structured JSON logs from CLIs/workers/API.
-Redis is required for orchestration; set `DEKSDENFLOW_REDIS_URL` (use `fakeredis://` for local testing).
+Logging tip: set `TASKSGODZILLA_LOG_JSON=true` to emit structured JSON logs from CLIs/workers/API.
+Redis is required for orchestration; set `TASKSGODZILLA_REDIS_URL` (use `fakeredis://` for local testing).
 
 ## Orchestrator status & QA options
 
 - Protocol statuses: `pending` → `planning` → `planned` → `running` → (`paused` | `blocked` | `failed` | `cancelled` | `completed`). CI failures or worker errors block the run; PR/MR merge completes it.
 - Step statuses: `pending` → `running` → `needs_qa` → (`completed` | `failed` | `cancelled` | `blocked`). Execution stops at `needs_qa`; QA or manual approval marks `completed`. CI/webhook failures can mark a step `blocked`.
-- Auto QA knobs: set `DEKSDENFLOW_AUTO_QA_AFTER_EXEC=true` to enqueue QA immediately after execution. Set `DEKSDENFLOW_AUTO_QA_ON_CI=true` to enqueue QA when CI reports success via webhook.
-- CI callbacks: export `DEKSDENFLOW_API_BASE` in CI and call `scripts/ci/report.sh success|failure` to mirror pipeline status into the orchestrator (supports GitHub/GitLab payloads; optional `DEKSDENFLOW_API_TOKEN`/`DEKSDENFLOW_WEBHOOK_TOKEN`). Set `DEKSDENFLOW_PROTOCOL_RUN_ID` if branch detection is ambiguous so the webhook can map directly to a run.
+- Auto QA knobs: set `TASKSGODZILLA_AUTO_QA_AFTER_EXEC=true` to enqueue QA immediately after execution. Set `TASKSGODZILLA_AUTO_QA_ON_CI=true` to enqueue QA when CI reports success via webhook.
+- CI callbacks: export `TASKSGODZILLA_API_BASE` in CI and call `scripts/ci/report.sh success|failure` to mirror pipeline status into the orchestrator (supports GitHub/GitLab payloads; optional `TASKSGODZILLA_API_TOKEN`/`TASKSGODZILLA_WEBHOOK_TOKEN`). Set `TASKSGODZILLA_PROTOCOL_RUN_ID` if branch detection is ambiguous so the webhook can map directly to a run.
 - Observability: `/metrics` exposes Prometheus data; `/queues` and `/queues/jobs` list queue stats and payloads. Events can be tailed via the console’s activity feed.
 
 ## CodeMachine integration
@@ -60,7 +60,7 @@ Redis is required for orchestration; set `DEKSDENFLOW_REDIS_URL` (use `fakeredis
 - Import `.codemachine` workspaces with `POST /projects/{id}/codemachine/import` to persist the template graph and emit `ProtocolSpec`/`StepSpec` entries (engines, policies, QA) for the run.
 - CodeMachine steps now use the unified engine runner and spec-driven prompt/output resolver; outputs are written to `.protocols/<protocol>/` and to `aux.codemachine` targets, and QA follows the spec `qa_policy` (skip/light/full) rather than being implicitly skipped.
 - Module policies (loop/trigger) attach to matching agents and drive retries or inline triggers. Loop limits and trigger depth are recorded in `runtime_state` and surfaced as events.
-- When `DEKSDENFLOW_REDIS_URL=fakeredis://`, the API spins up a background RQ worker thread to process jobs inline for local dev.
+- When `TASKSGODZILLA_REDIS_URL=fakeredis://`, the API spins up a background RQ worker thread to process jobs inline for local dev.
 
 ## Containerized orchestrator (API + worker + Redis/Postgres)
 
@@ -68,13 +68,13 @@ For a quick local stack with API, RQ worker, Redis, and Postgres:
 
 ```bash
 docker compose up --build
-# API at http://localhost:8011 (token from DEKSDENFLOW_API_TOKEN env or compose default)
+# API at http://localhost:8011 (token from TASKSGODZILLA_API_TOKEN env or compose default)
 ```
 
 Environment defaults live in `docker-compose.yml`; override with env vars as needed.
 Compose services and ports:
 - API: `8011 -> 8010` (default token `changeme` if not overridden)
-- Postgres: `5433 -> 5432` (db/user/pass `deksdenflow`)
+- Postgres: `5433 -> 5432` (db/user/pass `tasksgodzilla`)
 - Redis: `6380 -> 6379`
 Useful commands:
 - Start/refresh: `docker compose up --build -d`
@@ -85,49 +85,49 @@ Local (SQLite + fakeredis) without Docker:
 
 ```bash
 make orchestrator-setup
-DEKSDENFLOW_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py
+TASKSGODZILLA_REDIS_URL=fakeredis:// .venv/bin/python scripts/api_server.py
 # open http://localhost:8010/console (use 8011 if running via docker compose) and set API token if configured
 ```
 
 Local (containers for Redis + Postgres, app on host):
 ```bash
 make compose-deps  # starts Redis on 6380 and Postgres on 5433
-DEKSDENFLOW_DB_URL=postgresql://deksdenflow:deksdenflow@localhost:5433/deksdenflow \
-DEKSDENFLOW_REDIS_URL=redis://localhost:6380/0 \
+TASKSGODZILLA_DB_URL=postgresql://tasksgodzilla:tasksgodzilla@localhost:5433/tasksgodzilla \
+TASKSGODZILLA_REDIS_URL=redis://localhost:6380/0 \
 .venv/bin/python scripts/api_server.py --host 0.0.0.0 --port 8010
 ```
 
 CLI (interactive):
 ```bash
-python -m deksdenflow.cli.main          # interactive menu
-./scripts/deksdenflow_cli.py projects list --json
+python -m tasksgodzilla.cli.main          # interactive menu
+./scripts/tasksgodzilla_cli.py projects list --json
 ```
 See docs/cli.md for details.
 
 Textual TUI (dashboard):
 ```bash
-python -m deksdenflow.cli.tui           # panel-based dashboard with keybindings
-./scripts/deksdenflow_tui.py
+python -m tasksgodzilla.cli.tui           # panel-based dashboard with keybindings
+./scripts/tasksgodzilla_tui.py
 ./scripts/tui                           # simple launcher (prefers .venv)
 ```
 
 ## Folder map
 
-- `docs/` — overview of DeksdenFlow_Ilyas_Edition_1.0 and CI notes. New: `docs/solution-design.md` (target architecture + risks) and `docs/implementation-plan.md` (phased plan).
+- `docs/` — overview of TasksGodzilla_Ilyas_Edition_1.0 and CI notes. New: `docs/solution-design.md` (target architecture + risks) and `docs/implementation-plan.md` (phased plan).
 - `prompts/` — ready prompts: project bootstrap, new/resume protocols, review/merge flows.
 - `.github/workflows/ci.yml` — GitHub Actions using the shared CI scripts.
 - `.gitlab-ci.yml` — GitLab CI mirror of the same jobs.
 - `scripts/ci/` — editable hooks (`bootstrap.sh`, `lint.sh`, `typecheck.sh`, `test.sh`, `build.sh`).
-- `scripts/protocol_pipeline.py` — interactive orchestrator for DeksdenFlow_Ilyas_Edition_1.0 protocols using Codex CLI.
+- `scripts/protocol_pipeline.py` — interactive orchestrator for TasksGodzilla_Ilyas_Edition_1.0 protocols using Codex CLI.
 - `schemas/protocol-planning.schema.json` — JSON Schema for the planning agent’s output.
 - `scripts/project_setup.py` — prepares a repo with starter docs/prompts/CI/schema/pipeline if they’re missing.
 - `prompts/repo-discovery.prompt.md` — Codex prompt to auto-discover stack and fill CI scripts.
 - `scripts/codex_ci_bootstrap.py` — helper to run Codex (codex-5.1-max by default) with the discovery prompt to fill CI scripts.
 - `scripts/quality_orchestrator.py` — Codex QA validator that checks a protocol step and writes a report.
 - `Makefile` — helper targets: `deps` (install orchestrator deps in `.venv`), `migrate` (alembic upgrade), `orchestrator-setup` (deps + migrate).
-- `deksdenflow/api/frontend/` — lightweight web console assets served from `/console`.
-- `deksdenflow/codemachine/` — loaders/runtime adapters for `.codemachine` workspaces plus loop/trigger policy helpers.
-- `deksdenflow/workers/` — job handlers for Codex execution, CodeMachine import, onboarding, and state helpers.
+- `tasksgodzilla/api/frontend/` — lightweight web console assets served from `/console`.
+- `tasksgodzilla/codemachine/` — loaders/runtime adapters for `.codemachine` workspaces plus loop/trigger policy helpers.
+- `tasksgodzilla/workers/` — job handlers for Codex execution, CodeMachine import, onboarding, and state helpers.
 - `alembic/` — migrations for Postgres/SQLite schema (projects, protocol_runs, step_runs, events).
 
 ## How to use the prompts
@@ -135,7 +135,7 @@ python -m deksdenflow.cli.tui           # panel-based dashboard with keybindings
 - Start a project: feed `prompts/project-init.prompt.md` to your agent. It sets expectations for creating the structure, wiring CI for GitHub/GitLab, and preparing protocol artifacts.
 - Run day-to-day work: use `prompts/protocol-new.prompt.md` to open a fresh protocol, `prompts/protocol-resume.prompt.md` to resume, and `prompts/protocol-review-merge*.prompt.md` to drive review/merge.
 
-## DeksdenFlow_Ilyas_Edition_1.0 at a glance
+## TasksGodzilla_Ilyas_Edition_1.0 at a glance
 
 1. Git workflow
 2. Context collection
@@ -225,7 +225,7 @@ flowchart LR
   B --> C["report.sh or /webhooks/{provider}\nbranch or run_id correlation"]
   C --> D{"CI status normalized"}
   D -->|running| E["Step status → running"]
-  D -->|success| F{"QA pending?\n(spec policy or DEKSDENFLOW_AUTO_QA_ON_CI)"}
+  D -->|success| F{"QA pending?\n(spec policy or TASKSGODZILLA_AUTO_QA_ON_CI)"}
   F -->|yes| G["run_quality_job enqueued"]
   F -->|no| H["Step completed (CI passed)\nmaybe triggers next step"]
   D -->|failure| I["Step failed; Protocol blocked\nloop/trigger policies may requeue"]

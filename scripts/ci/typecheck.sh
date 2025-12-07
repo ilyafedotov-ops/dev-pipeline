@@ -19,16 +19,16 @@ if [ ! -x "${PY_BIN}" ]; then
 fi
 
 export PYTHONPATH="${PYTHONPATH:-.}"
-export DEKSDENFLOW_DB_PATH="${DEKSDENFLOW_DB_PATH:-/tmp/deksdenflow-ci.sqlite}"
-export DEKSDENFLOW_REDIS_URL="${DEKSDENFLOW_REDIS_URL:-fakeredis://}"
+export TASKSGODZILLA_DB_PATH="${TASKSGODZILLA_DB_PATH:-/tmp/tasksgodzilla-ci.sqlite}"
+export TASKSGODZILLA_REDIS_URL="${TASKSGODZILLA_REDIS_URL:-fakeredis://}"
 
-"${PY_BIN}" -m compileall -q deksdenflow scripts
+"${PY_BIN}" -m compileall -q tasksgodzilla scripts
 
 "${PY_BIN}" - <<'PY'
 import importlib
 modules = [
-    "deksdenflow.config",
-    "deksdenflow.api.app",
+    "tasksgodzilla.config",
+    "tasksgodzilla.api.app",
     "scripts.api_server",
     "scripts.protocol_pipeline",
     "scripts.quality_orchestrator",

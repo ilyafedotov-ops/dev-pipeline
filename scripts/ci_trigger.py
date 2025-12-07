@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Trigger CI pipelines for a protocol branch via gh or glab.
-This script is a thin wrapper over deksdenflow.ci.trigger_ci.
+This script is a thin wrapper over tasksgodzilla.ci.trigger_ci.
 """
 
 import argparse
@@ -12,9 +12,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from deksdenflow.ci import trigger_ci  # noqa: E402
-from deksdenflow.config import load_config  # noqa: E402
-from deksdenflow.logging import init_cli_logging, json_logging_from_env, EXIT_RUNTIME_ERROR  # noqa: E402
+from tasksgodzilla.ci import trigger_ci  # noqa: E402
+from tasksgodzilla.config import load_config  # noqa: E402
+from tasksgodzilla.logging import init_cli_logging, json_logging_from_env, EXIT_RUNTIME_ERROR  # noqa: E402
 
 
 def main() -> None:

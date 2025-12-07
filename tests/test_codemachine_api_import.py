@@ -6,7 +6,7 @@ import pytest
 
 try:
     from fastapi.testclient import TestClient  # type: ignore
-    from deksdenflow.api.app import app
+    from tasksgodzilla.api.app import app
 except ImportError:  # pragma: no cover - fastapi optional
     TestClient = None  # type: ignore
     app = None  # type: ignore
@@ -21,9 +21,9 @@ def _write(path: Path, content: str) -> None:
 def test_codemachine_import_inline_creates_steps_and_template() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "api-test.sqlite"
-        os.environ["DEKSDENFLOW_DB_PATH"] = str(db_path)
-        os.environ.pop("DEKSDENFLOW_API_TOKEN", None)
-        os.environ["DEKSDENFLOW_REDIS_URL"] = "fakeredis://"
+        os.environ["TASKSGODZILLA_DB_PATH"] = str(db_path)
+        os.environ.pop("TASKSGODZILLA_API_TOKEN", None)
+        os.environ["TASKSGODZILLA_REDIS_URL"] = "fakeredis://"
 
         workspace = Path(tmpdir) / "workspace"
         config_dir = workspace / ".codemachine" / "config"

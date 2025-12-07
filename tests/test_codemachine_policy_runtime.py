@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from deksdenflow.codemachine.policy_runtime import apply_loop_policies, apply_trigger_policies
-from deksdenflow.domain import ProtocolStatus, StepStatus
-from deksdenflow.storage import Database
-from deksdenflow.workers import codex_worker
+from tasksgodzilla.codemachine.policy_runtime import apply_loop_policies, apply_trigger_policies
+from tasksgodzilla.domain import ProtocolStatus, StepStatus
+from tasksgodzilla.storage import Database
+from tasksgodzilla.workers import codex_worker
 
 
 def _make_db(tmp_path: Path) -> Database:
@@ -218,7 +218,7 @@ def test_handle_quality_applies_loop_policy(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(codex_worker, "load_project", lambda repo_root, protocol_name, base_branch: repo_root)
     monkeypatch.setattr(codex_worker, "run_quality_check", lambda **_: FakeResult())
     monkeypatch.setattr(codex_worker, "run_process", lambda *args, **kwargs: DummyProc(""))
-    monkeypatch.setattr("deksdenflow.qa.codex.run_process", lambda *args, **kwargs: DummyProc(""))
+    monkeypatch.setattr("tasksgodzilla.qa.codex.run_process", lambda *args, **kwargs: DummyProc(""))
 
     codex_worker.handle_quality(step.id, db)
 
@@ -277,8 +277,8 @@ def test_handle_quality_triggers_followup(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(codex_worker.shutil, "which", lambda _: None)
     monkeypatch.setattr(codex_worker, "load_project", lambda repo_root, protocol_name, base_branch: repo_root)
     monkeypatch.setattr(codex_worker, "run_quality_check", lambda **_: FakeResult())
-    monkeypatch.setattr("deksdenflow.qa.build_prompt", lambda *_args, **_kwargs: "prompt")
-    monkeypatch.setattr("deksdenflow.qa.codex.run_process", lambda *args, **kwargs: DummyProc(""))
+    monkeypatch.setattr("tasksgodzilla.qa.build_prompt", lambda *_args, **_kwargs: "prompt")
+    monkeypatch.setattr("tasksgodzilla.qa.codex.run_process", lambda *args, **kwargs: DummyProc(""))
 
     codex_worker.handle_quality(step0.id, db)
 
@@ -322,7 +322,7 @@ def test_handle_execute_step_triggers_inline(monkeypatch, tmp_path) -> None:
     step1 = db.create_step_run(run.id, 1, "01-qa.md", "work", StepStatus.FAILED, model=None)
 
     monkeypatch.setattr(codex_worker.shutil, "which", lambda _: None)
-    monkeypatch.delenv("DEKSDENFLOW_REDIS_URL", raising=False)
+    monkeypatch.delenv("TASKSGODZILLA_REDIS_URL", raising=False)
 
     codex_worker.handle_execute_step(step0.id, db)
 

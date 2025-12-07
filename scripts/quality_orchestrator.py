@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Run Codex as a QA orchestrator/validator for a given protocol step.
-This script is now a thin wrapper over the reusable deksdenflow.qa module.
+This script is now a thin wrapper over the reusable tasksgodzilla.qa module.
 """
 
 import argparse
@@ -13,15 +13,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from deksdenflow.config import load_config  # noqa: E402
-from deksdenflow.logging import (
+from tasksgodzilla.config import load_config  # noqa: E402
+from tasksgodzilla.logging import (
     init_cli_logging,
     json_logging_from_env,
     EXIT_DEP_MISSING,
     EXIT_RUNTIME_ERROR,
     get_logger,
 )  # noqa: E402
-from deksdenflow.qa import QualityResult, run_quality_check  # noqa: E402
+from tasksgodzilla.qa import QualityResult, run_quality_check  # noqa: E402
 
 log = get_logger(__name__)
 

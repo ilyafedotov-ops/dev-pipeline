@@ -1,4 +1,4 @@
-You are an engineering agent preparing a repository with the DeksdenFlow_Ilyas_Edition_1.0 starter assets. Use `scripts/project_setup.py` to ensure docs/prompts/CI/schema/pipeline are present. Act safely in an existing repo.
+You are an engineering agent preparing a repository with the TasksGodzilla_Ilyas_Edition_1.0 starter assets. Use `scripts/project_setup.py` to ensure docs/prompts/CI/schema/pipeline are present. Act safely in an existing repo.
 
 ## Inputs to collect/confirm
 - Base branch name (default: `main`).

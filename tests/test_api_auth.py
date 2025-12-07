@@ -6,7 +6,7 @@ import pytest
 
 try:
     from fastapi.testclient import TestClient  # type: ignore
-    from deksdenflow.api.app import app
+    from tasksgodzilla.api.app import app
 except ImportError:  # pragma: no cover - fastapi not installed in minimal envs
     TestClient = None  # type: ignore
     app = None  # type: ignore
@@ -16,9 +16,9 @@ except ImportError:  # pragma: no cover - fastapi not installed in minimal envs
 def test_auth_rejects_missing_token_when_enabled() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "api-auth.sqlite"
-        os.environ["DEKSDENFLOW_DB_PATH"] = str(db_path)
-        os.environ["DEKSDENFLOW_API_TOKEN"] = "secret-token"
-        os.environ["DEKSDENFLOW_REDIS_URL"] = "fakeredis://"
+        os.environ["TASKSGODZILLA_DB_PATH"] = str(db_path)
+        os.environ["TASKSGODZILLA_API_TOKEN"] = "secret-token"
+        os.environ["TASKSGODZILLA_REDIS_URL"] = "fakeredis://"
 
         with TestClient(app) as client:  # type: ignore[arg-type]
             resp = client.get("/projects")

@@ -1,10 +1,10 @@
 import os
 from pathlib import Path
 
-from deksdenflow.codemachine.config_loader import load_codemachine_config
-from deksdenflow.workers import codemachine_worker
-from deksdenflow.domain import ProtocolStatus
-from deksdenflow.storage import Database
+from tasksgodzilla.codemachine.config_loader import load_codemachine_config
+from tasksgodzilla.workers import codemachine_worker
+from tasksgodzilla.domain import ProtocolStatus
+from tasksgodzilla.storage import Database
 
 
 def _write(path: Path, content: str) -> None:

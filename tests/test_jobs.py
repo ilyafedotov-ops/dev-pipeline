@@ -1,6 +1,6 @@
 import pytest
 
-from deksdenflow.jobs import RedisQueue, create_queue
+from tasksgodzilla.jobs import RedisQueue, create_queue
 
 
 def test_job_queue_enqueue_and_list_with_fakeredis() -> None:

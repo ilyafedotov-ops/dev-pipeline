@@ -2,9 +2,9 @@ import os
 import subprocess
 from pathlib import Path
 
-from deksdenflow.domain import ProtocolStatus
-from deksdenflow.storage import Database
-from deksdenflow.workers import onboarding_worker
+from tasksgodzilla.domain import ProtocolStatus
+from tasksgodzilla.storage import Database
+from tasksgodzilla.workers import onboarding_worker
 
 
 def _init_repo(path: Path) -> None:
@@ -18,7 +18,7 @@ def _init_repo(path: Path) -> None:
 def test_onboarding_emits_clarifications_without_block(monkeypatch, tmp_path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
-    monkeypatch.setenv("DEKSDENFLOW_AUTO_CLONE", "false")
+    monkeypatch.setenv("TASKSGODZILLA_AUTO_CLONE", "false")
     db = Database(tmp_path / "db.sqlite")
     db.init_schema()
     project = db.create_project("demo", str(repo), "main", "github", {"planning": "gpt-5.1-high"})
@@ -37,8 +37,8 @@ def test_onboarding_emits_clarifications_without_block(monkeypatch, tmp_path) ->
 def test_onboarding_clarifications_can_block(monkeypatch, tmp_path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
-    monkeypatch.setenv("DEKSDENFLOW_AUTO_CLONE", "false")
-    monkeypatch.setenv("DEKSDENFLOW_REQUIRE_ONBOARDING_CLARIFICATIONS", "true")
+    monkeypatch.setenv("TASKSGODZILLA_AUTO_CLONE", "false")
+    monkeypatch.setenv("TASKSGODZILLA_REQUIRE_ONBOARDING_CLARIFICATIONS", "true")
     db = Database(tmp_path / "db2.sqlite")
     db.init_schema()
     project = db.create_project("demo", str(repo), "main", "github", None)

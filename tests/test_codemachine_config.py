@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from deksdenflow.codemachine.config_loader import ConfigError, load_codemachine_config
+from tasksgodzilla.codemachine.config_loader import ConfigError, load_codemachine_config
 
 
 def _write(path: Path, content: str) -> None:
