@@ -26,8 +26,9 @@
 
 ## Commit & Pull Request Guidelines
 - Follow the repo’s short, typed subject style: `feat:`, `chore:`, `fix:`, `docs:` (see `git log`).
-- Scope commits narrowly and keep messages imperative (`feat: add worker retry backoff`).
-- PRs should summarize changes, list test commands run, call out config/env impacts (e.g., new `TASKSGODZILLA_*` vars), and link issues/tasks; include console/API screenshots when UI behavior changes.
+- Scope commits narrowly and keep messages imperative (`feat: add worker retry backoff`). For protocol work, include the protocol tag (`[protocol-NNNN/YY]`) when relevant.
+- PRs should summarize changes, list test commands run, call out config/env impacts (e.g., new `TASKSGODZILLA_*` vars), and link issues/tasks; include console/API screenshots when UI behavior changes. Prefer code/test changes over plan-only diffs.
+- PR creation options: `scripts/protocol_pipeline.py --pr-platform github|gitlab` (uses gh/glab or GitHub REST via `GITHUB_TOKEN`/`GH_TOKEN`), or API `POST /protocols/{id}/actions/open_pr` which enqueues `open_pr_job` with the same fallbacks.
 
 ## Security & Configuration Tips
 - Never commit real tokens or DB/Redis URLs; rely on env vars (`TASKSGODZILLA_REDIS_URL`, `TASKSGODZILLA_DB_URL`/`TASKSGODZILLA_DB_PATH`, `TASKSGODZILLA_API_TOKEN`).

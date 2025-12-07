@@ -49,6 +49,12 @@ This repo is a lightweight starter kit for agent-driven development using the Ta
 Logging tip: set `TASKSGODZILLA_LOG_JSON=true` to emit structured JSON logs from CLIs/workers/API.
 Redis is required for orchestration; set `TASKSGODZILLA_REDIS_URL` (use `fakeredis://` for local testing).
 
+### Protocol pipeline expectations (real work)
+- The protocol pipeline scaffolds `.protocols/NNNN-task/`, but the steps are for **real code changes** (features, fixes, tests). Plan files are the contract; the work happens in the codebase.
+- Prefer running `scripts/protocol_pipeline.py --pr-platform github` to auto-commit/push the plan and open a PR (uses gh/glab when present, falls back to GitHub REST with `GITHUB_TOKEN`/`GH_TOKEN`).
+- From the web/API side, `POST /protocols/{id}/actions/open_pr` enqueues `open_pr_job` to push the branch and open a PR using the same fallbacks.
+- Execute step files in order; update `log.md`/`context.md` as state, but commits should primarily contain code/test changes tied to the protocol.
+
 ## Orchestrator status & QA options
 
 - Protocol statuses: `pending` → `planning` → `planned` → `running` → (`paused` | `blocked` | `failed` | `cancelled` | `completed`). CI failures or worker errors block the run; PR/MR merge completes it.

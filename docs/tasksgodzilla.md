@@ -31,3 +31,8 @@ TasksGodzilla_Ilyas_Edition_1.0 is an agent-first workflow tuned for doing chang
 - Keep `.protocols/` under version control; mirror it in worktrees to keep state local to each stream.
 - Update `scripts/ci/*` to run stack-specific checks, but keep job names and structure stable for both GitHub and GitLab.
 - When adding new prompts, follow the same style: explicit phases, clear stop conditions, and reproducible steps.
+
+## PR creation (automated)
+- CLI: run `scripts/protocol_pipeline.py --pr-platform github|gitlab` to auto-commit the plan, push the protocol branch, and open a Draft PR/MR (uses `gh`/`glab` when installed; otherwise falls back to GitHub REST with `GITHUB_TOKEN`/`GH_TOKEN`).
+- Backend/API: call `POST /protocols/{id}/actions/open_pr` to enqueue `open_pr_job`; the worker will push the branch and open the PR/MR using the same fallbacks.
+- Commits should primarily contain code/test changes associated with protocol steps; keep `.protocols` updates focused on state/logs.
