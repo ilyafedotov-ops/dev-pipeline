@@ -1,8 +1,8 @@
-- **Current Step**: 0
+- **Current Step**: 5
 - **Status**: Not Started
-- **Last Action Summary**: "Step 0 breakdown drafted."
-- **Next Action**: "Execute Step 0: prepare and lock plan per tasks below and `00-setup.md`."
-- **Git**: "Branch 0002-demo-app-workflow created, empty."
+- **Last Action Summary**: "Step 4 completed: validation done, CI green, ready to finalize."
+- **Next Action**: "Start Step 5 (`05-finalize.md`): finalize report, PR posture, and wrap up."
+- **Git**: "Branch 0002-demo-app-workflow pushed with protocol plan commit; PR #1 open."
 - **PROJECT_ROOT**: "/home/ilya/Documents/dev-pipeline"
 - **CWD**: "/home/ilya/Documents/worktrees/0002-demo-app-workflow"
 

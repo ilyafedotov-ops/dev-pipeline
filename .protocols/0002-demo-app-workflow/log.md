@@ -42,3 +42,8 @@ This is an append-only log:
 - Evidence: demo harness run logs (stdout); artifact `artifacts/step-03/planning.json` present. No additional outputs required for the harness scenario.
 - Validation: reran local CI via worktree venv — `scripts/ci/lint.sh`, `scripts/ci/typecheck.sh`, `scripts/ci/test.sh` all passed (no failures to triage).
 - No regressions observed; nothing new to fix. Next step: finalize (update context, prepare final report/PR state).
+
+## Step 5 — Finalize
+- CI freshness: no additional changes since Step 4; latest CI run still green (lint/typecheck/test).
+- PR posture: branch `0002-demo-app-workflow` pushed; PR open https://github.com/ilyafedotov-ops/dev-pipeline/pull/1 (kept as tracking, can flip to Ready).
+- Status: protocol executed through validation; remaining action is final review/merge. No outstanding blockers.
