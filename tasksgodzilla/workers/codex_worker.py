@@ -6,7 +6,7 @@ import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import tasksgodzilla.engines_codex  # noqa: F401 - ensure Codex engine is registered
 
@@ -26,6 +26,8 @@ from tasksgodzilla.pipeline import (
     execute_step_prompt,
     planning_prompt,
     decompose_step_prompt,
+    is_simple_step,
+    step_markdown_files,
     write_protocol_files,
 )
 from tasksgodzilla.storage import BaseDatabase
@@ -655,11 +657,28 @@ def handle_plan_protocol(protocol_run_id: int, db: BaseDatabase, job_id: Optiona
     # Decompose steps
     plan_md = (protocol_root / "plan.md").read_text(encoding="utf-8")
     decompose_tokens = 0
-    decompose_model = project.default_models.get("decompose", "gpt-5.1-high") if project.default_models else "gpt-5.1-high"
-    for step_file in protocol_root.glob("*.md"):
-        if step_file.name.lower().startswith("00-setup"):
-            continue
+    decompose_model = (project.default_models.get("decompose") if project.default_models else None) or config.decompose_model or "gpt-5.1-high"
+    step_files = step_markdown_files(protocol_root)
+    skip_simple = config.skip_simple_decompose
+    decomposed_steps: List[str] = []
+    skipped_steps: List[str] = []
+    if step_files:
+        db.append_event(
+            protocol_run_id,
+            "decompose_started",
+            f"Decomposing {len(step_files)} step file(s).",
+            metadata={"steps": [p.name for p in step_files], "model": decompose_model},
+            job_id=job_id,
+        )
+    for step_file in step_files:
         step_content = step_file.read_text(encoding="utf-8")
+        if skip_simple and is_simple_step(step_content):
+            skipped_steps.append(step_file.name)
+            log.info(
+                "decompose_step_skipped",
+                extra={**_log_context(run=run, job_id=job_id), "step_file": step_file.name, "reason": "simple_step"},
+            )
+            continue
         dec_text = decompose_step_prompt(
             run.protocol_name,
             run.protocol_name.split("-")[0],
@@ -684,6 +703,20 @@ def handle_plan_protocol(protocol_run_id: int, db: BaseDatabase, job_id: Optiona
         decompose_result = engine.plan(decompose_request)
         new_content = decompose_result.stdout
         step_file.write_text(new_content, encoding="utf-8")
+        decomposed_steps.append(step_file.name)
+    if step_files:
+        db.append_event(
+            protocol_run_id,
+            "decompose_completed",
+            "Step decomposition finished.",
+            metadata={
+                "model": decompose_model,
+                "steps_decomposed": decomposed_steps,
+                "steps_skipped": skipped_steps,
+                "estimated_tokens": {"decompose": decompose_tokens},
+            },
+            job_id=job_id,
+        )
 
     db.update_protocol_status(protocol_run_id, ProtocolStatus.PLANNED)
     run = db.get_protocol_run(run.id)

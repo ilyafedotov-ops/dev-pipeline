@@ -40,6 +40,22 @@ def is_simple_step(content: str, max_lines: int = 12, max_chars: int = 1200, max
     return len(bullet_lines) <= max_bullets
 
 
+def step_markdown_files(protocol_root: Path, *, include_setup: bool = False) -> List[Path]:
+    """
+    Return numbered step files in a protocol directory, optionally including setup.
+    Filters out plan/context/log files that should never be decomposed.
+    """
+    step_paths: List[Path] = []
+    for path in sorted(protocol_root.glob("*.md")):
+        name = path.name
+        if not name[:2].isdigit():
+            continue
+        if not include_setup and name.lower().startswith("00-setup"):
+            continue
+        step_paths.append(path)
+    return step_paths
+
+
 def run(cmd: List[str], cwd: Path) -> None:
     run_command(cmd, cwd=cwd)
 
@@ -406,9 +422,7 @@ def run_pipeline(args) -> None:
     decomposition_model = args.decompose_model or config.decompose_model or os.environ.get("PROTOCOL_DECOMPOSE_MODEL", "gpt-5.1-high")
     skip_simple = getattr(args, "skip_simple_decompose", False) or getattr(config, "skip_simple_decompose", False)
 
-    for step_file in protocol_root.glob("*.md"):
-        if step_file.name.lower().startswith("00-setup"):
-            continue
+    for step_file in step_markdown_files(protocol_root):
         step_content = step_file.read_text(encoding="utf-8")
         if skip_simple and is_simple_step(step_content):
             log.info(

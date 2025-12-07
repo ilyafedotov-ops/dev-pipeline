@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Launcher for the Rust TasksGodzilla TUI.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo is required to build the Rust TUI. Install Rust (https://rustup.rs/) first." >&2
+  exit 1
+fi
+
+cd "$ROOT/tui-rs"
+cargo run --release "$@"

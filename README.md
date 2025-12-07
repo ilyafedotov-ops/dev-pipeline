@@ -1,6 +1,6 @@
 ![TasksGodzilla banner](docs/Images/BigBanner.png)
 
-# TasksGodzilla_Ilyas_Edition_1.0 Project Starter
+# TasksGodzilla Hobby Edition Alpha 0.1
 
 This repo is a lightweight starter kit for agent-driven development using the TasksGodzilla_Ilyas_Edition_1.0 protocols. It includes:
 

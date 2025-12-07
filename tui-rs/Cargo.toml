@@ -1,0 +1,20 @@
+[package]
+name = "tasksgodzilla-tui"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Rust TUI for the TasksGodzilla orchestrator API"
+
+[dependencies]
+anyhow = "1"
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+ratatui = { version = "0.26", default-features = false, features = ["crossterm"] }
+crossterm = { version = "0.27", features = ["event-stream"] }
+futures = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }

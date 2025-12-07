@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Root-level launcher for the TasksGodzilla Textual TUI.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$SCRIPT_DIR/scripts/tui" "$@"

@@ -68,7 +68,7 @@ CodeMachine import:
 
 ## Textual TUI (dashboard)
 
-A panel-based dashboard closer to the CodeMachine CLI feel, with live refresh and keybindings.
+Multi-page Textual app that mirrors the orchestrator API (projects, protocols, steps, events, queues, branches, specs) with live refresh.
 
 Run:
 ```bash
@@ -76,21 +76,47 @@ python -m tasksgodzilla.cli.tui
 # or
 ./scripts/tasksgodzilla_tui.py
 ./scripts/tui                  # simple launcher (prefers .venv)
+./tui                          # root-level shortcut
 ```
 
 Note: the TUI requires an interactive terminal (TTY). If running in a non-interactive environment, use the argparse CLI instead.
-The right-hand panel shows engine/model info plus loop/trigger policy and runtime state for the selected step.
+
+Pages:
+- Dashboard: quick triage across projects/protocols/steps with policy/runtime and events.
+- Projects: create/select projects, view onboarding summary, list/delete branches.
+- Protocols: create/start/pause/resume/cancel runs, view spec hash/validation, enqueue spec audit, import CodeMachine.
+- Steps: run/QA/approve individual steps with policy/runtime and step events.
+- Events: protocol-scoped and recent events with metadata.
+- Queues: queue stats plus jobs (cycle filter queued/started/failed/finished).
+- Settings: update API base/token, toggle auto-refresh.
 
 Keybindings:
-- Global: `r` refresh, `?` bindings, `tab/shift+tab` cycle panes, `c` configure API/token, `q` quit.
-- Steps: `enter` action menu; `n` run next; `t` retry latest; `y` run QA; `a` approve; `o` open PR; `f` cycle step filter (all/pending/running/needs_qa/failed).
-- CodeMachine: `i` import workspace (modal with path + enqueue option).
-- Events pane: shows onboarding `setup_clarifications` payloads with recommended CI/model/branch/git settings; use them to adjust project/env settings, then rerun setup if needed (no inline “acknowledge” UI yet).
-- Branch management is API-only today; use `GET /projects/{id}/branches` and `POST /projects/{id}/branches/{branch}/delete` (body `{"confirm": true}`) to list/delete remote branches until a TUI action is added.
+- Global: `1`–`6` switch pages, `r` refresh, `?` bindings, `tab/shift+tab` cycle panes, `c` configure API/token, `q` quit, `i` CodeMachine import.
+- Steps/Protocols: `enter` step action menu; `n` run next; `t` retry latest; `y` run QA; `a` approve; `o` open PR; `f` cycle step filter (all/pending/running/needs_qa/failed).
 
-Columns show projects/protocols/steps/events; selections drive the actions above.
+Events panes surface onboarding `setup_clarifications` payloads with recommended CI/model/branch/git settings; use them to adjust project/env settings, then rerun setup if needed.
 If the API is down or widgets are missing, errors are logged to the status bar; start the API first. The API base defaults to `http://localhost:8011` (compose) and can be updated via the `c` modal; use 8010 when running locally without compose.
 If using Docker Compose, point it at `http://localhost:8011`.
+
+## Rust TUI (beta with actions)
+
+Rust/ratatui port focused on fast navigation and stability (projects/protocols/steps/events/queues plus protocol/step actions). Startup flow: login screen (API base + optional tokens) → centered main menu → tabbed dashboard.
+New welcome screen: on launch, pick **Start TasksGodzilla** (auto-login jumps straight into the dashboard if env tokens are set), **Settings** (API/token modal), **Help**, or **Version**.
+
+Run (requires Rust toolchain/cargo):
+```bash
+./scripts/tui-rs           # builds in release mode
+```
+
+Env:
+- `TASKSGODZILLA_API_BASE` (default `http://localhost:8011`)
+- `TASKSGODZILLA_API_TOKEN`, `TASKSGODZILLA_PROJECT_TOKEN`
+- `TASKSGODZILLA_TUI_REFRESH_SECS` (default 4)
+- `TASKSGODZILLA_TUI_AUTOLOGIN` (default `1`); set to `0`/`false` to force showing the login + menu every launch.
+
+Keys: `q` quit, `m` main menu, `enter` quick action palette, `r` refresh, `tab`/`shift+tab`/`←`/`→` cycle pages, `1-7` direct page select, arrows or `j/k` move selection, `[`/`]` cycle branches, `J` cycle queue job filter, `f` cycle step filter.
+Actions: `n` run next, `t` retry latest, `y` run QA latest, `a` approve latest, `o` open PR, `s` start, `p` pause, `e` resume, `x` cancel protocol.
+Modals: `g` new project, `R` new protocol, `i` import CodeMachine, `A` spec audit, `c` configure API/token, `b` reload branches, `d` delete selected branch, `h`/`?` show key help in status.
 
 ## Quick setup & URLs
 
