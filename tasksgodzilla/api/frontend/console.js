@@ -75,6 +75,17 @@ function statusClass(status) {
   return `status-${(status || "").toLowerCase()}`;
 }
 
+async function enqueueSpecAudit(projectId = null) {
+  try {
+    const payload = { project_id: projectId, backfill: true };
+    const resp = await apiFetch("/specs/audit", { method: "POST", body: JSON.stringify(payload), projectId });
+    setStatus(`Spec audit enqueued${resp.job?.job_id ? ` (${resp.job.job_id})` : ""}`, "toast");
+    loadOperations();
+  } catch (err) {
+    setStatus(err.message, "error");
+  }
+}
+
 async function apiFetch(path, options = {}) {
   const { projectId, ...restOptions } = options;
   const headers = restOptions.headers || {};
@@ -130,6 +141,18 @@ async function loadProjects() {
     setStatus(`Loaded ${projects.length} project(s).`);
   } catch (err) {
     setStatus(err.message, "error");
+  }
+}
+
+
+async function enqueueSpecAudit(projectId = null) {
+  try {
+    const payload = { project_id: projectId, backfill: true };
+    const resp = await apiFetch('/specs/audit', { method: 'POST', body: JSON.stringify(payload), projectId });
+    setStatus(`Spec audit enqueued (job ${resp.job?.job_id || ''})`, 'toast');
+    loadOperations();
+  } catch (err) {
+    setStatus(err.message, 'error');
   }
 }
 
@@ -1078,6 +1101,10 @@ function wireForms() {
   const refreshOpsBtn = document.getElementById("refreshOperations");
   if (refreshOpsBtn) {
     refreshOpsBtn.onclick = loadOperations;
+  }
+  const specAuditBtn = document.getElementById("runSpecAudit");
+  if (specAuditBtn) {
+    specAuditBtn.onclick = () => enqueueSpecAudit(state.selectedProject);
   }
   const refreshMetricsBtn = document.getElementById("refreshMetrics");
   if (refreshMetricsBtn) {

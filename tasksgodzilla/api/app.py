@@ -1,4 +1,5 @@
 import time
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -52,6 +53,29 @@ async def lifespan(app: FastAPI):
     app.state.queue = queue  # type: ignore[attr-defined]
     app.state.metrics = metrics  # type: ignore[attr-defined]
     worker = None
+    spec_audit_stop: Optional[threading.Event] = None
+    spec_audit_thread: Optional[threading.Thread] = None
+    if config.spec_audit_interval_seconds:
+        spec_audit_stop = threading.Event()
+        interval = max(30, int(config.spec_audit_interval_seconds))
+
+        def _spec_audit_cron() -> None:
+            while not spec_audit_stop.is_set():
+                try:
+                    queue.enqueue(
+                        "spec_audit_job",
+                        {
+                            "project_id": None,
+                            "protocol_id": None,
+                            "backfill_missing": True,
+                        },
+                    )
+                except Exception as exc:  # pragma: no cover - best effort
+                    logger.warning("Spec audit cron failed to enqueue", extra={"error": str(exc)})
+                spec_audit_stop.wait(interval)
+
+        spec_audit_thread = threading.Thread(target=_spec_audit_cron, daemon=True)
+        spec_audit_thread.start()
     if isinstance(queue, jobs.RedisQueue) and queue.is_fakeredis:
         worker = RQWorkerThread(queue)
         app.state.worker = worker  # type: ignore[attr-defined]
@@ -61,6 +85,10 @@ async def lifespan(app: FastAPI):
     finally:
         if worker:
             worker.stop()
+        if spec_audit_stop:
+            spec_audit_stop.set()
+        if spec_audit_thread:
+            spec_audit_thread.join(timeout=2)
         logger.info("Shutting down API", extra={"request_id": "-"})
 
 

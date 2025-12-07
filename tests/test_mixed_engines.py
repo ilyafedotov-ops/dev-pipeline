@@ -139,3 +139,48 @@ def test_mixed_engines_and_qa_policies(monkeypatch, tmp_path) -> None:
     events = [e.event_type for e in db.list_events(cm_run.id)]
     assert "qa_skipped_policy" in events
     assert "codemachine_step_completed" in events
+
+
+def test_trigger_inline_depth_guard_with_stubbed_exec(monkeypatch, tmp_path) -> None:
+    _register_echo()
+    db = Database(tmp_path / "db.sqlite")
+    db.init_schema()
+
+    repo_root = tmp_path / "repo"
+    protocol_root = repo_root / ".protocols" / "0010-mixed"
+    protocol_root.mkdir(parents=True, exist_ok=True)
+    (protocol_root / "plan.md").write_text("plan", encoding="utf-8")
+    (protocol_root / "context.md").write_text("context", encoding="utf-8")
+    (protocol_root / "log.md").write_text("", encoding="utf-8")
+    (protocol_root / "00-main.md").write_text("main work", encoding="utf-8")
+    (protocol_root / "01-follow.md").write_text("follow step", encoding="utf-8")
+
+    project = db.create_project("demo", str(repo_root), "main", None, None)
+    run = db.create_protocol_run(
+        project.id,
+        "0010-mixed",
+        ProtocolStatus.RUNNING,
+        "main",
+        str(repo_root),
+        str(protocol_root),
+        "mixed run",
+        template_config={
+            PROTOCOL_SPEC_KEY: {
+                "steps": [
+                    {"id": "00-main", "name": "00-main.md", "engine_id": "runner-echo", "prompt_ref": "00-main.md", "qa": {"policy": "skip"}},
+                    {"id": "01-follow", "name": "01-follow.md", "engine_id": "runner-echo", "prompt_ref": "01-follow.md", "qa": {"policy": "skip"}},
+                ]
+            }
+        },
+    )
+    trigger_policy = {"module_id": "handoff", "behavior": "trigger", "trigger_agent_id": "follow"}
+    step0 = db.create_step_run(run.id, 0, "00-main.md", "setup", StepStatus.PENDING, model=None, engine_id="runner-echo", policy=[trigger_policy])
+    step1 = db.create_step_run(run.id, 1, "01-follow.md", "work", StepStatus.FAILED, model=None, engine_id="runner-echo")
+
+    monkeypatch.setattr(codex_worker.shutil, "which", lambda _: None)  # force stub
+
+    codex_worker.handle_execute_step(step0.id, db)
+
+    step1_after = db.get_step_run(step1.id)
+    assert step1_after.status in (StepStatus.PENDING, StepStatus.NEEDS_QA)
+    assert (step1_after.runtime_state or {}).get("inline_trigger_depth", 0) >= 1

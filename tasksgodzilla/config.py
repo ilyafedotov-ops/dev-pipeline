@@ -39,6 +39,7 @@ class Config(BaseModel):
     db_pool_size: int = Field(default=5)
     auto_qa_on_ci: bool = Field(default=False)
     auto_qa_after_exec: bool = Field(default=False)
+    spec_audit_interval_seconds: Optional[int] = Field(default=None)
 
     class Config:
         arbitrary_types_allowed = True
@@ -80,6 +81,7 @@ def load_config() -> Config:
     max_tokens_per_protocol = os.environ.get("TASKSGODZILLA_MAX_TOKENS_PER_PROTOCOL")
     token_budget_mode = os.environ.get("TASKSGODZILLA_TOKEN_BUDGET_MODE", "strict")
     db_pool_size = int(os.environ.get("TASKSGODZILLA_DB_POOL_SIZE", "5"))
+    spec_audit_interval_seconds = os.environ.get("TASKSGODZILLA_SPEC_AUDIT_INTERVAL_SECONDS")
     auto_qa_on_ci = os.environ.get("TASKSGODZILLA_AUTO_QA_ON_CI", "false").lower() in (
         "1",
         "true",
@@ -110,4 +112,5 @@ def load_config() -> Config:
         db_pool_size=db_pool_size,
         auto_qa_on_ci=auto_qa_on_ci,
         auto_qa_after_exec=auto_qa_after_exec,
+        spec_audit_interval_seconds=int(spec_audit_interval_seconds) if spec_audit_interval_seconds else None,
     )
