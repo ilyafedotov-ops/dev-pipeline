@@ -3,6 +3,7 @@ Codex worker: resolves protocol context, runs engine-backed planning/exec/QA, an
 """
 
 import json
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ from tasksgodzilla.config import load_config
 from tasksgodzilla.logging import get_logger, log_extra
 from tasksgodzilla.domain import ProtocolRun, ProtocolStatus, StepRun, StepStatus
 from tasksgodzilla.prompt_utils import prompt_version
+from tasksgodzilla.errors import CodexCommandError
 from tasksgodzilla.codemachine.policy_runtime import apply_loop_policies, apply_trigger_policies
 from tasksgodzilla.codemachine.runtime_adapter import (
     build_prompt_text,
@@ -55,6 +57,24 @@ from tasksgodzilla.spec import (
 
 log = get_logger(__name__)
 MAX_INLINE_TRIGGER_DEPTH = 3
+SINGLE_WORKTREE = os.environ.get("TASKSGODZILLA_SINGLE_WORKTREE", "true").lower() in ("1", "true", "yes", "on")
+DEFAULT_WORKTREE_BRANCH = os.environ.get("TASKSGODZILLA_WORKTREE_BRANCH", "tasksgodzilla-worktree")
+
+
+def _worktree_branch_name(protocol_name: str) -> str:
+    """
+    Resolve the branch name to use for worktrees. Defaults to a shared branch to
+    avoid creating many per-protocol branches unless overridden.
+    """
+    if not SINGLE_WORKTREE:
+        return protocol_name
+    return DEFAULT_WORKTREE_BRANCH
+
+
+def _worktree_path(repo_root: Path, protocol_name: str) -> tuple[Path, str]:
+    branch_name = _worktree_branch_name(protocol_name)
+    worktrees_root = repo_root.parent / "worktrees"
+    return worktrees_root / branch_name, branch_name
 
 
 def _log_context(
@@ -363,14 +383,14 @@ def load_project(
     project_id: Optional[int] = None,
     job_id: Optional[str] = None,
 ) -> Path:
-    worktrees_root = repo_root.parent / "worktrees"
-    worktree = worktrees_root / protocol_name
+    worktree, branch_name = _worktree_path(repo_root, protocol_name)
     if not worktree.exists():
         log.info(
             "creating_worktree",
             extra={
                 **_log_context(protocol_run_id=protocol_run_id, project_id=project_id, job_id=job_id),
                 "protocol_name": protocol_name,
+                "branch": branch_name,
                 "base_branch": base_branch,
             },
         )
@@ -381,7 +401,7 @@ def load_project(
                 "add",
                 "--checkout",
                 "-b",
-                protocol_name,
+                branch_name,
                 str(worktree),
                 f"origin/{base_branch}",
             ],
@@ -562,16 +582,16 @@ def handle_plan_protocol(protocol_run_id: int, db: BaseDatabase, job_id: Optiona
     project = db.get_project(run.project_id)
     config = load_config()
     planning_prompt_path = None
-    log.info(
-        "Planning protocol",
-        extra={
-            **_log_context(run=run, job_id=job_id),
-            "protocol_name": run.protocol_name,
-            "branch": run.protocol_name,
-        },
-    )
-    if shutil.which("codex") is None:
+    workspace_hint: Optional[Path] = None
+    protocol_hint: Optional[Path] = None
+    branch_name = _worktree_branch_name(run.protocol_name)
+
+    def _stub_plan(reason: str, *, error: Optional[str] = None) -> None:
         workspace_root, protocol_root = _protocol_and_workspace_paths(run, project)
+        if workspace_hint:
+            workspace_root = workspace_hint
+        if protocol_hint:
+            protocol_root = protocol_hint
         db.update_protocol_paths(protocol_run_id, str(workspace_root), str(protocol_root))
         protocol_root.mkdir(parents=True, exist_ok=True)
         (protocol_root / "plan.md").write_text(f"# Plan for {run.protocol_name}\n\n- [ ] Execute demo step\n", encoding="utf-8")
@@ -591,16 +611,42 @@ def handle_plan_protocol(protocol_run_id: int, db: BaseDatabase, job_id: Optiona
             template_cfg[PROTOCOL_SPEC_KEY] = spec
             db.update_protocol_template(protocol_run_id, template_cfg, run.template_source)
         spec_hash_val = protocol_spec_hash(spec) if spec else None
-        create_steps_from_spec(protocol_run_id, spec, db, existing_names={s.step_name for s in db.list_step_runs(protocol_run_id)})
+        create_steps_from_spec(
+            protocol_run_id,
+            spec,
+            db,
+            existing_names={s.step_name for s in db.list_step_runs(protocol_run_id)},
+        )
         update_spec_meta(db, protocol_run_id, template_cfg, run.template_source, status="valid", errors=[])
         db.update_protocol_status(protocol_run_id, ProtocolStatus.PLANNED)
         db.append_event(
             protocol_run_id,
             "planned",
-            "Protocol planned (stub; codex unavailable).",
+            f"Protocol planned (stub; {reason}).",
             step_run_id=None,
-            metadata={"spec_hash": spec_hash_val, "spec_validated": True},
+            metadata={"spec_hash": spec_hash_val, "spec_validated": True, "fallback_reason": reason, "error": error},
         )
+        log.warning(
+            "planning_stubbed",
+            extra={
+                **_log_context(run=run, job_id=job_id),
+                "reason": reason,
+                "error": error,
+                "protocol_root": str(protocol_root),
+            },
+        )
+        return
+
+    log.info(
+        "Planning protocol",
+        extra={
+            **_log_context(run=run, job_id=job_id),
+            "protocol_name": run.protocol_name,
+            "branch": run.protocol_name,
+        },
+    )
+    if shutil.which("codex") is None:
+        _stub_plan("codex unavailable")
         return
 
     repo_root = _repo_root_or_block(project, run, db, job_id=job_id)
@@ -617,8 +663,14 @@ def handle_plan_protocol(protocol_run_id: int, db: BaseDatabase, job_id: Optiona
     )
 
     budget_limit = config.max_tokens_per_step or config.max_tokens_per_protocol
-    planning_model = project.default_models.get("planning", "gpt-5.1-high") if project.default_models else "gpt-5.1-high"
+    planning_model = (
+        (project.default_models or {}).get("planning")
+        or config.planning_model
+        or "gpt-5.1-codex-max"
+    )
     protocol_root = worktree / ".protocols" / run.protocol_name
+    workspace_hint = worktree
+    protocol_hint = protocol_root
     db.update_protocol_paths(protocol_run_id, str(worktree), str(protocol_root))
     schema_path = repo_root / "schemas" / "protocol-planning.schema.json"
     planning_prompt_path = repo_root / "prompts" / "protocol-new.prompt.md"
@@ -648,16 +700,79 @@ def handle_plan_protocol(protocol_run_id: int, db: BaseDatabase, job_id: Optiona
             "output_schema": str(schema_path),
         },
     )
-    planning_result = engine.plan(planning_request)
-    planning_json = planning_result.stdout
-    data = json.loads(planning_json)
+    try:
+        planning_result = engine.plan(planning_request)
+        planning_json = (planning_result.stdout or "").strip()
+        if not planning_json:
+            raise ValueError("Empty planning result from Codex")
+        data = json.loads(planning_json)
+    except CodexCommandError as exc:
+        db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+        db.append_event(
+            protocol_run_id,
+            "planning_failed",
+            f"Codex planning failed: {exc}",
+            metadata={
+                "error": str(exc),
+                "error_type": exc.__class__.__name__,
+                "returncode": (exc.metadata or {}).get("returncode"),
+            },
+            job_id=job_id,
+        )
+        log.warning(
+            "planning_codex_failed",
+            extra={
+                **_log_context(run=run, job_id=job_id),
+                "error": str(exc),
+                "error_type": exc.__class__.__name__,
+                "returncode": (exc.metadata or {}).get("returncode"),
+            },
+        )
+        raise
+    except TimeoutError as exc:
+        db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+        db.append_event(
+            protocol_run_id,
+            "planning_failed",
+            "Codex planning timed out.",
+            metadata={"error": str(exc), "error_type": "TimeoutError"},
+            job_id=job_id,
+        )
+        log.warning(
+            "planning_timeout",
+            extra={**_log_context(run=run, job_id=job_id), "error": str(exc), "error_type": "TimeoutError"},
+        )
+        raise
+    except (json.JSONDecodeError, ValueError) as exc:
+        db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+        db.append_event(
+            protocol_run_id,
+            "planning_failed",
+            f"Invalid Codex planning output: {exc}",
+            metadata={
+                "error": str(exc),
+                "error_type": exc.__class__.__name__,
+                "stdout": (planning_result.stdout if 'planning_result' in locals() else None),
+                "stderr": (planning_result.stderr if 'planning_result' in locals() else None),
+            },
+            job_id=job_id,
+        )
+        log.warning(
+            "planning_output_invalid",
+            extra={**_log_context(run=run, job_id=job_id), "error": str(exc), "error_type": exc.__class__.__name__},
+        )
+        raise
     write_protocol_files(protocol_root, data)
     created_steps = sync_step_runs_from_protocol(protocol_root, protocol_run_id, db)
 
     # Decompose steps
     plan_md = (protocol_root / "plan.md").read_text(encoding="utf-8")
     decompose_tokens = 0
-    decompose_model = (project.default_models.get("decompose") if project.default_models else None) or config.decompose_model or "gpt-5.1-high"
+    decompose_model = (
+        (project.default_models.get("decompose") if project.default_models else None)
+        or config.decompose_model
+        or "gpt-5.1-codex-max"
+    )
     step_files = step_markdown_files(protocol_root)
     skip_simple = config.skip_simple_decompose
     decomposed_steps: List[str] = []
@@ -740,7 +855,7 @@ def handle_plan_protocol(protocol_run_id: int, db: BaseDatabase, job_id: Optiona
     # Best-effort push/PR to surface changes in CI
     pushed = git_push_and_open_pr(
         worktree,
-        run.protocol_name,
+        branch_name,
         run.base_branch,
         protocol_run_id=run.id,
         project_id=project.id,
@@ -749,7 +864,7 @@ def handle_plan_protocol(protocol_run_id: int, db: BaseDatabase, job_id: Optiona
     if pushed:
         triggered = trigger_ci_pipeline(
             repo_root,
-            run.protocol_name,
+            branch_name,
             project.ci_provider,
             protocol_run_id=run.id,
             project_id=project.id,
@@ -764,6 +879,7 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
     run = db.get_protocol_run(step.protocol_run_id)
     project = db.get_project(run.project_id)
     config = load_config()
+    branch_name = _worktree_branch_name(run.protocol_name)
     auto_clone = auto_clone_enabled()
     budget_limit = config.max_tokens_per_step or config.max_tokens_per_protocol
     step_spec = get_step_spec(run.template_config, step.step_name)
@@ -777,7 +893,7 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
         extra={
             **_log_context(run=run, step=step, job_id=job_id),
             "protocol_name": run.protocol_name,
-            "branch": run.protocol_name,
+            "branch": branch_name,
             "step_name": step.step_name,
         },
     )
@@ -970,6 +1086,7 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
             or step_spec.get("model")
             or step.model
             or (project.default_models.get("exec") if project.default_models else None)
+            or config.exec_model
             or "codex-5.1-max-xhigh"
         )
         resolution.prompt_path = step_path
@@ -1023,6 +1140,21 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
             protocol_run_id=run.id,
             step_run_id=step.id,
         )
+    except CodexCommandError as exc:
+        db.update_step_status(step.id, StepStatus.FAILED, summary=f"Execution error: {exc}")
+        db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+        db.append_event(
+            step.protocol_run_id,
+            "step_execution_failed",
+            f"Execution failed: {exc}",
+            step_run_id=step.id,
+            metadata={"error": str(exc), "error_type": exc.__class__.__name__, "engine_id": engine_id, "spec_hash": spec_hash_val},
+        )
+        log.warning(
+            "step_execution_codex_failed",
+            extra={**_log_context(run=run, step=step, job_id=job_id), "error": str(exc), "error_type": exc.__class__.__name__},
+        )
+        raise
     except Exception as exc:  # pragma: no cover - best effort
         db.update_step_status(step.id, StepStatus.FAILED, summary=f"Execution error: {exc}")
         db.append_event(
@@ -1052,7 +1184,7 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
     if kind == "codex":
         pushed = git_push_and_open_pr(
             workspace_root,
-            run.protocol_name,
+            branch_name,
             run.base_branch,
             protocol_run_id=run.id,
             project_id=project.id,
@@ -1061,7 +1193,7 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
         if pushed:
             triggered = trigger_ci_pipeline(
                 workspace_root,
-                run.protocol_name,
+                branch_name,
                 project.ci_provider,
                 protocol_run_id=run.id,
                 project_id=project.id,
@@ -1139,7 +1271,12 @@ def handle_execute_step(step_run_id: int, db: BaseDatabase, job_id: Optional[str
         qa_prefix = qa_prompt_path.read_text(encoding="utf-8") if qa_prompt_path.exists() else ""
         qa_body = build_prompt(protocol_root, step_path_for_qa)
         qa_prompt_full = f"{qa_prefix}\\n\\n{qa_body}\\n\\nKeep this QA brief; focus on must-fix issues only."
-        qa_model = qa_cfg.get("model") or (project.default_models.get("qa", "codex-5.1-max") if project.default_models else "codex-5.1-max")
+        qa_model = (
+            qa_cfg.get("model")
+            or (project.default_models.get("qa") if project.default_models else None)
+            or config.qa_model
+            or "codex-5.1-max"
+        )
         qa_engine_id = qa_cfg.get("engine_id") or step.engine_id or registry.get_default().metadata.id
         try:
             registry.get(qa_engine_id)
@@ -1342,7 +1479,12 @@ def handle_quality(step_run_id: int, db: BaseDatabase, job_id: Optional[str] = N
     qa_body = build_prompt(protocol_root, step_path)
     qa_prompt_full = f"{qa_prefix}\\n\\n{qa_body}"
 
-    qa_model = qa_cfg.get("model") or (project.default_models.get("qa", "codex-5.1-max") if project.default_models else "codex-5.1-max")
+    qa_model = (
+        qa_cfg.get("model")
+        or (project.default_models.get("qa") if project.default_models else None)
+        or config.qa_model
+        or "codex-5.1-max"
+    )
     qa_engine_id = qa_cfg.get("engine_id") or step.engine_id or registry.get_default().metadata.id
 
     try:
@@ -1406,6 +1548,21 @@ def handle_quality(step_run_id: int, db: BaseDatabase, job_id: Optional[str] = N
             qa_model=qa_model,
             sandbox="read-only",
         )
+    except CodexCommandError as exc:
+        db.update_step_status(step.id, StepStatus.FAILED, summary=f"QA error: {exc}")
+        db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+        db.append_event(
+            step.protocol_run_id,
+            "qa_error",
+            f"QA failed to run: {exc}",
+            step_run_id=step.id,
+            metadata={"error": str(exc), "error_type": exc.__class__.__name__, "engine_id": qa_engine_id, "spec_hash": spec_hash_val},
+        )
+        log.warning(
+            "qa_codex_failed",
+            extra={**_log_context(run=run, step=step, job_id=job_id), "error": str(exc), "error_type": exc.__class__.__name__},
+        )
+        raise
     except Exception as exc:  # pragma: no cover - best effort
         log.warning(
             "QA job failed",
@@ -1513,17 +1670,17 @@ def handle_open_pr(protocol_run_id: int, db: BaseDatabase, job_id: Optional[str]
         )
         pushed = git_push_and_open_pr(
             worktree,
-            run.protocol_name,
+            branch_name,
             run.base_branch,
             protocol_run_id=run.id,
             project_id=project.id,
             job_id=job_id,
         )
         if pushed:
-            db.append_event(run.id, "open_pr", "Branch pushed and PR/MR requested.", metadata={"branch": run.protocol_name})
+            db.append_event(run.id, "open_pr", "Branch pushed and PR/MR requested.", metadata={"branch": branch_name})
             triggered = trigger_ci_pipeline(
                 repo_root,
-                run.protocol_name,
+                branch_name,
                 project.ci_provider,
                 protocol_run_id=run.id,
                 project_id=project.id,

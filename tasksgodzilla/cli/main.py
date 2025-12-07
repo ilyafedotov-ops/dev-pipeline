@@ -302,7 +302,7 @@ def handle_protocols(client: APIClient, args: argparse.Namespace) -> None:
         else:
             print(f"Protocol {run['protocol_name']} created; planning enqueued (job {start_resp.get('job', {}).get('job_id', '-')}).")
     elif args.action in ("start", "pause", "resume", "cancel", "run-next", "retry-latest", "open-pr"):
-        path = args.action.replace("-", "_")
+        path = {"run-next": "run_next_step"}.get(args.action, args.action.replace("-", "_"))
         resp = client.post(f"/protocols/{args.protocol_id}/actions/{path}")
         if args.as_json:
             print(json.dumps(resp, indent=2))
