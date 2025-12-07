@@ -31,3 +31,9 @@ This is an append-only log:
 - Ran `scripts/ci/bootstrap.sh` with `VENV_PATH=.venv` and env `TASKSGODZILLA_DB_PATH=/tmp/tasksgodzilla-ci.sqlite`, `TASKSGODZILLA_REDIS_URL=fakeredis://`; installed orchestrator deps and ruff.
 - Smoke checks: `python - <<'PY' ...` imported `tasksgodzilla` (0.2.0); CI scripts run via worktree venv: `scripts/ci/lint.sh`, `scripts/ci/typecheck.sh`, `scripts/ci/test.sh` all passed.
 - No additional files modified beyond venv and protocol logs/context.
+
+## Step 3 — Demo workflow run
+- Scenario: reused demo harness (`scripts/demo_harness.py`) which exercises onboarding → planning stub (when Codex absent) → spec audit → step execution → QA skip using fakeredis + temp SQLite; matches docs/demo_harness_report expectations.
+- Env: `TASKSGODZILLA_REDIS_URL=fakeredis://`, `TASKSGODZILLA_DB_PATH=/tmp/tasksgodzilla-ci.sqlite`, `VENV_PATH=.venv`, worktree venv active.
+- Execution: `.venv/bin/python scripts/demo_harness.py` (passed, 1 test); collected harness planning output to `.protocols/0002-demo-app-workflow/artifacts/step-03/planning.json`.
+- Observations: fakeredis inline worker processed jobs; no errors. CI already green from earlier; no code changes beyond artifacts/log/context.
