@@ -21,6 +21,7 @@ For deeper design and delivery detail, see:
 - FastAPI API (`deksdenflow/api/app.py`) with bearer/project-token auth, queue stats, metrics, events feed, and webhook listeners.
 - Storage via SQLite (default) or Postgres (`DEKSDENFLOW_DB_URL`), initialized with Alembic migrations.
 - Redis/RQ queue (`deksdenflow/jobs.py`, `worker_runtime.py`) with fakeredis support for local dev; workers process planning/execution/QA/PR jobs.
+- ProtocolSpec/StepSpec lives on `ProtocolRun.template_config` and drives step creation, engine selection, prompt/output resolution, and QA policy via a shared resolver + engine registry.
 - Thin web console (`/console`) backed by the API for projects, protocol runs, steps, recent events, and queue visibility.
 
 ```mermaid
@@ -28,16 +29,18 @@ graph LR
   User["Console / API clients"] --> API["FastAPI orchestrator"]
   API --> DB[(SQLite or Postgres)]
   API --> Queue["Redis/RQ queue (fakeredis inline in dev)"]
-  Queue --> CodexW["Codex/Execution worker\n(plan/exec/QA + CodeMachine)"]
+  API --> Spec["ProtocolSpec/StepSpec\nstored on ProtocolRun.template_config"]
+  Queue --> Runner["Engine runner\n(prompt/output resolver + QA)"]
+  Runner --> Registry["Engine registry\n(Codex, CodeMachine, ... engines)"]
+  Runner --> Outputs["Outputs map\n(.protocols + aux paths)"]
+  Outputs --> Protocols[".protocols/NNNN-[task] artifacts"]
+  Outputs --> Aux["Aux outputs (e.g., .codemachine/outputs)"]
   Queue --> GitW["Git/CI worker\n(worktrees/PR/webhooks)"]
-  Queue --> OnboardW["Onboarding worker\n(project setup)"]
-  CodexW --> Codex["Codex CLI + prompts"]
-  CodexW --> CM["CodeMachine adapter\n(.codemachine import/runtime)"]
-  CM --> Protocols[".protocols + .codemachine/outputs"]
-  Codex --> Protocols
+  Queue --> OnboardW["Onboarding worker\n(project setup/spec audit)"]
   GitW --> Git["Git + CI jobs"]
   Git --> Webhooks["CI webhooks/report.sh"]
   Webhooks --> API
+  Spec --> Runner
 ```
 
 ## Orchestrator pipelines (detailed)
@@ -47,39 +50,32 @@ graph LR
 ```mermaid
 flowchart TD
   A[/POST /projects/] --> B["project_setup_job\nensure starter assets"]
-  A --> C{"Import .codemachine?"}
-  C -->|Yes| C1["codemachine_import_job\npersist template + create steps\nattach loop/trigger policies"]
-  C -->|No| B
+  A --> C["optional codemachine_import_job\npersist ProtocolSpec + steps"]
   B --> D[/POST /projects/{id}/protocols + start/]
-  D --> E["plan_protocol_job\nCodex plan + decompose\ncreate StepRuns"]
+  D --> E["plan_protocol_job\nemit ProtocolSpec\nsync StepRuns from spec"]
   E --> F{"Step pending/blocked?"}
   F -->|run| G[/steps/{id}/actions/run → execute_step_job/]
-  G --> H{"Execution path"}
-  H -->|Codex| H1["Codex exec writes .protocols/<step>"]
-  H -->|CodeMachine| H2["Resolve agent prompt + specs\nwrite .protocols + .codemachine/outputs"]
-  H1 --> I{"Auto QA after exec?"}
-  H2 --> I
-  I -->|yes| J["run_quality_job\nQA prompt → verdict"]
-  I -->|no| K["Step → needs_qa"]
+  G --> H["Resolve prompt + outputs via spec\nengine registry dispatch"]
+  H --> I{"QA policy (spec)"}
+  I -->|full/light| J["run_quality_job\nQA prompt → verdict"]
+  I -->|skip| K["Step marked per policy\n(needs_qa or completed)"]
   J --> L{"QA verdict"}
   L -->|PASS| M["Step completed\ntrigger policies may enqueue other steps"]
   L -->|FAIL| N{"Loop policy?"}
   N -->|apply| F
   N -->|none| O["Protocol blocked; retry_latest/run_next_step"]
-  K --> P{"Manual QA/approve?"}
-  P -->|approve| M
-  P -->|run QA| J
+  K --> F
 ```
 
 ### CI feedback and completion
 
 ```mermaid
 flowchart LR
-  A["execute_step_job\n(potential push/open PR)"] --> B["CI (GitHub/GitLab) pipelines"]
+  A["execute_step_job\n(per spec outputs; potential push/open PR)"] --> B["CI (GitHub/GitLab) pipelines"]
   B --> C["report.sh or webhooks\n/webhooks/github|gitlab\n(branch or protocol_run_id)"]
   C --> D{"Normalized status"}
   D -->|running| E["Step status → running"]
-  D -->|success| F{"DEKSDENFLOW_AUTO_QA_ON_CI?"}
+  D -->|success| F{"QA pending?\n(spec policy or DEKSDENFLOW_AUTO_QA_ON_CI)"}
   F -->|yes| G["run_quality_job enqueued"]
   F -->|no| H["Step completed (CI passed)"]
   D -->|failure| I["Step failed; Protocol blocked\nloop/trigger policies may reset steps"]
@@ -98,11 +94,11 @@ flowchart LR
 
 ## Job types and workers
 - `project_setup_job` — ensure starter assets exist; emits setup events (no git mutation).
-- `plan_protocol_job` — create worktree, run planning + step decomposition via Codex, write `.protocols/`, create StepRuns.
-- `execute_step_job` — execute a step (Codex or CodeMachine adapter), write outputs, mark `needs_qa`, optionally push/open PR.
-- `run_quality_job` — build QA prompt and run Codex QA; on pass mark completed, on fail set failed/blocked or loop per policy.
+- `plan_protocol_job` — create worktree, run planning + step decomposition via Codex, emit `ProtocolSpec`/`StepSpec`, write `.protocols/`, and sync StepRuns from the spec.
+- `execute_step_job` — resolve prompt and outputs from the StepSpec, dispatch via the engine registry (Codex/CodeMachine today), write outputs map, and mark status according to spec QA policy.
+- `run_quality_job` — use StepSpec QA config (engine/model/prompt/policy) to build QA, then mark completed/failed/blocked or loop per policy.
 - `open_pr_job` — push branch and open PR/MR via `gh`/`glab` if available.
-- `codemachine_import_job` — parse `.codemachine` config, persist template, create steps with module policies.
+- `codemachine_import_job` — parse `.codemachine` config, emit `ProtocolSpec`/`StepSpec` (engines, QA, policies), persist template, and create steps from the spec.
 - Workers: RQ workers (`scripts/rq_worker.py`) for Redis; API auto-starts a background RQ worker thread when `fakeredis://` is used.
 
 ## Data model (core fields)
@@ -114,7 +110,7 @@ flowchart LR
 ## Failure, retries, and policies
 - RQ retries: default `max_attempts=3` with exponential backoff (capped 60s) for enqueued jobs.
 - State guards: API uses optimistic checks; conflicting status transitions return 409.
-- Loop policies (CodeMachine): can reset steps to `pending` and increment `loop_counts` in `runtime_state`; bounded by `max_iterations` and skip lists.
+- Loop policies (from StepSpec; often from CodeMachine modules): can reset steps to `pending` and increment `loop_counts` in `runtime_state`; bounded by `max_iterations` and skip lists.
 - Trigger policies: can re-queue/inline other steps; inline depth capped (`MAX_INLINE_TRIGGER_DEPTH`) to avoid recursion.
 - CI failures: webhook/report.sh set step to `failed` and protocol to `blocked`; manual retry resumes.
 - Codex/Repo unavailable: workers stub execution/QA, set `needs_qa` or `completed` with events and avoid crashing pipelines.
@@ -143,7 +139,8 @@ flowchart LR
 ## Core building blocks
 - **Protocol assets and schema**  
   - Protocols live under `.protocols/NNNN-[task]/` inside each worktree; numbered via `next_protocol_number()` scanning existing `.protocols/` and `../worktrees/`.  
-  - `schemas/protocol-planning.schema.json` enforces the planning agent’s JSON (plan/context/log + step files).
+  - `schemas/protocol-planning.schema.json` enforces the planning agent’s JSON (plan/context/log + step files).  
+  - `schemas/protocol-spec.schema.json` + `deksdenflow/spec.py` define/validate the unified ProtocolSpec/StepSpec stored on runs; spec audit/backfill is available via `spec_worker`.
 - **Protocol pipeline (`scripts/protocol_pipeline.py`)**  
   - Interactive CLI that: detects repo root, prompts for base branch/short name/description; creates a Git worktree/branch `NNNN-[task]` from `origin/<base>`; and builds protocol artifacts.  
   - Uses Codex CLI twice: (1) planning (`run_codex_exec` with `planning_prompt`, validated against the JSON schema) to produce `plan.md`, `context.md`, `log.md`, `00-setup.md`, and step files; (2) step decomposition (`decompose_step_prompt`) for each non-setup step.  
@@ -164,16 +161,16 @@ flowchart LR
   - `protocol-resume` and `protocol-review-merge*` handle continuation and QA/merge flows with context reconciliation.  
   - `project-init` guides scaffolding a repo; `protocol-pipeline` guides running `protocol_pipeline.py`; `java-testing` and `quality-validator` provide specialized guidance.
 - **CodeMachine import/runtime**  
-  - `.codemachine` workspaces are parsed via `deksdenflow.codemachine.load_codemachine_config`, normalizing main/sub agents, module policies, placeholders, and templates.  
-  - `codemachine_worker.import_codemachine_workspace` persists the template to the protocol run and creates steps for main agents, attaching loop/trigger policies.  
-  - Execution uses `runtime_adapter` to resolve prompts (with placeholder substitution + optional `inputs/specifications.md`), write outputs to both `.protocols/<protocol>/` and `.codemachine/outputs/`, and honor loop/trigger policies via `policy_runtime`.
+  - `.codemachine` workspaces are parsed via `deksdenflow.codemachine.load_codemachine_config`, normalizing main/sub agents, module policies, placeholders, and templates into a `ProtocolSpec`.  
+  - `codemachine_worker.import_codemachine_workspace` persists the spec to the protocol run and creates steps for main agents with engines, QA config, and loop/trigger policies.  
+  - Execution uses the shared prompt/output resolver plus engine registry; CodeMachine outputs land in `.protocols/<protocol>/` and aux `codemachine` paths, and QA follows the StepSpec `qa_policy` (skip/light/full).
 - **Dataset helper (`scripts/generate_dataset_report.py`)**  
   - Small utility that reads `dataset.csv` (category/value), aggregates metrics, and renders a PDF via reportlab. Current inputs are toy data; output path defaults to `docs/dataset_report.pdf`.
 - **TerraformManager workflow plan (`docs/terraformmanager-workflow-plan.md`)**  
   - Checklists for cloning/running the TerraformManager demo under `Projects/`, covering API/CLI/UI validation and optional infra tooling; serves as an example end-to-end ops workflow.
 - **Orchestrator (alpha)**  
   - `deksdenflow/storage.py` supports SQLite and Postgres; `alembic/` carries migrations for both. `deksdenflow/api/app.py` exposes projects/protocols/steps/events, queue inspection, metrics, webhook listeners, CodeMachine import, and actions (start/pause/resume/run/rerun/run_qa/approve/open_pr). Redis/RQ is the queue backend with fakeredis fallback; the API spins up a background RQ worker thread when fakeredis is used. `scripts/api_server.py` runs the API, `scripts/rq_worker.py` runs dedicated workers, and `deksdenflow/api/frontend` hosts the console UI assets.
-  - Worker jobs cover planning, execution, QA, project setup, PR open, and CodeMachine import. Loop/trigger policies from CodeMachine modules are applied during execution/QA to drive retries or inline triggers, with runtime_state updates and events for observability.
+  - Worker jobs cover planning, execution, QA, project setup, PR open, and CodeMachine import. Execution/QA paths share the spec-driven resolver + engine registry; loop/trigger policies from StepSpecs (often CodeMachine modules) drive retries or inline triggers with runtime_state updates and events.
 
 ## Operational workflows
 1. **Run the orchestrator + console**  

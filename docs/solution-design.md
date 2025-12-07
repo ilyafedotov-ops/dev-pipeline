@@ -25,7 +25,7 @@ This document captures the current state of the system, the risks that block ful
 - User interacts via a central console (initially TUI, later web) that calls an Orchestrator API.
 - Orchestrator API (FastAPI) owns state machines for Projects, ProtocolRuns, and StepRuns and persists to a database (Postgres in prod, SQLite for dev).
 - A job queue sits between the API and workers. Workers handle long-running or LLM-heavy work with retries/backoff.
-- Workers are split by concern: Codex Worker (planning, step execution, QA) and Git/CI Worker (clones, worktrees, pushes, PR/MR, CI webhooks). Both call the shared `deksdenflow` library functions instead of shelling out directly.
+- Workers are split by concern: an execution/QA worker that plans/executes/QA via the engine registry (Codex + CodeMachine) and a Git/CI worker (clones, worktrees, pushes, PR/MR, CI webhooks). Both call the shared `deksdenflow` library functions instead of shelling out directly.
 - Events and metrics are emitted throughout to enable observability and cost controls.
 
 ### 2.2 Core components
@@ -33,7 +33,7 @@ This document captures the current state of the system, the risks that block ful
 - **Persistence layer**: Projects, ProtocolRuns, StepRuns, Events stored in Postgres/SQLite with migrations (Alembic). Fields include git metadata, model selection, retries, timestamps, and summaries. Prompt versions/config are recorded for auditability.
 - **Job queue**: Redis/RQ/Celery or a DB-backed queue. Payloads carry only IDs; workers fetch context from the database. Per-job retry limits and exponential backoff govern behavior.
 - **Workers**:
-  - Codex Worker: wraps `protocol_pipeline`, `qa`, and execution/decomposition routines; creates worktrees/protocol folders; writes artifacts; updates DB state; emits Events.
+  - Execution/QA Worker: uses ProtocolSpec/StepSpec and the engine registry (Codex + CodeMachine) to plan/decompose, resolve prompts/outputs, execute steps, and run QA; creates worktrees/protocol folders; writes artifacts; updates DB state; emits Events.
   - Git/CI Worker: manages clones, worktrees, branch pushes, PR/MR creation, and processes CI/webhook signals to update statuses.
 - **Console**:
   - TUI (Rich/Textual) first for speed, consuming only the API.
@@ -54,7 +54,7 @@ This document captures the current state of the system, the risks that block ful
 ### 2.5 Core flows
 - **Project onboarding**: Console calls `/projects` to register; orchestrator enqueues `project_setup` job to clone and run `project_setup.py`/`codex_ci_bootstrap.py`; user selects models/QA strictness; project shows as ready.
 - **Open a protocol**: `/projects/{id}/protocols` creates a ProtocolRun; orchestrator enqueues `plan_protocol` to run planning/decomposition; artifacts live under `.protocols/NNNN-[task]/`.
-- **Execute steps**: `/steps/{id}/actions/run` dispatches execution; Codex Worker runs against the worktree; status and summaries recorded; optional auto-PR/MR via Git/CI Worker.
+- **Execute steps**: `/steps/{id}/actions/run` dispatches execution; the execution worker resolves prompts/outputs from the StepSpec and dispatches via the engine registry; status and summaries recorded; optional auto-PR/MR via Git/CI Worker.
 - **QA loop**: `/steps/{id}/actions/run_qa` builds the QA context and runs the validator prompt; verdict updates StepRun and may block/unblock the protocol.
 - **CI integration**: GitHub/GitLab webhooks mapped by branch name update StepRun/ProtocolRun status (`ci_passed`, `ci_failed`); automation policies can trigger follow-up protocols (e.g., fix CI).
 - **Console controls**: Start/resume protocol, run next step, rerun with a different model, run QA only, mark manually approved, open PR/MR, view events/metrics.
@@ -84,6 +84,7 @@ This document captures the current state of the system, the risks that block ful
 - Storage and migrations: SQLite default with Postgres available via `DEKSDENFLOW_DB_URL`; Alembic scaffolding plus initial migration under `alembic/`.
 - API and console: FastAPI app exposes projects/protocols/steps/events, queue stats (`/queues*`), Prometheus metrics (`/metrics`), and webhook endpoints for GitHub/GitLab; a lightweight console at `/console` surfaces projects/runs/steps/events/queues.
 - Queue and workers: Redis/RQ (fakeredis in dev) with job types wired for planning, execution, QA, project setup, and PR open; background worker auto-starts when fakeredis is used. Request/step IDs, retries, and backoff are captured as events.
-- CodeMachine integration: `.codemachine` workspaces can be imported via API to persist templates and create steps; execution resolves agent prompts with placeholders/specifications, writes outputs to `.protocols` and `.codemachine/outputs`, and applies loop/trigger policies (depth-limited) recorded in runtime_state + events.
+- Spec-driven execution: `ProtocolSpec`/`StepSpec` schema is validated and stored on runs; steps sync from the spec; execution/QA use spec-defined engines/models/prompt_refs/output maps and `qa_policy` via the shared resolver/engine registry; spec audit/backfill exists for older runs.
+- CodeMachine integration: `.codemachine` workspaces can be imported via API to persist templates into ProtocolSpec/StepSpecs; execution uses the shared resolver/engine registry with placeholders/specifications, writes outputs to `.protocols` and `.codemachine/outputs`, applies loop/trigger policies (depth-limited), and honors StepSpec QA policy (skip/light/full) with events.
 - Automation flags and budgets: `DEKSDENFLOW_AUTO_QA_AFTER_EXEC` and `DEKSDENFLOW_AUTO_QA_ON_CI` drive QA scheduling; token budgets (`DEKSDENFLOW_MAX_TOKENS_*` with `strict|warn|off`) gate Codex calls.
 - CI callbacks: `scripts/ci/report.sh` posts GitHub/GitLab-shaped payloads to `/webhooks/*`, mapping by branch or explicit `DEKSDENFLOW_PROTOCOL_RUN_ID`. Webhook tokens and API tokens guard external access.

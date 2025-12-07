@@ -26,6 +26,7 @@ When `fakeredis://` is used, the API also starts a background RQ worker thread f
 - `deksdenflow/jobs.py`: Redis/RQ-backed queue abstraction; fakeredis supported for tests/dev.
 - `deksdenflow/worker_runtime.py`: job processors and background worker helper (auto-starts when using fakeredis); `scripts/rq_worker.py` runs dedicated workers.
 - `deksdenflow/codemachine/*`: loader + runtime adapter for `.codemachine` workspaces, including loop/trigger policy helpers and prompt resolution with placeholders/specifications.
+- `deksdenflow/spec.py` + `deksdenflow/spec_tools.py`: unified ProtocolSpec/StepSpec schema helpers, prompt/output resolver + engine registry hooks, and spec audit/backfill.
 - `deksdenflow/logging.py`: structured logging helpers with request IDs.
 - `scripts/api_server.py`: uvicorn runner for the API.
 - `scripts/ci_trigger.py` and `scripts/ci/report.sh`: optional helpers to trigger CI and to post webhook-style results back into the orchestrator.
@@ -36,7 +37,7 @@ When `fakeredis://` is used, the API also starts a background RQ worker thread f
 - Auto QA: `DEKSDENFLOW_AUTO_QA_AFTER_EXEC` triggers QA after execution; `DEKSDENFLOW_AUTO_QA_ON_CI` triggers QA on successful CI webhooks.
 - Token budgets: `DEKSDENFLOW_MAX_TOKENS_PER_STEP` / `DEKSDENFLOW_MAX_TOKENS_PER_PROTOCOL` with `DEKSDENFLOW_TOKEN_BUDGET_MODE=strict|warn|off`.
 - Queue: Redis/RQ with retries/backoff (defaults: 3 attempts, capped backoff); jobs append Events and carry IDs for tracing.
-- Policies: CodeMachine module policies attach loop/trigger behavior to steps; loops reset step statuses with bounded iteration counts, and triggers can enqueue or inline-run other steps (depth-limited to prevent recursion).
+- Policies: StepSpec policies (often from CodeMachine modules) attach loop/trigger behavior to steps; loops reset step statuses with bounded iteration counts, and triggers can enqueue or inline-run other steps (depth-limited to prevent recursion).
 
 ## API surface (non-exhaustive)
 - `GET /health` → `{ "status": "ok" }`; `GET /metrics` for Prometheus output.

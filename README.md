@@ -57,8 +57,8 @@ Redis is required for orchestration; set `DEKSDENFLOW_REDIS_URL` (use `fakeredis
 
 ## CodeMachine integration
 
-- Import `.codemachine` workspaces with `POST /projects/{id}/codemachine/import` to persist the template graph and auto-create steps for main agents.
-- CodeMachine steps run through the same Codex worker, using agent prompts plus optional `inputs/specifications.md`, and write outputs to both `.protocols/<protocol>/` and `.codemachine/outputs/`.
+- Import `.codemachine` workspaces with `POST /projects/{id}/codemachine/import` to persist the template graph and emit `ProtocolSpec`/`StepSpec` entries (engines, policies, QA) for the run.
+- CodeMachine steps now use the unified engine runner and spec-driven prompt/output resolver; outputs are written to `.protocols/<protocol>/` and to `aux.codemachine` targets, and QA follows the spec `qa_policy` (skip/light/full) rather than being implicitly skipped.
 - Module policies (loop/trigger) attach to matching agents and drive retries or inline triggers. Loop limits and trigger depth are recorded in `runtime_state` and surfaced as events.
 - When `DEKSDENFLOW_REDIS_URL=fakeredis://`, the API spins up a background RQ worker thread to process jobs inline for local dev.
 
@@ -138,18 +138,20 @@ graph TD
   U["User (console/API client)"] --> Console["Console (web/TUI)"]
   Console --> API["Orchestrator API (FastAPI)"]
   API --> DB[(DB: Postgres/SQLite)]
-  API --> Queue["Queue (Redis/RQ, fakeredis inline in dev)"]
-  Queue --> CW["Codex/Execution Worker\n(plan/exec/QA + CodeMachine)"]
+  API --> Queue["Queue (Redis/RQ; fakeredis inline in dev)"]
+  API --> Spec["ProtocolSpec/StepSpec\nstored on ProtocolRun.template_config"]
+  Queue --> Runner["Engine runner\n(prompt/output resolver + QA)"]
+  Runner --> Registry["Engine registry\n(Codex, CodeMachine, ... engines)"]
+  Runner --> Outputs["Outputs map\n(.protocols + aux paths)"]
+  Outputs --> Prot[".protocols/NNNN-[task] artifacts"]
+  Outputs --> Aux["Aux outputs (e.g., .codemachine/outputs)"]
   Queue --> GW["Git/CI Worker\n(worktrees/PR/webhooks)"]
-  Queue --> OW["Onboarding Worker\n(project setup)"]
-  CW --> Codex["Codex CLI + prompts"]
-  CW --> CM["CodeMachine adapter\n(.codemachine import/runtime)"]
-  Codex --> Prot[".protocols/NNNN-[task] artifacts"]
-  CM --> Prot
+  Queue --> OW["Onboarding Worker\n(project setup/spec audit)"]
   GW --> Git["Git worktrees/branches"]
   GW --> CI["CI (GitHub/GitLab)"]
   CI --> Webhooks["Webhooks / report.sh"]
   Webhooks --> API
+  Spec --> Runner
   Git --> Prot
 ```
 
@@ -158,16 +160,21 @@ graph TD
 ```mermaid
 flowchart LR
   A["Register project (/projects)"] --> B["project_setup_job (clone + bootstrap assets)"]
-  A --> B2["optional: codemachine_import_job (/projects/&#123;id&#125;/codemachine/import)"]
-  B --> C["plan_protocol_job (plan + decompose)"]
-  C --> D["execute_step_job (worktree + .protocols updates)"]
-  D -->|DEKSDENFLOW_AUTO_QA_AFTER_EXEC| E["run_quality_job"]
-  D --> F["open_pr_job / push branch (optional)"]
-  E --> F
-  F --> G["CI pipelines (GitHub/GitLab)"]
-  G --> H["Webhooks/report.sh mirror CI → orchestrator"]
-  H -->|DEKSDENFLOW_AUTO_QA_ON_CI| E
-  H --> I["Manual review/merge via protocol-review prompts"]
+  A --> B2["optional: codemachine_import_job\nemits ProtocolSpec + StepSpecs"]
+  B --> C["plan_protocol_job\nplan + decompose → ProtocolSpec + StepRuns"]
+  C --> D["execute_step_job\nspec-driven prompt/output resolver\nengine registry dispatch"]
+  D --> E{"Spec QA policy"}
+  E -->|full/light| F["run_quality_job"]
+  E -->|skip| G["mark per policy\n(needs_qa or completed)"]
+  F --> H{"QA verdict"}
+  H -->|PASS| I["Step completed\npolicies may enqueue next steps"]
+  H -->|FAIL| J{"Loop/trigger policy?"}
+  J -->|retry| D
+  J -->|stop| K["Protocol blocked"]
+  D --> L["optional push/open PR"]
+  L --> M["CI pipelines (GitHub/GitLab)"]
+  M --> N["Webhooks/report.sh mirror CI → orchestrator"]
+  N --> E
 ```
 
 ## Detailed orchestrator pipelines
@@ -177,39 +184,32 @@ flowchart LR
 ```mermaid
 flowchart TD
   A[/POST /projects/] --> B["project_setup_job\nensure docs/prompts/CI assets"]
-  A --> C{"Import .codemachine?"}
-  C -->|Yes| C1["codemachine_import_job\npersist template + create steps\nattach loop/trigger policies"]
-  C -->|No| B
+  A --> C["optional codemachine_import_job\npersist ProtocolSpec + steps"]
   B --> D[/POST /projects/&#123;id&#125;/protocols + start/]
-  D --> E["plan_protocol_job\nCodex plan + decompose → StepRuns"]
+  D --> E["plan_protocol_job\nemit ProtocolSpec\nsync StepRuns from spec"]
   E --> F{"Any pending/blocked steps?"}
   F -->|run| G[/steps/&#123;id&#125;/actions/run → execute_step_job/]
-  G --> H{"Execution path"}
-  H -->|Codex| H1["Codex exec → writes .protocols step"]
-  H -->|CodeMachine| H2["Resolve agent prompt + specs → write .protocols + .codemachine/outputs"]
-  H1 --> I{"Auto QA after exec?"}
-  H2 --> I
-  I -->|yes| J["run_quality_job\nQA prompt → verdict"]
-  I -->|no| K["Step → needs_qa"]
+  G --> H["Resolve prompt + outputs via spec\nengine registry dispatch"]
+  H --> I{"QA policy (spec)"}
+  I -->|full/light| J["run_quality_job\nQA prompt → verdict"]
+  I -->|skip| K["Step marked per policy\n(needs_qa or completed)"]
   J --> L{"QA verdict"}
-  L -->|PASS| M["Step completed\nmaybe triggers other steps via policy"]
+  L -->|PASS| M["Step completed\ntrigger policies may enqueue others"]
   L -->|FAIL| N{"Loop policy?"}
   N -->|apply| F
   N -->|none| O["Protocol blocked; manual retry/resume"]
-  K --> P{"Manual QA / approve?"}
-  P -->|approve| M
-  P -->|run QA| J
+  K --> F
 ```
 
 ### CI feedback loop
 
 ```mermaid
 flowchart LR
-  A["execute_step_job writes changes\nand may push/open PR"] --> B["CI (GitHub/GitLab) pipelines"]
+  A["execute_step_job writes changes\nper spec outputs; may push/open PR"] --> B["CI (GitHub/GitLab) pipelines"]
   B --> C["report.sh or /webhooks/{provider}\nbranch or run_id correlation"]
   C --> D{"CI status normalized"}
   D -->|running| E["Step status → running"]
-  D -->|success| F{"DEKSDENFLOW_AUTO_QA_ON_CI?"}
+  D -->|success| F{"QA pending?\n(spec policy or DEKSDENFLOW_AUTO_QA_ON_CI)"}
   F -->|yes| G["run_quality_job enqueued"]
   F -->|no| H["Step completed (CI passed)\nmaybe triggers next step"]
   D -->|failure| I["Step failed; Protocol blocked\nloop/trigger policies may requeue"]
