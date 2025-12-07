@@ -1,10 +1,10 @@
 from pathlib import Path
 from typing import Optional
 
-from deksdenflow.domain import ProtocolStatus
-from deksdenflow.logging import get_logger, log_extra
 import os
 
+from deksdenflow.domain import ProtocolStatus
+from deksdenflow.logging import get_logger, log_extra
 from deksdenflow.project_setup import (
     DEFAULT_PROJECTS_ROOT,
     configure_git_identity,
@@ -122,8 +122,25 @@ def handle_project_setup(project_id: int, db: BaseDatabase, protocol_run_id: Opt
                 f"Git identity configuration skipped: {exc}",
                 metadata={"path": str(repo_path)},
             )
-        db.update_protocol_status(protocol_run_id, ProtocolStatus.COMPLETED)
-        db.append_event(protocol_run_id, "setup_completed", "Project setup job finished.")
+        questions = _build_clarifications(project, repo_path)
+        blocking = require_onboarding_clarifications()
+        db.append_event(
+            protocol_run_id,
+            "setup_clarifications",
+            "Review onboarding clarifications and confirm settings.",
+            metadata={"questions": questions, "blocking": blocking},
+        )
+        if blocking:
+            db.update_protocol_status(protocol_run_id, ProtocolStatus.BLOCKED)
+            db.append_event(
+                protocol_run_id,
+                "setup_blocked",
+                "Awaiting onboarding clarification responses.",
+                metadata={"questions": [q.get('key') for q in questions]},
+            )
+        else:
+            db.update_protocol_status(protocol_run_id, ProtocolStatus.COMPLETED)
+            db.append_event(protocol_run_id, "setup_completed", "Project setup job finished.")
     except Exception as exc:  # pragma: no cover - defensive
         log.exception(
             "Project setup failed",
@@ -135,3 +152,70 @@ def handle_project_setup(project_id: int, db: BaseDatabase, protocol_run_id: Opt
         )
         db.update_protocol_status(protocol_run_id, ProtocolStatus.FAILED)
         db.append_event(protocol_run_id, "setup_failed", f"Setup failed: {exc}")
+
+
+def require_onboarding_clarifications() -> bool:
+    return os.environ.get("DEKSDENFLOW_REQUIRE_ONBOARDING_CLARIFICATIONS", "false").lower() in ("1", "true", "yes", "on")
+
+
+def _build_clarifications(project, repo_path):
+    """
+    Produce a list of clarification questions with recommended values to surface in UI/CLI/TUI.
+    """
+    recommended_ci = project.ci_provider or "github"
+    recommended_models = project.default_models or {"planning": "gpt-5.1-high", "exec": "codex-5.1-max-xhigh"}
+    prefer_ssh = prefer_github_ssh()
+    git_user = os.environ.get("DEKSDENFLOW_GIT_USER") or ""
+    git_email = os.environ.get("DEKSDENFLOW_GIT_EMAIL") or ""
+    base_branch = project.base_branch or "main"
+    required_checks = ["scripts/ci/test.sh", "scripts/ci/lint.sh", "scripts/ci/typecheck.sh", "scripts/ci/build.sh"]
+    return [
+        {
+            "key": "ci_provider",
+            "question": "Which CI provider should be used for PR/MR automation?",
+            "recommended": recommended_ci,
+            "options": ["github", "gitlab"],
+        },
+        {
+            "key": "prefer_ssh",
+            "question": "Use SSH for Git operations?",
+            "recommended": prefer_ssh,
+            "detected": prefer_ssh,
+        },
+        {
+            "key": "git_identity",
+            "question": "Set git user.name / user.email for bot pushes?",
+            "recommended": {"user": git_user or "Demo Bot", "email": git_email or "demo-bot@example.com"},
+            "detected": {"user": git_user or None, "email": git_email or None},
+        },
+        {
+            "key": "branch_naming",
+            "question": "Base branch and naming pattern for protocol branches?",
+            "recommended": {"base_branch": base_branch, "pattern": "<number>-<task>"},
+        },
+        {
+            "key": "required_checks",
+            "question": "Required checks before merge?",
+            "recommended": required_checks,
+        },
+        {
+            "key": "pr_policy",
+            "question": "PR policy (draft vs ready, auto-assign reviewers)?",
+            "recommended": {"mode": "draft", "auto_assign": False},
+        },
+        {
+            "key": "default_models",
+            "question": "Default models for planning/exec/QA?",
+            "recommended": recommended_models,
+        },
+        {
+            "key": "secrets",
+            "question": "Project secrets/tokens to inject?",
+            "recommended": ["DEKSDENFLOW_API_TOKEN", "DEKSDENFLOW_WEBHOOK_TOKEN"],
+        },
+        {
+            "key": "codex_discovery",
+            "question": "Run Codex discovery to auto-fill workflows?",
+            "recommended": True,
+        },
+    ]
