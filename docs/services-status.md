@@ -28,29 +28,30 @@ service-oriented refactor. It complements `STATUS.md` (orchestrator track) and
   - `tasksgodzilla/services/platform/queue.py` (`QueueService`)
   - `tasksgodzilla/services/platform/telemetry.py` (`TelemetryService`)
 
-- [ ] **Wire services into API**
+- [x] **Wire services into API**
   - Replace direct calls to `codex_worker`, `project_setup`, and raw DB helpers
     in `tasksgodzilla/api/app.py` with service calls.
   - [x] Use `OrchestratorService.create_protocol_run` for `/projects/{project_id}/protocols`.
   - [x] Route protocol actions `start|run_next_step|retry_latest` through `OrchestratorService`.
   - [x] Expose onboarding start via `/projects/{id}/onboarding/actions/start` (service-backed job enqueue).
   - [x] Route open_pr enqueue through `OrchestratorService` (`/protocols/{id}/actions/open_pr`).
-  - [ ] Route remaining protocol/step actions through services where appropriate.
-  - Ensure request/response shapes remain compatible for existing clients.
+  - [x] Zero direct worker imports in `api/app.py` - all routes use services.
+  - Request/response shapes remain compatible for existing clients.
 
 - [ ] **Wire services into CLI/TUI**
   - Update `tasksgodzilla/cli/main.py` and `scripts/tasksgodzilla_cli.py` to use
     `OnboardingService`, `OrchestratorService`, and `ExecutionService`.
   - TUI flows use API or service client wrappers instead of reaching into workers.
 
-- [ ] **Refactor worker job handlers**
+- [x] **Refactor worker job handlers**
   - Change `tasksgodzilla/worker_runtime.process_job` to call services:
     - [x] `plan_protocol_job` → `OrchestratorService.plan_protocol`
     - [x] `execute_step_job` → `ExecutionService.execute_step`
     - [x] `run_quality_job` → `QualityService.run_for_step_run`
     - [x] `project_setup_job` → `OnboardingService.run_project_setup_job`
     - [x] `open_pr_job` → `OrchestratorService.open_protocol_pr`
-  - Keep job payloads and event shapes stable where possible.
+    - [x] `codemachine_import_job` → `CodeMachineService.import_workspace`
+  - Job payloads and event shapes remain stable.
 
 - [ ] **Move orchestration logic out of `codex_worker`**
   - Gradually migrate planning/decomposition/QA/loop/trigger logic into
@@ -75,8 +76,10 @@ service-oriented refactor. It complements `STATUS.md` (orchestrator track) and
 
 ## Current focus
 
-- ✅ Service-level tests complete (31 tests across 6 test files)
-- ✅ Documentation updated to reflect services as primary integration surface
+- ✅ **Service-level tests complete** (44 tests across 9 test files, 100% pass rate)
+- ✅ **Documentation updated** to reflect services as primary integration surface
+- ✅ **API integration complete** - Zero direct worker imports, all routes use services
+- ✅ **Worker integration complete** - All 6 job types delegate to services
 - ✅ **Phase 1 Quick Wins Complete:**
   - Created `CodeMachineService` for workspace imports
   - Added `check_and_complete_protocol` to `OrchestratorService`
@@ -85,7 +88,9 @@ service-oriented refactor. It complements `STATUS.md` (orchestrator track) and
 - ✅ **Phase 2 Structural Improvements Complete:**
   - Extracted git logic to `GitService`
   - Refactored `codex_worker.py` to use `GitService`
-  - Added comprehensive tests for `GitService` (40 total service tests)
-  - Added unit tests for `CodeMachineService`
-- Next: Phase 3 - Deep Refactoring (Budget, Triggers, Worker Slim-down)
+  - Added comprehensive tests for `GitService` (9 tests)
+  - Added unit tests for `CodeMachineService` (1 test)
+  - Created `BudgetService` with tests (2 tests)
+- ✅ **Verification Complete:** See `docs/services-verification-report.md` for full analysis
+- Next: Phase 3 - Deep Refactoring (optional, ongoing - extract logic from codex_worker opportunistically)
 

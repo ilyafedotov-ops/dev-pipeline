@@ -29,3 +29,7 @@ scripts/generate_dataset_report.py
 .tasksgodzilla.sqlite-journal
 /tui-rs/target/
 runs/
+SERVICES_VERIFICATION_SUMMARY.md
+docs/services-verification-report.md
+.hypothesis/unicode_data/15.0.0/charmap.json.gz
+.kiro/

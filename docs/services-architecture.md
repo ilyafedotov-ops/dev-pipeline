@@ -254,11 +254,57 @@ No physical move required immediately; just change dependencies to use services.
   - Centralize model/engine selection policies.
   - Provide inspection utilities for available engines and defaults.
 
+### 3.4 Additional services (implemented during Phase 1 & 2)
+
+**`tasksgodzilla/services/budget.py`**
+- Responsibilities:
+  - Token budget tracking and enforcement
+  - Budget mode handling (strict/warn/off)
+  - Token counting and cost calculation
+- Depends on:
+  - `TelemetryService`
+  - Configuration for budget limits
+- Initial API sketch:
+  - `check_and_track(phase, model, prompt_tokens, completion_tokens, protocol_run_id, step_run_id) -> None`
+
+**`tasksgodzilla/services/git.py`**
+- Responsibilities:
+  - Git and worktree operations
+  - Branch management and remote operations
+  - PR/MR creation via CLI or API
+  - CI triggering
+- Depends on:
+  - `tasksgodzilla/git_utils.py`
+  - `tasksgodzilla/ci.py`
+  - Storage / repositories
+  - `TelemetryService`
+- Initial API sketch:
+  - `get_branch_name(protocol_name) -> str`
+  - `get_worktree_path(repo_root, protocol_name) -> tuple[Path, str]`
+  - `ensure_repo_or_block(project, run, clone_if_missing, block_on_missing) -> Optional[Path]`
+  - `ensure_worktree(repo_root, protocol_name, base_branch) -> Path`
+  - `push_and_open_pr(worktree, protocol_name, base_branch) -> bool`
+  - `trigger_ci(repo_root, branch, ci_provider) -> bool`
+
+**`tasksgodzilla/services/codemachine.py`**
+- Responsibilities:
+  - CodeMachine workspace import and management
+  - Wrap existing codemachine_worker implementation
+  - Provide stable service API for CodeMachine operations
+- Depends on:
+  - `tasksgodzilla/workers/codemachine_worker`
+  - Storage / repositories
+  - `TelemetryService`
+- Initial API sketch:
+  - `import_workspace(project_id, protocol_run_id, workspace_path, job_id) -> None`
+
 ---
 
 ## 4. Refactor strategy (high level)
 
 ## 4. Refactor strategy (high level)
+
+**Status Update (December 2025):** Phase 1 and Phase 2 are complete. The services layer is now the primary integration surface for all API and worker operations.
 
 The existing service flows (especially in `tasksgodzilla/workers/*` and older scripts)
 are known to have behavioural issues and do not need to be preserved as-is. The

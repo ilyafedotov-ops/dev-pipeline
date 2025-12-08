@@ -1313,7 +1313,7 @@ def handle_open_pr(protocol_run_id: int, db: BaseDatabase, job_id: Optional[str]
                 )
             db.update_protocol_status(run.id, ProtocolStatus.RUNNING)
         else:
-            if git_service._remote_branch_exists(repo_root, run.protocol_name):
+            if git_service.remote_branch_exists(repo_root, run.protocol_name):
                 db.append_event(
                     run.id,
                     "open_pr_branch_exists",

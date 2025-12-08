@@ -181,7 +181,7 @@ class GitService:
             )
             pushed = True
         except Exception as exc:
-            branch_exists = self._remote_branch_exists(worktree, protocol_name)
+            branch_exists = self.remote_branch_exists(worktree, protocol_name)
             log.warning(
                 "Failed to push branch",
                 extra={
@@ -235,7 +235,8 @@ class GitService:
         )
         return result
 
-    def _remote_branch_exists(self, repo_root: Path, branch: str) -> bool:
+    def remote_branch_exists(self, repo_root: Path, branch: str) -> bool:
+        """Check if a branch exists on the remote repository."""
         try:
             result = run_process(
                 ["git", "ls-remote", "--exit-code", "--heads", "origin", f"refs/heads/{branch}"],
@@ -247,6 +248,10 @@ class GitService:
             return result.returncode == 0
         except Exception:
             return False
+    
+    def _remote_branch_exists(self, repo_root: Path, branch: str) -> bool:
+        """Deprecated: Use remote_branch_exists instead."""
+        return self.remote_branch_exists(repo_root, branch)
 
     def _create_pr_if_possible(self, worktree: Path, protocol_name: str, base_branch: str) -> bool:
         """Helper to try creating PR via GH/GLAB CLI or API fallback."""
