@@ -12,6 +12,7 @@
 - Typecheck: `scripts/ci/typecheck.sh` (compileall + import smoke for config, API app, and CLIs).
 - Tests: `scripts/ci/test.sh` (`pytest -q --disable-warnings --maxfail=1` with temp SQLite and a real Redis URL). API locally: `.venv/bin/python scripts/api_server.py --host 0.0.0.0 --port 8010`; worker: `.venv/bin/python scripts/rq_worker.py`.
 - Build: `scripts/ci/build.sh` (`docker build -t tasksgodzilla-ci .`; falls back to `docker-compose config -q` if Docker is absent). Full stack: `docker-compose up --build`.
+- Codex CI bootstrap (docs generation for target repos): `bash scripts/codex_ci_bootstrap.py --model gpt-5.1-codex-max --prompt-file prompts/repo-discovery.prompt.md --repo-root <repo>` (uses `codex exec`, defaults to current directory and workspace-write sandbox).
 
 ## Coding Style & Naming Conventions
 - Python 3.12, PEP8/black-like formatting with 4-space indents; prefer explicit imports and type hints.
