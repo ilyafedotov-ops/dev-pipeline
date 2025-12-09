@@ -20,7 +20,46 @@ DEFAULT_WORKTREE_BRANCH = os.environ.get("TASKSGODZILLA_WORKTREE_BRANCH", "tasks
 
 @dataclass
 class GitService:
-    """Service for handling all git and worktree operations."""
+    """Service for handling all git and worktree operations.
+    
+    This service provides centralized git operations including repository management,
+    worktree creation, branch operations, PR/MR creation, and CI triggering.
+    
+    Responsibilities:
+    - Resolve and validate repository paths
+    - Create and manage git worktrees for protocol isolation
+    - Push branches and create PRs/MRs via gh/glab CLI or API
+    - Trigger CI pipelines for GitHub Actions and GitLab CI
+    - Check remote branch existence
+    - Handle git failures gracefully with appropriate status updates
+    
+    Worktree Strategy:
+    By default, uses a single shared worktree branch (TASKSGODZILLA_SINGLE_WORKTREE=true)
+    to avoid creating many per-protocol branches. Set to false for per-protocol branches.
+    
+    Usage:
+        git_service = GitService(db)
+        
+        # Ensure repository exists
+        repo_root = git_service.ensure_repo_or_block(
+            project, run, job_id="job-123"
+        )
+        
+        # Create or reuse worktree
+        worktree = git_service.ensure_worktree(
+            repo_root, "protocol-name", "main"
+        )
+        
+        # Push and open PR
+        pushed = git_service.push_and_open_pr(
+            worktree, "protocol-name", "main"
+        )
+        
+        # Trigger CI
+        triggered = git_service.trigger_ci(
+            repo_root, "protocol-name", "github"
+        )
+    """
 
     db: BaseDatabase
 

@@ -11,7 +11,53 @@ log = get_logger(__name__)
 
 @dataclass
 class BudgetService:
-    """Service for managing token budgets and tracking usage."""
+    """Service for managing token budgets and tracking usage.
+    
+    This service provides centralized token budget management for protocol and step
+    execution. It tracks cumulative token usage, enforces budget limits, and records
+    usage for observability.
+    
+    Responsibilities:
+    - Estimate and enforce token budgets for prompts
+    - Track cumulative token usage per protocol and per step
+    - Support multiple budget enforcement modes (strict, warn, off)
+    - Record actual token usage for metrics and observability
+    
+    Budget Enforcement Modes:
+    - strict: Raise BudgetExceededError when budget is exceeded
+    - warn: Log a warning but allow execution to continue
+    - off: No budget enforcement
+    
+    Usage:
+        budget_service = BudgetService()
+        
+        # Check and track estimated tokens
+        estimated = budget_service.check_and_track(
+            prompt_text="...",
+            model="gpt-5.1-high",
+            phase="exec",
+            budget_mode="strict",
+            max_tokens=10000
+        )
+        
+        # Check protocol-level budget
+        budget_service.check_protocol_budget(
+            protocol_run_id=123,
+            estimated_tokens=5000,
+            max_protocol_tokens=50000,
+            budget_mode="strict"
+        )
+        
+        # Record actual usage after execution
+        budget_service.record_usage(
+            protocol_run_id=123,
+            step_run_id=456,
+            phase="exec",
+            model="gpt-5.1-high",
+            prompt_tokens=1000,
+            completion_tokens=500
+        )
+    """
     
     # In-memory tracking of cumulative token usage per protocol
     _protocol_token_usage: Dict[int, int] = field(default_factory=dict)

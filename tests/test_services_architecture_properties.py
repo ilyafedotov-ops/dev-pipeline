@@ -953,6 +953,142 @@ def test_property_6_no_services_migration_todos():
         )
 
 
+def test_property_12_service_method_naming_consistency():
+    """
+    **Feature: services-architecture-completion, Property 12: Service method naming consistency**
+    **Validates: Requirements 8.4**
+    
+    For any service class, its public methods should follow consistent naming patterns
+    (verb_noun format).
+    
+    This test verifies that:
+    1. All public service methods use snake_case naming
+    2. All public service methods start with a verb (action word)
+    3. Method names are descriptive and follow verb_noun pattern
+    4. No inconsistent naming patterns exist across services
+    
+    Common verb patterns:
+    - get_*, find_*, fetch_* (retrieval)
+    - create_*, build_*, make_* (creation)
+    - update_*, set_*, modify_* (modification)
+    - delete_*, remove_*, clear_* (deletion)
+    - check_*, validate_*, verify_* (validation)
+    - apply_*, execute_*, run_*, handle_* (execution)
+    - resolve_*, ensure_*, sync_* (resolution/synchronization)
+    - append_*, record_*, track_* (recording)
+    - enqueue_*, trigger_*, start_*, pause_*, resume_*, cancel_* (orchestration)
+    - push_*, open_*, trigger_* (git operations)
+    """
+    workspace_root = Path(__file__).parent.parent
+    services_dir = workspace_root / "tasksgodzilla" / "services"
+    
+    if not services_dir.exists():
+        pytest.skip("Services directory not found")
+    
+    # Get all service files
+    service_files = [
+        f for f in services_dir.glob("*.py")
+        if f.name not in ("__init__.py", "__pycache__")
+    ]
+    
+    # Common verb prefixes that indicate good naming
+    valid_verb_prefixes = {
+        # Retrieval
+        "get", "find", "fetch", "list", "load", "read", "parse",
+        # Creation
+        "create", "build", "make", "generate", "initialize", "setup",
+        # Modification
+        "update", "set", "modify", "change", "edit", "append", "add",
+        # Deletion
+        "delete", "remove", "clear", "clean", "purge",
+        # Validation
+        "check", "validate", "verify", "ensure", "confirm", "test",
+        # Execution
+        "apply", "execute", "run", "handle", "process", "perform", "do",
+        # Resolution
+        "resolve", "sync", "refresh", "reload",
+        # Recording
+        "record", "track", "log", "observe", "monitor",
+        # Orchestration
+        "enqueue", "trigger", "start", "stop", "pause", "resume", "cancel", "retry",
+        # Git operations
+        "push", "pull", "commit", "open", "close", "merge", "remote",
+        # Special cases
+        "is", "has", "can", "should",  # Boolean checks
+        "infer",  # Inference/deduction
+        # Service-specific operations
+        "evaluate", "import", "register", "plan", "decompose",
+    }
+    
+    violations = {}
+    
+    for service_file in service_files:
+        try:
+            with open(service_file, 'r', encoding='utf-8') as f:
+                tree = ast.parse(f.read(), filename=str(service_file))
+            
+            # Find all class definitions
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    # Only check classes that end with "Service"
+                    if not node.name.endswith("Service"):
+                        continue
+                    
+                    service_violations = []
+                    
+                    for item in node.body:
+                        if isinstance(item, ast.FunctionDef):
+                            method_name = item.name
+                            
+                            # Skip private methods and special methods
+                            if method_name.startswith('_'):
+                                continue
+                            
+                            # Check if method name is in snake_case
+                            if not method_name.islower() and '_' not in method_name:
+                                # Allow single-word lowercase methods
+                                if not method_name.islower():
+                                    service_violations.append({
+                                        "method": method_name,
+                                        "issue": "Not in snake_case format",
+                                        "suggestion": "Use snake_case (e.g., getUserData -> get_user_data)"
+                                    })
+                                    continue
+                            
+                            # Check if method name starts with a valid verb
+                            first_word = method_name.split('_')[0] if '_' in method_name else method_name
+                            
+                            if first_word not in valid_verb_prefixes:
+                                service_violations.append({
+                                    "method": method_name,
+                                    "issue": f"Does not start with a recognized verb (starts with '{first_word}')",
+                                    "suggestion": f"Use a verb prefix like: {', '.join(sorted(list(valid_verb_prefixes)[:10]))}..."
+                                })
+                    
+                    if service_violations:
+                        violations[f"{service_file.name}::{node.name}"] = service_violations
+        
+        except Exception as e:
+            # Skip files that can't be parsed
+            continue
+    
+    # Report violations
+    if violations:
+        report = []
+        for service_class, issues in violations.items():
+            report.append(f"\n{service_class}:")
+            for issue in issues:
+                report.append(f"  Method: {issue['method']}")
+                report.append(f"    Issue: {issue['issue']}")
+                report.append(f"    Suggestion: {issue['suggestion']}")
+        
+        pytest.fail(
+            f"Service methods have inconsistent naming:\n" + "\n".join(report) +
+            "\n\nAll public service methods should follow verb_noun naming pattern in snake_case. "
+            "This ensures consistency across the service layer and makes the API predictable."
+        )
+
+
 if __name__ == "__main__":
     # Run the tests
     test_property_3_no_imports_of_removed_modules()
@@ -967,4 +1103,5 @@ if __name__ == "__main__":
     test_property_8_service_method_test_coverage()
     test_property_11_tests_dont_instantiate_workers()
     test_property_11_service_tests_use_services()
+    test_property_12_service_method_naming_consistency()
     print("All property tests passed!")

@@ -12,10 +12,36 @@ log = get_logger(__name__)
 
 @dataclass
 class CodeMachineService:
-    """Facade for CodeMachine workspace import and management.
+    """Service for CodeMachine workspace import and management.
     
-    This wraps the existing codemachine_worker implementation to provide a
-    stable service API for CodeMachine operations.
+    This service handles CodeMachine workspace operations, providing a stable
+    service API for CodeMachine-based protocol execution.
+    
+    Responsibilities:
+    - Import CodeMachine workspaces into protocol runs
+    - Parse CodeMachine configuration files
+    - Create protocol specs from CodeMachine agents
+    - Handle CodeMachine-specific execution workflows
+    
+    CodeMachine vs Codex:
+    - CodeMachine: Agent-based execution with .codemachine/ directory structure
+    - Codex: Traditional protocol-based execution with .protocols/ directory
+    
+    CodeMachine Structure:
+    - config.json: Defines agents, placeholders, and workflow
+    - agents/: Agent definitions with prompts and configurations
+    - .codemachine/: Execution workspace
+    
+    Usage:
+        codemachine_service = CodeMachineService(db)
+        
+        # Import a CodeMachine workspace
+        codemachine_service.import_workspace(
+            project_id=1,
+            protocol_run_id=123,
+            workspace_path="/path/to/.codemachine",
+            job_id="job-123"
+        )
     """
     
     db: BaseDatabase

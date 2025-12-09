@@ -15,11 +15,46 @@ log = get_logger(__name__)
 
 @dataclass
 class PromptService:
-    """Minimal prompt helper facade.
-
-    This service focuses on resolving prompt files under a workspace root and
-    attaching a stable version fingerprint. Higher-level naming and policy can
-    be added later without changing call sites.
+    """Service for prompt resolution and context building.
+    
+    This service handles prompt file resolution, version fingerprinting, and
+    context building for QA and execution prompts.
+    
+    Responsibilities:
+    - Resolve prompt files from workspace or protocol directories
+    - Generate stable version fingerprints for prompts
+    - Resolve QA prompts with fallback to defaults
+    - Build QA context from protocol files (plan, context, log, step, git status)
+    - Resolve step paths for QA evaluation
+    
+    Prompt Resolution:
+    - Supports workspace-relative paths (e.g., "prompts/quality-validator.prompt.md")
+    - Supports protocol-relative paths
+    - Falls back to default prompts when not specified
+    
+    Version Fingerprinting:
+    - Uses file content hash for stable versioning
+    - Enables prompt change tracking and reproducibility
+    
+    Usage:
+        prompt_service = PromptService(workspace_root=Path("/path/to/workspace"))
+        
+        # Resolve a prompt
+        path, text, version = prompt_service.resolve("prompts/my-prompt.md")
+        
+        # Resolve QA prompt
+        qa_path, qa_version = prompt_service.resolve_qa_prompt(
+            qa_config={"prompt": "custom-qa.md"},
+            protocol_root=protocol_root,
+            workspace_root=workspace_root
+        )
+        
+        # Build QA context
+        context = prompt_service.build_qa_context(
+            protocol_root=protocol_root,
+            step_path=step_path,
+            workspace_root=workspace_root
+        )
     """
 
     workspace_root: Path

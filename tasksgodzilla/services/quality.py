@@ -22,11 +22,66 @@ log = get_logger(__name__)
 
 @dataclass
 class QualityService:
-    """Facade for running QA checks against protocol steps.
-
-    This wraps `tasksgodzilla.qa.run_quality_check` with config-aware defaults so
-    callers can gradually centralize QA behaviour here. For orchestrated runs,
-    `run_for_step_run` delegates to the existing worker implementation.
+    """Service for quality assurance and validation of protocol steps.
+    
+    This service handles QA execution for protocol steps, including prompt building,
+    verdict determination, and status updates based on QA results.
+    
+    Responsibilities:
+    - Run QA checks for step runs
+    - Build QA prompts with protocol context
+    - Execute QA via configured engines (Codex, etc.)
+    - Determine QA verdicts (PASS/FAIL) from reports
+    - Update step status based on QA results
+    - Handle inline (light) QA for fast feedback
+    - Apply orchestration policies after QA
+    - Record QA metrics and events
+    
+    QA Policies:
+    - skip: Skip QA entirely, mark step as completed
+    - light: Run inline QA immediately after execution
+    - (default): Run full QA as separate job
+    
+    QA Context:
+    QA prompts include:
+    - Protocol plan (plan.md)
+    - Protocol context (context.md)
+    - Protocol log (log.md)
+    - Step file content
+    - Git status and last commit
+    
+    Verdict Determination:
+    - Parses QA report for explicit PASS/FAIL verdict
+    - Defaults to PASS if verdict not found
+    - Updates step status and triggers appropriate policies
+    
+    Usage:
+        quality_service = QualityService(db=db)
+        
+        # Run QA for a step run
+        quality_service.run_for_step_run(
+            step_run_id=456,
+            job_id="job-123"
+        )
+        
+        # Run inline QA after execution
+        quality_service.run_inline_qa(
+            step=step,
+            run=run,
+            project=project,
+            resolution=resolution,
+            qa_cfg=qa_cfg,
+            qa_context=qa_context,
+            protocol_root=protocol_root,
+            workspace_root=workspace_root,
+            qa_prompt_path=qa_prompt_path,
+            qa_prompt_version=qa_prompt_version,
+            spec_hash_val=spec_hash_val,
+            exec_model=exec_model,
+            engine_id=engine_id,
+            exec_tokens=exec_tokens,
+            base_meta=base_meta
+        )
     """
 
     db: Optional[BaseDatabase] = None

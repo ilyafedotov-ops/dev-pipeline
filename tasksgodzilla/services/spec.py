@@ -24,10 +24,53 @@ log = get_logger(__name__)
 
 @dataclass
 class SpecService:
-    """Facade for building and validating ProtocolSpec / StepSpec.
-
-    This centralizes how specs are attached to `ProtocolRun.template_config`
-    while delegating to the existing helpers in `tasksgodzilla.spec`.
+    """Service for protocol and step specification management.
+    
+    This service handles the creation, validation, and resolution of protocol
+    specifications and step specifications, including path resolution for prompts,
+    outputs, and other resources.
+    
+    Responsibilities:
+    - Build protocol specs from protocol files or CodeMachine configs
+    - Validate protocol and step specs against filesystem
+    - Create and sync StepRun rows from specs
+    - Resolve protocol and workspace paths
+    - Resolve step paths (prompts, inputs, outputs)
+    - Resolve output paths from step specs
+    - Append entries to protocol log files
+    - Infer step types from filenames
+    
+    Spec Structure:
+    - Protocol spec: Contains metadata, steps, and global configuration
+    - Step spec: Contains prompt_ref, outputs, qa config, engine/model overrides
+    
+    Path Resolution:
+    - Supports absolute paths, workspace-relative paths, and protocol-relative paths
+    - Handles .protocols/ directory structure
+    - Resolves prompts from workspace or protocol directories
+    
+    Usage:
+        spec_service = SpecService(db)
+        
+        # Build spec from protocol files
+        spec = spec_service.build_from_protocol_files(
+            protocol_run_id=123,
+            protocol_root=Path("/path/to/.protocols/feature-123")
+        )
+        
+        # Validate spec
+        errors = spec_service.validate_and_update_meta(
+            protocol_run_id=123,
+            protocol_root=Path("/path/to/.protocols/feature-123")
+        )
+        
+        # Create step runs from spec
+        created = spec_service.ensure_step_runs(protocol_run_id=123)
+        
+        # Resolve paths for step execution
+        paths = spec_service.resolve_step_paths(
+            step_run, protocol_root, workspace_root
+        )
     """
 
     db: BaseDatabase

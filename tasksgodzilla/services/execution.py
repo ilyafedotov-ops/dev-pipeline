@@ -35,13 +35,43 @@ log = get_logger(__name__)
 @dataclass
 class ExecutionService:
     """Service for executing protocol steps.
-
-    This service handles the full step execution workflow including:
-    - Repository and worktree setup
-    - Prompt resolution and model selection
-    - Engine execution
-    - Git operations (push/PR/CI)
-    - QA triggering
+    
+    This service orchestrates the complete step execution workflow, from repository
+    setup through execution to QA triggering.
+    
+    Responsibilities:
+    - Set up repository and worktree for step execution
+    - Resolve prompts and select appropriate models/engines
+    - Validate step specs before execution
+    - Execute steps via Codex or CodeMachine engines
+    - Handle execution errors and update step status
+    - Push changes and create PRs/MRs
+    - Trigger CI pipelines
+    - Enqueue or run QA based on policy
+    - Apply trigger policies after execution
+    - Handle inline (light) QA for fast feedback
+    
+    Execution Modes:
+    - Codex: Traditional protocol-based execution with .protocols/ directory
+    - CodeMachine: Agent-based execution with .codemachine/ directory
+    
+    QA Policies:
+    - skip: Mark step as completed without QA
+    - light: Run inline QA immediately after execution
+    - (default): Mark step as NEEDS_QA and enqueue separate QA job
+    
+    Stub Execution:
+    When repository or Codex CLI is unavailable, executes in "stub mode" to
+    allow development and testing without full infrastructure.
+    
+    Usage:
+        execution_service = ExecutionService(db)
+        
+        # Execute a step
+        execution_service.execute_step(
+            step_run_id=456,
+            job_id="job-123"
+        )
     """
 
     db: BaseDatabase

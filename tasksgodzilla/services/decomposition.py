@@ -14,11 +14,45 @@ log = get_logger(__name__)
 
 @dataclass
 class DecompositionService:
-    """Facade for step decomposition using the existing pipeline helpers.
-
-    This mirrors the decomposition loop used in the protocol pipeline and Codex
-    worker, making it easier to migrate orchestration logic into a dedicated
-    service while preserving behaviour.
+    """Service for protocol step decomposition.
+    
+    This service handles the decomposition of high-level protocol steps into
+    more detailed, actionable sub-steps using LLM-based decomposition.
+    
+    Responsibilities:
+    - Decompose protocol step files into detailed sub-steps
+    - Skip simple steps that don't need decomposition
+    - Enforce token budgets during decomposition
+    - Track which steps were decomposed vs skipped
+    
+    Decomposition Process:
+    1. Read protocol plan and step files
+    2. Determine if step is simple (skip if configured)
+    3. Build decomposition prompt with plan and step context
+    4. Execute decomposition via Codex
+    5. Replace step file with decomposed version
+    
+    Simple Step Detection:
+    Steps are considered "simple" if they:
+    - Are very short (< 100 characters)
+    - Contain only a single action
+    - Don't require detailed planning
+    
+    Usage:
+        decomposition_service = DecompositionService()
+        
+        # Decompose all steps in a protocol
+        result = decomposition_service.decompose_protocol(
+            protocol_root=Path("/path/to/.protocols/feature-123"),
+            model="gpt-5.1-high",
+            skip_simple=True
+        )
+        
+        # Result contains:
+        # {
+        #     "decomposed": ["01-setup.md", "02-implement.md"],
+        #     "skipped": ["03-simple-task.md"]
+        # }
     """
 
     def decompose_protocol(

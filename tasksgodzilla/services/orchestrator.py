@@ -17,11 +17,56 @@ MAX_INLINE_TRIGGER_DEPTH = 3
 
 @dataclass
 class OrchestratorService:
-    """High-level orchestration facade over existing worker flows.
-
-    For now this is a thin wrapper around the Codex worker helpers. Over time it
-    can absorb lifecycle and policy decisions while workers become simple job
-    adapters.
+    """Service for high-level protocol and step orchestration.
+    
+    This service manages the complete lifecycle of protocol runs and step executions,
+    including state transitions, policy evaluation, and completion handling.
+    
+    Responsibilities:
+    - Create and manage protocol runs
+    - Transition protocols through lifecycle states (PENDING → PLANNING → RUNNING → COMPLETED)
+    - Enqueue and manage step execution jobs
+    - Apply trigger policies to start dependent steps
+    - Apply loop policies to retry failed steps
+    - Handle step completion and determine next actions
+    - Check and mark protocol completion
+    - Manage protocol pause/resume/cancel operations
+    - Coordinate PR/MR creation for protocols
+    
+    Protocol Lifecycle:
+    PENDING → PLANNING → RUNNING → COMPLETED/FAILED/BLOCKED/CANCELLED
+    
+    Step Lifecycle:
+    PENDING → RUNNING → NEEDS_QA → COMPLETED/FAILED/BLOCKED/CANCELLED
+    
+    Policy System:
+    - Trigger policies: Automatically start dependent steps when conditions are met
+    - Loop policies: Retry steps when failures occur within iteration limits
+    - Inline triggers: Execute steps immediately when depth limit not exceeded
+    
+    Usage:
+        orchestrator = OrchestratorService(db)
+        
+        # Create and start protocol
+        run = orchestrator.create_protocol_run(
+            project_id=1,
+            protocol_name="feature-123",
+            status="pending",
+            base_branch="main"
+        )
+        job = orchestrator.start_protocol_run(run.id, queue)
+        
+        # Enqueue next step
+        step, job = orchestrator.enqueue_next_step(run.id, queue)
+        
+        # Handle step completion with policies
+        orchestrator.handle_step_completion(
+            step_run_id=step.id,
+            qa_verdict="PASS"
+        )
+        
+        # Check if protocol is complete
+        completed = orchestrator.check_and_complete_protocol(run.id)
     """
 
     db: BaseDatabase

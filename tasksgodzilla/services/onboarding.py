@@ -26,10 +26,62 @@ log = get_logger(__name__)
 
 @dataclass
 class OnboardingService:
-    """Project onboarding and workspace-setup facade.
-
-    This wraps the helpers in `tasksgodzilla.project_setup` and DB operations so
-    that API/CLI layers can use a single service entrypoint during onboarding.
+    """Service for project onboarding and workspace setup.
+    
+    This service handles the complete project onboarding workflow, from initial
+    registration through repository setup to discovery and configuration.
+    
+    Responsibilities:
+    - Register new projects in the database
+    - Clone or validate project repositories
+    - Ensure starter assets (prompts, CI scripts, docs)
+    - Configure git identity and remotes
+    - Run Codex discovery for automatic workflow generation
+    - Generate onboarding clarification questions
+    - Handle blocking vs non-blocking onboarding flows
+    
+    Onboarding Workflow:
+    1. Register project with git URL and base branch
+    2. Clone repository (if auto-clone enabled) or validate existing path
+    3. Ensure starter assets (prompts/, docs/, scripts/ci/)
+    4. Configure git identity (user.name, user.email)
+    5. Configure git remote (SSH vs HTTPS)
+    6. Run Codex discovery (optional, generates docs/workflows)
+    7. Present clarification questions (CI provider, models, etc.)
+    8. Mark setup as complete or blocked pending clarifications
+    
+    Clarification Questions:
+    - CI provider (github/gitlab)
+    - Git SSH preference
+    - Git identity (user.name/user.email)
+    - Branch naming patterns
+    - Required checks before merge
+    - PR policy (draft vs ready)
+    - Default models for planning/exec/QA
+    - Project secrets
+    
+    Usage:
+        onboarding_service = OnboardingService(db)
+        
+        # Register new project
+        project = onboarding_service.register_project(
+            name="my-project",
+            git_url="https://github.com/org/repo",
+            base_branch="main",
+            ci_provider="github"
+        )
+        
+        # Ensure workspace is ready
+        repo_root = onboarding_service.ensure_workspace(
+            project_id=project.id,
+            clone_if_missing=True,
+            run_discovery_pass=True
+        )
+        
+        # Run full setup job
+        onboarding_service.run_project_setup_job(
+            project_id=project.id
+        )
     """
 
     db: BaseDatabase

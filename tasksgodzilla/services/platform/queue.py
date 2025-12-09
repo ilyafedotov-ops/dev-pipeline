@@ -8,10 +8,40 @@ from tasksgodzilla.jobs import BaseQueue, Job, RedisQueue
 
 @dataclass
 class QueueService:
-    """High-level queue facade that wraps `BaseQueue`.
-
-    This provides semantic enqueue helpers around the job types currently used
-    by `tasksgodzilla.worker_runtime.process_job`.
+    """Service for job queue management and task enqueueing.
+    
+    This service provides a high-level interface for enqueueing background jobs
+    to the task queue (Redis/RQ).
+    
+    Responsibilities:
+    - Enqueue protocol planning jobs
+    - Enqueue step execution jobs
+    - Enqueue QA jobs
+    - Enqueue project setup jobs
+    - Enqueue PR/MR creation jobs
+    - Provide factory methods for queue construction
+    
+    Job Types:
+    - plan_protocol_job: Plan a protocol run
+    - execute_step_job: Execute a protocol step
+    - run_quality_job: Run QA for a step
+    - project_setup_job: Set up a new project
+    - open_pr_job: Open PR/MR for a protocol
+    
+    Queue Backend:
+    - Uses Redis/RQ for distributed job processing
+    - Supports inline execution when Redis unavailable (dev mode)
+    
+    Usage:
+        # Create from Redis URL
+        queue_service = QueueService.from_redis_url(
+            "redis://localhost:6379/0"
+        )
+        
+        # Enqueue jobs
+        job = queue_service.enqueue_plan_protocol(protocol_run_id=123)
+        job = queue_service.enqueue_execute_step(step_run_id=456)
+        job = queue_service.enqueue_run_quality(step_run_id=456)
     """
 
     queue: BaseQueue
