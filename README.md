@@ -184,6 +184,38 @@ python -m tasksgodzilla.cli.tui           # panel-based dashboard with keybindin
 
 The core idea: ship improvements in parallel streams with strict, explicit protocols. Use the prompts and CI hooks here as the default spine; swap in your stack-specific commands without changing the flow.
 
+## Contributing
+
+When adding new features to TasksGodzilla, **always use the services layer** as your primary integration point:
+
+### Service-First Development
+
+- **New features**: Create or extend services in `tasksgodzilla/services/` for business logic
+- **API endpoints**: Call services from `tasksgodzilla/api/app.py`, never import workers directly
+- **Worker jobs**: Delegate to services from `tasksgodzilla/workers/`, keep workers as thin adapters
+- **CLI/TUI**: Use services or API client wrappers, avoid direct worker calls
+
+### Examples
+
+```python
+# ✅ Good: Use services
+from tasksgodzilla.services.orchestrator import OrchestratorService
+orchestrator = OrchestratorService(db)
+run = orchestrator.create_protocol_run(...)
+
+# ❌ Bad: Direct worker imports
+from tasksgodzilla.workers.codex_worker import handle_plan_protocol
+```
+
+### Service Guidelines
+
+- Each service has a single responsibility (Git operations, Budget tracking, etc.)
+- Services use dependency injection (pass `db`, other services as constructor args)
+- Services are tested independently with mocks
+- Services follow verb_noun naming patterns (`get_protocol`, `create_step`, etc.)
+
+See `docs/services-migration-guide.md` for detailed patterns and examples.
+
 ## Architecture (Mermaid)
 
 The TasksGodzilla orchestrator uses a **services architecture** where business logic is encapsulated in cohesive service modules. The API and workers are thin adapters that delegate to services for all operations.

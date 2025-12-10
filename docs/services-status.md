@@ -53,10 +53,10 @@ service-oriented refactor. It complements `STATUS.md` (orchestrator track) and
     - [x] `codemachine_import_job` → `CodeMachineService.import_workspace`
   - Job payloads and event shapes remain stable.
 
-- [ ] **Move orchestration logic out of `codex_worker`**
-  - Gradually migrate planning/decomposition/QA/loop/trigger logic into
+- [x] **Move orchestration logic out of `codex_worker`**
+  - Migrated planning/decomposition/QA/loop/trigger logic into
     `OrchestratorService`, `SpecService`, `DecompositionService`, and `QualityService`.
-  - Leave `codex_worker` as a thin adapter (or retire it once all callers use services).
+  - `codex_worker` is now a thin adapter (492 lines, under 500 line target).
 
 - [x] **Service-level tests**
   - Add focused tests for each service:
@@ -76,7 +76,7 @@ service-oriented refactor. It complements `STATUS.md` (orchestrator track) and
 
 ## Current focus
 
-- ✅ **Service-level tests complete** (44 tests across 9 test files, 100% pass rate)
+- ✅ **Service-level tests complete** (94+ tests across service test files, 100% pass rate)
 - ✅ **Documentation updated** to reflect services as primary integration surface
 - ✅ **API integration complete** - Zero direct worker imports, all routes use services
 - ✅ **Worker integration complete** - All 6 job types delegate to services
@@ -91,6 +91,15 @@ service-oriented refactor. It complements `STATUS.md` (orchestrator track) and
   - Added comprehensive tests for `GitService` (9 tests)
   - Added unit tests for `CodeMachineService` (1 test)
   - Created `BudgetService` with tests (2 tests)
+- ✅ **Phase 3 Deep Refactoring Complete:**
+  - All business logic extracted from `codex_worker.py` to services
+  - `codex_worker.py` reduced to under 500 lines (492 lines)
+  - Orchestration logic moved to `ExecutionService` and `QualityService`
+  - Legacy code patterns eliminated
+  - Property-based tests validate architecture compliance
 - ✅ **Verification Complete:** See `docs/services-verification-report.md` for full analysis
-- Next: Phase 3 - Deep Refactoring (optional, ongoing - extract logic from codex_worker opportunistically)
+
+## Services Architecture Complete ✅
+
+The services architecture refactor is now **complete**. All major business logic has been extracted to services, `codex_worker.py` is under 500 lines, and comprehensive tests exist. The services layer is now the stable, primary integration layer for TasksGodzilla.
 

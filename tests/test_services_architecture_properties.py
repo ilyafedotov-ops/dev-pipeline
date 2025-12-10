@@ -60,7 +60,7 @@ def test_property_7_legacy_pattern_elimination():
     This test verifies that:
     1. codex_worker.py no longer imports apply_loop_policies or apply_trigger_policies
     2. codex_worker.py no longer imports maybe_complete_protocol from workers.state
-    3. codex_worker.py uses OrchestratorService methods instead
+    3. codex_worker.py delegates to ExecutionService and QualityService instead of containing business logic
     """
     workspace_root = Path(__file__).parent.parent
     codex_worker_path = workspace_root / "tasksgodzilla" / "workers" / "codex_worker.py"
@@ -80,13 +80,6 @@ def test_property_7_legacy_pattern_elimination():
     found_legacy = imports & legacy_imports
     assert not found_legacy, f"Found legacy imports in codex_worker.py: {found_legacy}"
     
-    # Verify OrchestratorService is imported
-    orchestrator_imports = {
-        imp for imp in imports 
-        if "orchestrator" in imp.lower() and "service" in imp.lower()
-    }
-    assert orchestrator_imports, "OrchestratorService not imported in codex_worker.py"
-    
     # Read the file content to verify method calls
     with open(codex_worker_path, 'r', encoding='utf-8') as f:
         content = f.read()
@@ -101,15 +94,16 @@ def test_property_7_legacy_pattern_elimination():
     for legacy_call in legacy_calls:
         assert legacy_call not in content, f"Found legacy call '{legacy_call}' in codex_worker.py"
     
-    # Verify OrchestratorService methods are used
-    orchestrator_methods = [
-        "orchestrator.apply_loop_policy(",
-        "orchestrator.apply_trigger_policy(",
-        "orchestrator.handle_step_completion(",
+    # Verify codex_worker delegates to services instead of containing business logic
+    service_delegations = [
+        "ExecutionService(",
+        "QualityService(",
+        "execution_service.execute_step(",
+        "quality_service.run_for_step_run(",
     ]
     
-    found_methods = [method for method in orchestrator_methods if method in content]
-    assert found_methods, f"No OrchestratorService methods found in codex_worker.py. Expected one of: {orchestrator_methods}"
+    found_delegations = [delegation for delegation in service_delegations if delegation in content]
+    assert found_delegations, f"No service delegations found in codex_worker.py. Expected delegation patterns like: {service_delegations}"
 
 
 def test_property_7_no_direct_policy_runtime_calls():
@@ -144,37 +138,49 @@ def test_property_7_no_direct_policy_runtime_calls():
 
 def test_property_7_orchestrator_service_usage():
     """
-    Verify that workers use OrchestratorService for orchestration logic.
+    Verify that the architecture uses services for orchestration logic.
     
-    This test checks that worker files that need orchestration functionality
-    import and use OrchestratorService.
+    This test checks that orchestration functionality is properly delegated
+    to ExecutionService and QualityService, which in turn use OrchestratorService.
     """
     workspace_root = Path(__file__).parent.parent
-    codex_worker_path = workspace_root / "tasksgodzilla" / "workers" / "codex_worker.py"
     
-    if not codex_worker_path.exists():
-        pytest.skip("codex_worker.py not found")
+    # Check ExecutionService uses OrchestratorService
+    execution_service_path = workspace_root / "tasksgodzilla" / "services" / "execution.py"
+    if execution_service_path.exists():
+        with open(execution_service_path, 'r', encoding='utf-8') as f:
+            execution_content = f.read()
+        
+        # Verify ExecutionService uses OrchestratorService
+        orchestrator_usage = [
+            "OrchestratorService(",
+            "orchestrator.apply_trigger_policy(",
+            "orchestrator.handle_step_completion(",
+        ]
+        
+        found_usage = [usage for usage in orchestrator_usage if usage in execution_content]
+        assert found_usage, (
+            f"ExecutionService should use OrchestratorService methods. "
+            f"Expected patterns like: {orchestrator_usage}"
+        )
     
-    with open(codex_worker_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    # Verify OrchestratorService is instantiated
-    assert "OrchestratorService(" in content or "orchestrator = " in content, (
-        "OrchestratorService not instantiated in codex_worker.py"
-    )
-    
-    # Verify orchestration methods are called
-    orchestration_patterns = [
-        "orchestrator.apply_",
-        "orchestrator.handle_",
-        "orchestrator.check_",
-    ]
-    
-    found_patterns = [pattern for pattern in orchestration_patterns if pattern in content]
-    assert found_patterns, (
-        f"No orchestration method calls found in codex_worker.py. "
-        f"Expected patterns like: {orchestration_patterns}"
-    )
+    # Check QualityService uses OrchestratorService  
+    quality_service_path = workspace_root / "tasksgodzilla" / "services" / "quality.py"
+    if quality_service_path.exists():
+        with open(quality_service_path, 'r', encoding='utf-8') as f:
+            quality_content = f.read()
+        
+        # Verify QualityService uses OrchestratorService for completion handling
+        orchestrator_usage_qa = [
+            "OrchestratorService(",
+            "orchestrator.handle_step_completion(",
+        ]
+        
+        found_usage_qa = [usage for usage in orchestrator_usage_qa if usage in quality_content]
+        assert found_usage_qa, (
+            f"QualityService should use OrchestratorService methods. "
+            f"Expected patterns like: {orchestrator_usage_qa}"
+        )
 
 
 def get_public_methods(file_path: Path) -> Set[str]:

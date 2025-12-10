@@ -136,7 +136,7 @@ class SpecService:
             return 0
         existing = {s.step_name for s in self.db.list_step_runs(protocol_run_id)}
         created = create_steps_from_spec(protocol_run_id, spec, self.db, existing_names=existing)
-        log.info("spec_step_runs_synced", extra={"protocol_run_id": protocol_run_id, "created": created})
+        log.info("spec_step_runs_synced", extra={"protocol_run_id": protocol_run_id, "steps_created": created})
         return created
 
     def get_step_spec(self, protocol_run_id: int, step_name: str) -> Optional[Dict[str, Any]]:
@@ -292,7 +292,7 @@ class SpecService:
             "step_runs_synced_from_protocol",
             extra={
                 "protocol_run_id": protocol_run_id,
-                "created": created,
+                "steps_created": created,
                 "validation_errors": len(validation_errors),
             },
         )
