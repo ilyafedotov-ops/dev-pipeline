@@ -180,6 +180,24 @@ async function loadOnboarding(projectId = null) {
   }
 }
 
+async function startOnboarding(inline = false) {
+  if (!state.selectedProject) {
+    setStatus("Select a project first.", "error");
+    return;
+  }
+  try {
+    const resp = await apiFetch(`/projects/${state.selectedProject}/onboarding/actions/start`, {
+      method: "POST",
+      body: JSON.stringify({ inline }),
+      projectId: state.selectedProject,
+    });
+    setStatus(resp.message || (inline ? "Setup ran inline." : "Setup enqueued."), "toast");
+    await loadOnboarding();
+  } catch (err) {
+    setStatus(err.message, "error");
+  }
+}
+
 
 async function enqueueSpecAudit(projectId = null) {
   try {
@@ -1275,6 +1293,14 @@ function wireForms() {
   const refreshOnboardingBtn = document.getElementById("refreshOnboarding");
   if (refreshOnboardingBtn) {
     refreshOnboardingBtn.onclick = () => loadOnboarding();
+  }
+  const startOnboardingBtn = document.getElementById("startOnboarding");
+  if (startOnboardingBtn) {
+    startOnboardingBtn.onclick = () => startOnboarding(false);
+  }
+  const runOnboardingInlineBtn = document.getElementById("runOnboardingInline");
+  if (runOnboardingInlineBtn) {
+    runOnboardingInlineBtn.onclick = () => startOnboarding(true);
   }
   if (saveProjectTokenBtn) {
     saveProjectTokenBtn.onclick = () => {
