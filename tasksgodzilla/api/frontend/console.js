@@ -558,12 +558,14 @@ function renderOnboardingDetail() {
     .join("");
   const lastMsg = summary.last_event ? summary.last_event.message : "";
   const lastTime = summary.last_event ? formatDate(summary.last_event.created_at) : "";
+  const hint = summary.hint ? `<div class="muted small" style="margin-top:6px;">Hint: ${summary.hint}</div>` : "";
   container.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
       <div>
         <div class="muted small">Workspace</div>
         <div>${summary.workspace_path || "-"}</div>
         <div class="muted small">Last: ${lastMsg || "-"} ${lastTime ? `(${lastTime})` : ""}</div>
+        ${hint}
       </div>
       <span class="pill ${statusClass(summary.status)} onboarding">${summary.status}</span>
     </div>

@@ -33,3 +33,8 @@ SERVICES_VERIFICATION_SUMMARY.md
 docs/services-verification-report.md
 .hypothesis/unicode_data/15.0.0/charmap.json.gz
 .kiro/
+.hypothesis/
+.gitignore
+harness-output/
+reliability-output/
+validation-output/

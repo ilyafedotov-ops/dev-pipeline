@@ -1,0 +1,29 @@
+{
+  "mode": "component",
+  "components": ["onboarding", "discovery", "cli_interface"],
+  "verbose": false,
+  "parallel": true,
+  "timeout": 900,
+  "max_workers": 4,
+  "output_formats": ["text", "json"],
+  "description": "Example configuration for CLI workflow harness",
+  "environments": {
+    "development": {
+      "verbose": true,
+      "timeout": 1800,
+      "components": ["onboarding", "discovery", "protocol", "spec"]
+    },
+    "ci": {
+      "mode": "ci",
+      "parallel": true,
+      "max_workers": 8,
+      "timeout": 1200,
+      "components": []
+    },
+    "smoke": {
+      "mode": "smoke",
+      "timeout": 300,
+      "components": ["onboarding", "cli_interface"]
+    }
+  }
+}

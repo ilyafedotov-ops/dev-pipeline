@@ -45,6 +45,10 @@ def test_cli_project_and_protocol_flow(transport: httpx.ASGITransport) -> None:
     assert code == 0
     assert "Created project" in out
 
+    code, out = run_cmd(["projects", "onboarding", "1"], transport)
+    assert code == 0
+    assert "Setup job is queued but not running" in out
+
     code, out = run_cmd(["projects", "list"], transport)
     assert code == 0
     assert "demo" in out

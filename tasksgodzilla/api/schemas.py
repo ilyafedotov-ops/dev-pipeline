@@ -128,6 +128,10 @@ class ActionResponse(BaseModel):
     job: Optional[dict] = None
 
 
+class OnboardingStartRequest(BaseModel):
+    inline: bool = False
+
+
 class OnboardingStage(BaseModel):
     key: str
     name: str
@@ -143,6 +147,7 @@ class OnboardingSummary(BaseModel):
     protocol_run_id: Optional[int]
     status: str
     workspace_path: Optional[str] = None
+    hint: Optional[str] = None
     last_event: Optional[EventOut] = None
     stages: list[OnboardingStage] = []
     events: list[EventOut] = []

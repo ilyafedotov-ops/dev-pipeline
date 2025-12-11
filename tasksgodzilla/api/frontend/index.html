@@ -77,7 +77,11 @@
       <div class="pane" id="onboardingPanel">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <h3>Onboarding</h3>
-          <button id="refreshOnboarding" type="button">Refresh</button>
+          <div style="display:flex; gap:6px;">
+            <button id="startOnboarding" type="button" class="tiny-btn">Start setup</button>
+            <button id="runOnboardingInline" type="button" class="tiny-btn">Run inline now</button>
+            <button id="refreshOnboarding" type="button">Refresh</button>
+          </div>
         </div>
         <div id="onboardingContent" class="muted small">Select a project to view onboarding progress.</div>
       </div>

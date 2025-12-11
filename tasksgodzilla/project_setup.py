@@ -301,13 +301,19 @@ def run_codex_discovery(
         return
 
     prompt_path = prompt_file if prompt_file else repo_root / "prompts" / "repo-discovery.prompt.md"
+    
+    # If prompt not found in repo, try fallback to global prompts directory
     if not prompt_path.is_file():
-        msg = f"repo-discovery prompt not found at {prompt_path}; skipping discovery."
-        if strict:
-            log.error("discovery_prompt_missing", extra={"prompt_path": str(prompt_path), "repo_root": str(repo_root)})
-            raise FileNotFoundError(msg)
-        log.warning("discovery_prompt_missing", extra={"prompt_path": str(prompt_path), "repo_root": str(repo_root)})
-        return
+        fallback_prompt = Path(__file__).resolve().parents[1] / "prompts" / "repo-discovery.prompt.md"
+        if fallback_prompt.is_file():
+            prompt_path = fallback_prompt
+        else:
+            msg = f"repo-discovery prompt not found at {prompt_path} or fallback {fallback_prompt}; skipping discovery."
+            if strict:
+                log.error("discovery_prompt_missing", extra={"prompt_path": str(prompt_path), "fallback_path": str(fallback_prompt), "repo_root": str(repo_root)})
+                raise FileNotFoundError(msg)
+            log.warning("discovery_prompt_missing", extra={"prompt_path": str(prompt_path), "fallback_path": str(fallback_prompt), "repo_root": str(repo_root)})
+            return
 
     log.info(
         "run_codex_discovery",
@@ -337,12 +343,22 @@ def run_codex_discovery(
 
     run_kwargs = {
         "cwd": repo_root,
-        "capture_output": False,
+        "capture_output": True,
         "text": True,
         "check": True,
         "input_text": prompt_text,
     }
     if timeout_seconds is not None:
         run_kwargs["timeout"] = timeout_seconds
-    codex.run_process(cmd, **run_kwargs)
+    proc = codex.run_process(cmd, **run_kwargs)
+    try:
+        log_path = repo_root / "codex-discovery.log"
+        with log_path.open("a", encoding="utf-8") as f:
+            if getattr(proc, "stdout", None):
+                f.write(proc.stdout)
+            if getattr(proc, "stderr", None):
+                f.write("\n[stderr]\n")
+                f.write(proc.stderr)
+    except Exception:  # pragma: no cover - best effort logging
+        pass
     log.info("codex_discovery_complete", extra={"repo_root": str(repo_root), "model": model})

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 import json
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Query
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -313,11 +313,47 @@ def _onboarding_summary(project, db: BaseDatabase) -> schemas.OnboardingSummary:
     last_event = ev_out[-1] if ev_out else None
     stages = _onboarding_stages_from_events(ev_out)
     workspace_path = project.local_path or str(local_repo_dir(project.git_url, project.name, project_id=project.id))
+    hint: Optional[str] = None
+    if not run:
+        hint = (
+            "Onboarding has not started yet. Create the project again or run "
+            "`python scripts/tasksgodzilla_cli.py projects onboarding-start <id>`."
+        )
+    else:
+        event_types = [e.event_type for e in ev_out]
+        has_enqueued = "setup_enqueued" in event_types
+        has_progress = any(
+            t
+            in {
+                "setup_started",
+                "setup_cloned",
+                "setup_discovery_started",
+                "setup_discovery_completed",
+                "setup_assets",
+                "setup_completed",
+            }
+            for t in event_types
+        )
+        if has_enqueued and not has_progress:
+            hint = (
+                "Setup job is queued but not running. Start a worker with "
+                "`.venv/bin/python scripts/rq_worker.py`, or restart the API with "
+                "`TASKSGODZILLA_INLINE_RQ_WORKER=true` for inline processing."
+            )
+        else:
+            discovery_stage = next((s for s in stages if s.key == "discovery"), None)
+            if discovery_stage and discovery_stage.status == "skipped":
+                if discovery_stage.message and "codex" in discovery_stage.message.lower():
+                    hint = (
+                        "Discovery was skipped because Codex is unavailable. Install the Codex CLI and "
+                        "re-run onboarding to generate discovery artifacts."
+                    )
     return schemas.OnboardingSummary(
         project_id=project.id,
         protocol_run_id=run.id if run else None,
         status=status,
         workspace_path=workspace_path,
+        hint=hint,
         last_event=last_event,
         stages=stages,
         events=ev_out,
@@ -1184,6 +1220,7 @@ def onboarding_summary(project_id: int, db: BaseDatabase = Depends(get_db), requ
 )
 def start_onboarding(
     project_id: int,
+    payload: schemas.OnboardingStartRequest = Body(default=schemas.OnboardingStartRequest()),
     db: BaseDatabase = Depends(get_db),
     queue: jobs.BaseQueue = Depends(get_queue),
     onboarding: OnboardingService = Depends(get_onboarding_service),
@@ -1220,9 +1257,14 @@ def start_onboarding(
         db,
         protocol_run_id=setup_run.id,
         event_type="setup_enqueued",
-        message="Project setup enqueued.",
+        message="Project setup requested.",
         request=request,
     )
+    if payload.inline:
+        # Run setup in-process for convenience when no worker is available.
+        onboarding.run_project_setup_job(project.id, protocol_run_id=setup_run.id)
+        return schemas.ActionResponse(message="Project setup ran inline.", job=None)
+
     job = queue.enqueue(
         "project_setup_job",
         {"project_id": project.id, "protocol_run_id": setup_run.id},

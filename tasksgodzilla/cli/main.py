@@ -241,6 +241,8 @@ def handle_projects(client: APIClient, args: argparse.Namespace) -> None:
             return
         print(f"Project {summary['project_id']} onboarding status: {summary['status']}")
         print(f"Workspace: {summary.get('workspace_path') or '-'}")
+        if summary.get("hint"):
+            print(f"Hint: {summary['hint']}")
         if summary.get("last_event"):
             le = summary["last_event"]
             print(f"Last event: {le['event_type']} at {format_ts(le.get('created_at'))} — {le.get('message','')}")

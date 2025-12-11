@@ -919,6 +919,7 @@ class TuiDashboard(App):
         summary = self.onboarding
         status = summary.get("status", "-")
         path = summary.get("workspace_path") or "-"
+        hint = summary.get("hint")
         last = summary.get("last_event")
         last_line = ""
         if last:
@@ -927,7 +928,9 @@ class TuiDashboard(App):
         for st in summary.get("stages", []):
             stage_bits.append(f"{st.get('name')}: {st.get('status')}")
         stages_line = "; ".join(stage_bits) if stage_bits else "stages: -"
-        text = f"Onboarding [{status}] • {path}\n{stages_line}\n{last_line}"
+        hint_line = f"Hint: {hint}" if hint else ""
+        lines = [f"Onboarding [{status}] • {path}", stages_line, last_line, hint_line]
+        text = "\n".join([l for l in lines if l])
         self._update_text(text, *target_ids)
 
     def _render_event_detail(self, item: ListItem, protocol_scope: bool) -> None:

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bootstrap
+        run: |
+          if [ -x scripts/ci/bootstrap.sh ]; then
+            scripts/ci/bootstrap.sh
+          else
+            echo "skip: scripts/ci/bootstrap.sh not found or not executable"
+          fi
+
+      - name: Lint
+        run: |
+          if [ -x scripts/ci/lint.sh ]; then
+            scripts/ci/lint.sh
+          else
+            echo "skip: scripts/ci/lint.sh not found or not executable"
+          fi
+
+      - name: Typecheck
+        run: |
+          if [ -x scripts/ci/typecheck.sh ]; then
+            scripts/ci/typecheck.sh
+          else
+            echo "skip: scripts/ci/typecheck.sh not found or not executable"
+          fi
+
+      - name: Test
+        run: |
+          if [ -x scripts/ci/test.sh ]; then
+            scripts/ci/test.sh
+          else
+            echo "skip: scripts/ci/test.sh not found or not executable"
+          fi
+
+      - name: Build
+        run: |
+          if [ -x scripts/ci/build.sh ]; then
+            scripts/ci/build.sh
+          else
+            echo "skip: scripts/ci/build.sh not found or not executable"
+          fi

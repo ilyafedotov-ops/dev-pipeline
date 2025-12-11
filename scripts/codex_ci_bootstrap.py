@@ -7,12 +7,16 @@ Replaces the previous bash wrapper so tests can import functions directly.
 
 import argparse
 import shutil
+import subprocess
 import sys
 import uuid
 from pathlib import Path
 from typing import Optional
 
-from tasksgodzilla.codex import run_process
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from tasksgodzilla.config import load_config
 from tasksgodzilla.logging import get_logger, setup_logging, json_logging_from_env, log_extra
 from tasksgodzilla.run_registry import RunRegistry
@@ -31,7 +35,13 @@ def run_codex_discovery(
     strict: bool = True,
 ):
     """
-    Invoke codex exec with the discovery prompt. Returns the completed process.
+    Invoke codex exec with the discovery prompt.
+
+    Streams Codex output to stdout while also teeing it into:
+    - the run registry log (when available)
+    - `codex-discovery.log` inside the target repo for easy inspection.
+
+    Returns the process return code.
     """
     cmd = [
         "codex",
@@ -48,16 +58,43 @@ def run_codex_discovery(
     cmd.append("-")
 
     prompt_text = prompt_file.read_text(encoding="utf-8")
-    proc = run_process(cmd, cwd=repo_root, capture_output=True, text=True, input_text=prompt_text, check=True)
+
+    repo_log_path = repo_root / "codex-discovery.log"
+    repo_log_path.parent.mkdir(parents=True, exist_ok=True)
+    run_log_file = None
     if RUN_LOG_PATH:
         RUN_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with RUN_LOG_PATH.open("a", encoding="utf-8") as f:
-            if proc.stdout:
-                f.write(proc.stdout)
-            if proc.stderr:
-                f.write("\n[stderr]\n")
-                f.write(proc.stderr)
-    return proc
+        run_log_file = RUN_LOG_PATH.open("a", encoding="utf-8")
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(repo_root),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        assert proc.stdin is not None
+        assert proc.stdout is not None
+        proc.stdin.write(prompt_text)
+        proc.stdin.close()
+
+        with repo_log_path.open("w", encoding="utf-8") as repo_log_file:
+            for line in proc.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                repo_log_file.write(line)
+                if run_log_file:
+                    run_log_file.write(line)
+
+        rc = proc.wait()
+        if rc != 0:
+            raise subprocess.CalledProcessError(rc, cmd)
+        return rc
+    finally:
+        if run_log_file:
+            run_log_file.close()
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
