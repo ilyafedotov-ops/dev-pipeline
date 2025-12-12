@@ -79,7 +79,8 @@ def audit_protocol_run_spec(
 
     spec_hash = None
     if spec:
-        errors.extend(validate_protocol_spec(base_for_validation, spec, workspace=workspace_root))
+        outputs_root = workspace_root / ".protocols" / run.protocol_name
+        errors.extend(validate_protocol_spec(base_for_validation, spec, workspace=workspace_root, outputs_base=outputs_root))
         spec_hash = protocol_spec_hash(spec)
     else:
         errors.append("protocol spec missing")

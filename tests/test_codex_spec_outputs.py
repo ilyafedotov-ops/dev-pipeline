@@ -39,8 +39,7 @@ def test_codex_spec_outputs_write_stdout(tmp_path, monkeypatch) -> None:
     db.init_schema()
 
     workspace = _make_protocol_workspace(tmp_path, "0001-demo")
-    outputs_dir = workspace / "outputs"
-    outputs_dir.mkdir(parents=True, exist_ok=True)
+    protocol_root = workspace / ".protocols" / "0001-demo"
 
     project = db.create_project("demo", str(workspace), "main", None, None)
     run = db.create_protocol_run(project.id, "0001-demo", ProtocolStatus.PLANNED, "main", str(workspace), str(workspace / ".protocols" / "0001-demo"), "demo protocol")
@@ -70,8 +69,8 @@ def test_codex_spec_outputs_write_stdout(tmp_path, monkeypatch) -> None:
 
     codex_worker.handle_execute_step(step.id, db)
 
-    exec_out = (workspace / "outputs" / "exec.md").read_text(encoding="utf-8")
-    mirror_out = (workspace / "outputs" / "mirror.md").read_text(encoding="utf-8")
+    exec_out = (protocol_root / "outputs" / "exec.md").read_text(encoding="utf-8")
+    mirror_out = (protocol_root / "outputs" / "mirror.md").read_text(encoding="utf-8")
     assert "hello world" in exec_out
     assert "hello world" in mirror_out
     events = db.list_events(run.id)

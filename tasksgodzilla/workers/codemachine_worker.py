@@ -2,6 +2,7 @@
 Worker entry point for ingesting CodeMachine workspaces.
 """
 
+import shutil
 from pathlib import Path
 
 from tasksgodzilla.codemachine import ConfigError, config_to_template_payload, load_codemachine_config
@@ -30,11 +31,25 @@ def import_codemachine_workspace(
     Read `.codemachine` config, persist the template graph to the protocol run,
     and materialize step runs from main agents.
     """
+    run = db.get_protocol_run(protocol_run_id)
     root = Path(workspace_path)
     cfg = load_codemachine_config(root)
     protocol_spec = build_spec_from_codemachine_config(cfg)
     base_for_validation = root / ".codemachine" if (root / ".codemachine").exists() else root
-    validation_errors = validate_protocol_spec(base_for_validation, protocol_spec, workspace=root)
+    outputs_root = root / ".protocols" / run.protocol_name
+    outputs_root.mkdir(parents=True, exist_ok=True)
+    (outputs_root / "outputs").mkdir(parents=True, exist_ok=True)
+    (outputs_root / "aux" / "codemachine").mkdir(parents=True, exist_ok=True)
+    legacy_outputs = root / ".codemachine" / "outputs"
+    if legacy_outputs.exists():
+        for artifact in legacy_outputs.glob("*.md"):
+            dest = outputs_root / "aux" / "codemachine" / artifact.name
+            if not dest.exists():
+                try:
+                    shutil.copy2(artifact, dest)
+                except Exception:  # pragma: no cover - best effort migration
+                    continue
+    validation_errors = validate_protocol_spec(base_for_validation, protocol_spec, workspace=root, outputs_base=outputs_root)
     if validation_errors:
         db.append_event(
             protocol_run_id,

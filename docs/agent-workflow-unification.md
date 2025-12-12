@@ -4,7 +4,7 @@ This document captures the current redundancy between Codex- and CodeMachine-dri
 
 ## What We Found
 - Two parallel execution paths: Codex (planning/exec/QA via `scripts/protocol_pipeline.py` and `codex_worker`) and CodeMachine (import/runtime adapter via `codemachine_worker`), with different prompt resolution, QA behavior (CodeMachine skips QA), and outputs.
-- Planning/import split: Codex planning creates `.protocols/<run>/` from `prompts/protocol-new.prompt.md`, while CodeMachine imports `.codemachine` templates and writes outputs to both `.protocols` and `.codemachine/outputs`, but without a shared step spec.
+- Planning/import split: Codex planning creates `.protocols/<run>/` from `prompts/protocol-new.prompt.md`, while CodeMachine imports `.codemachine` templates and writes outputs under `.protocols/<run>/` (including `aux/codemachine/**`), but without a shared step spec.
 - Engine dispatch is implicit: `handle_execute_step` branches on `is_codemachine_run` instead of using a uniform engine registry contract; policies (loop/trigger) and events differ subtly between the paths.
 - Observability gaps: token estimates, prompt versions, and QA verdicts are recorded unevenly; CodeMachine executions bypass QA and thus skip metrics and gating.
 - Best-practice delta (Context7 Better Agents): projects should have a single standardized structure, versioned prompts, scenario tests for every capability, uniform QA/evaluation, and full observability regardless of engine.
@@ -43,7 +43,7 @@ This document captures the current redundancy between Codex- and CodeMachine-dri
    - Keep CLI surfaces stable; engines and QA selection remain configurable via project defaults and env.
 
 ## Current Behavior Notes
-- Spec validation is enforced: missing `prompt_ref` or output parents emit `spec_validation_error`, block the protocol, and fail the step.
+- Spec validation is enforced: missing `prompt_ref` emits `spec_validation_error`, blocks the protocol, and fails the step.
 - Codex execution honors spec outputs: when `outputs` are present in the `StepSpec`, Codex stdout is written to the specified protocol path and any auxiliary paths (mirrors CodeMachine dual writes).
 
 ## Next Implementation Steps

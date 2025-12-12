@@ -53,6 +53,7 @@ def _resolve_outputs(
     protocol_root: Path,
     workspace_root: Path,
     *,
+    outputs_root: Optional[Path] = None,
     prefer_workspace_outputs: bool = False,
 ) -> ResolvedOutputs:
     aux_cfg = (raw_outputs or {}).get("aux") or {}
@@ -62,17 +63,14 @@ def _resolve_outputs(
         path_val = Path(value)
         if path_val.is_absolute():
             return path_val
-        candidates = (
-            [
-                (workspace_root / path_val).resolve(),
-                (protocol_root / path_val).resolve(),
-            ]
-            if prefer_workspace
-            else [
-                (protocol_root / path_val).resolve(),
-                (workspace_root / path_val).resolve(),
-            ]
-        )
+        primary_root = outputs_root or protocol_root
+        candidates: List[Path] = []
+        if prefer_workspace:
+            candidates.extend([(workspace_root / path_val).resolve(), (primary_root / path_val).resolve()])
+        else:
+            candidates.extend([(primary_root / path_val).resolve(), (workspace_root / path_val).resolve()])
+        if primary_root != protocol_root:
+            candidates.append((protocol_root / path_val).resolve())
         for cand in candidates:
             if cand.parent.exists():
                 return cand
@@ -98,6 +96,7 @@ def resolve_prompt_and_outputs(
     workspace_root: Path,
     *,
     protocol_spec: Optional[Dict[str, Any]] = None,
+    outputs_root: Optional[Path] = None,
     default_engine_id: str = "codex",
     default_model: Optional[str] = None,
 ) -> StepResolution:
@@ -117,8 +116,14 @@ def resolve_prompt_and_outputs(
     prompt_text = _read_prompt_text(prompt_path)
 
     outputs_cfg = step_spec.get("outputs") or {}
-    prefer_workspace_outputs = protocol_root.name == ".codemachine"
-    resolved_outputs = _resolve_outputs(outputs_cfg, protocol_root, workspace_root, prefer_workspace_outputs=prefer_workspace_outputs)
+    prefer_workspace_outputs = protocol_root.name == ".codemachine" and outputs_root is None
+    resolved_outputs = _resolve_outputs(
+        outputs_cfg,
+        protocol_root,
+        workspace_root,
+        outputs_root=outputs_root,
+        prefer_workspace_outputs=prefer_workspace_outputs,
+    )
     qa_cfg = step_spec.get("qa") or {}
     policies = list(step_spec.get("policies") or [])
     spec_hash_val = protocol_spec_hash(protocol_spec) if protocol_spec else None

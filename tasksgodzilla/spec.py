@@ -200,7 +200,7 @@ def build_spec_from_codemachine_config(
                 "engine_id": agent.engine_id,
                 "model": agent.model,
                 "prompt_ref": agent.prompt_path,
-                "outputs": {"aux": {"codemachine": f"outputs/{agent.id}.md"}},
+                "outputs": {"aux": {"codemachine": f"aux/codemachine/{agent.id}.md"}},
                 "step_type": infer_step_type_from_name(step_name),
                 "policies": _policies_for_agent(agent, cfg.modules),
                 "qa": {"policy": qa_policy, "prompt": qa_prompt},
@@ -259,7 +259,13 @@ def get_step_spec(template_config: Optional[dict], step_name: str) -> Optional[D
     return None
 
 
-def validate_step_spec_paths(base: Path, step_spec: Dict[str, Any], workspace: Optional[Path] = None) -> List[str]:
+def validate_step_spec_paths(
+    base: Path,
+    step_spec: Dict[str, Any],
+    workspace: Optional[Path] = None,
+    *,
+    outputs_base: Optional[Path] = None,
+) -> List[str]:
     """
     Validate prompt_ref and output paths exist. When relative, paths are resolved
     against the protocol base and the workspace root to support prompts/outputs
@@ -268,6 +274,7 @@ def validate_step_spec_paths(base: Path, step_spec: Dict[str, Any], workspace: O
     """
     errors: List[str] = []
     workspace_root = workspace or base
+    outputs_root = (outputs_base or base).resolve()
     prompt_ref = step_spec.get("prompt_ref")
     step_name = step_spec.get("name") or step_spec.get("id") or "(unknown)"
     if prompt_ref:
@@ -283,19 +290,26 @@ def validate_step_spec_paths(base: Path, step_spec: Dict[str, Any], workspace: O
     if isinstance(outputs_cfg, dict):
         protocol_output = outputs_cfg.get("protocol")
         if protocol_output:
-            proto_path = _resolve_output_path(protocol_output, base, workspace_root)
-            if not proto_path.parent.exists():
+            proto_path = _resolve_output_path(protocol_output, outputs_root, workspace_root)
+            if Path(str(protocol_output)).is_absolute() and not proto_path.parent.exists():
                 errors.append(f"output parent missing: {proto_path.parent}")
         aux_outputs = outputs_cfg.get("aux") if isinstance(outputs_cfg.get("aux"), dict) else {}
         if isinstance(aux_outputs, dict):
             for key, path_val in aux_outputs.items():
-                aux_path = _resolve_output_path(str(path_val), base, workspace_root)
-                if not aux_path.parent.exists():
+                aux_path = _resolve_output_path(str(path_val), outputs_root, workspace_root)
+                if Path(str(path_val)).is_absolute() and not aux_path.parent.exists():
                     errors.append(f"output parent missing ({key}): {aux_path.parent}")
     return errors
 
 
-def validate_protocol_spec(base: Path, spec: Dict[str, Any], workspace: Optional[Path] = None, schema: Optional[dict] = None) -> List[str]:
+def validate_protocol_spec(
+    base: Path,
+    spec: Dict[str, Any],
+    workspace: Optional[Path] = None,
+    schema: Optional[dict] = None,
+    *,
+    outputs_base: Optional[Path] = None,
+) -> List[str]:
     """
     Validate all steps in a protocol spec relative to a base path.
     """
@@ -323,7 +337,7 @@ def validate_protocol_spec(base: Path, spec: Dict[str, Any], workspace: Optional
         return errors
     for step in steps:
         step_name = str(step.get("name") or step.get("id") or "(unknown)")
-        errs = validate_step_spec_paths(base, step, workspace=workspace)
+        errs = validate_step_spec_paths(base, step, workspace=workspace, outputs_base=outputs_base)
         errors.extend([f"{step_name}: {e}" for e in errs])
     return errors
 

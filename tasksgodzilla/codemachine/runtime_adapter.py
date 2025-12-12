@@ -128,15 +128,15 @@ def output_paths(
     agent_id: str,
 ) -> Tuple[Path, Path]:
     """
-    Compute protocol (.protocols) and `.codemachine/outputs` destinations for a step.
+    Compute protocol (.protocols) and aux (codemachine) destinations for a step.
     """
     protocol_root = workspace_root / ".protocols" / run.protocol_name
     protocol_root.mkdir(parents=True, exist_ok=True)
 
-    codemachine_outputs = codemachine_root / "outputs"
-    codemachine_outputs.mkdir(parents=True, exist_ok=True)
+    codemachine_aux_root = protocol_root / "aux" / "codemachine"
+    codemachine_aux_root.mkdir(parents=True, exist_ok=True)
 
     filename = step.step_name if step.step_name.endswith(".md") else f"{step.step_name}.md"
     protocol_path = protocol_root / filename
-    codemachine_path = codemachine_outputs / f"{agent_id}.md"
+    codemachine_path = codemachine_aux_root / f"{agent_id}.md"
     return protocol_path, codemachine_path

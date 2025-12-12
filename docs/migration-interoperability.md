@@ -92,7 +92,7 @@ This document defines how to integrate CodeMachine-CLI’s workflow/agent model 
 - **CodeMachine Runtime Adapter (new worker layer)**
   - Reads `.codemachine/template.json` and `config/*.js`.
   - Translates agent graphs and modules into our internal workflow representation (`StepRun` sequence, dependencies, loop/trigger rules).
-  - Orchestrates per-step execution via the engine layer and writes artifacts to both `.protocols/NNNN-*` and `.codemachine/outputs` (when present).
+  - Orchestrates per-step execution via the engine layer and writes artifacts under `.protocols/NNNN-*` (including `aux/codemachine/**`).
 
 - **Engine Abstraction Layer (new)**
   - Defines a uniform interface for CLI-based engines (Codex, Claude Code, Cursor, CCR, OpenCode, Auggie).
@@ -119,7 +119,7 @@ This document defines how to integrate CodeMachine-CLI’s workflow/agent model 
    - Adapter maps main agents to ordered `StepRun`s; associates modules (loop/trigger) to relevant points in the sequence.
 5. **Execution**
    - For each `StepRun`, the engine layer calls the configured engine, passing prompts and context (spec, prior outputs, git state).
-   - Outputs are written to `.protocols/NNNN-*` and `.codemachine/outputs` as appropriate.
+  - Outputs are written under `.protocols/NNNN-*` (including `aux/codemachine/**`).
 6. **Loop/trigger behavior**
    - Module outputs (e.g., `check-task`, `iteration-checker`) determine whether to:
      - Mark step completed and proceed.
@@ -198,7 +198,7 @@ This document defines how to integrate CodeMachine-CLI’s workflow/agent model 
   - Implement adapter that:
     - Builds `ProtocolRun` + ordered `StepRun`s from a template.
     - Executes via Codex only.
-    - Writes artifacts to `.protocols/NNNN-*` + `.codemachine/outputs`.
+    - Writes artifacts under `.protocols/NNNN-*` (including `aux/codemachine/**`).
     - Honors simple loop/trigger rules for a single module.
   - Demo end-to-end execution for the PoC template; capture events/metrics.
 
@@ -255,7 +255,7 @@ This document defines how to integrate CodeMachine-CLI’s workflow/agent model 
   1. Parse `config/*.js` and `template.json`; store agent/module graph as template metadata.
   2. Create a `ProtocolRun` with mapped steps (main agents only); associate a single loop module (e.g., task verification).
   3. Execute via adapter using Codex as the sole engine; permit loop decisions for the verification module.
-  4. Write artifacts to `.protocols/NNNN-*` and `.codemachine/outputs`.
+  4. Write artifacts under `.protocols/NNNN-*` (including `aux/codemachine/**`).
   5. Capture `Event`s and metrics; verify that observed transitions match the intended CodeMachine behavior.
   6. Produce a short PoC report: success/failure, loop decisions, artifact paths, metrics snapshot.
 
@@ -537,7 +537,7 @@ These implementation notes are intended as the concrete blueprint for wiring Cod
 - **Engine + policy per step**: `StepRun` now stores `engine_id`, `policy` (list/dict), and `runtime_state`; schema added via Alembic `0002/0003`.
 - **Strict module attachment**: Modules attach only when explicitly referenced (agent `moduleId/module/module_id`, module `targetAgentId`, or trigger `trigger_agent_id`). All matching modules attach; no default loop fallback.
 - **Console hints**: Protocol detail shows template name/version; steps table shows engine and attached policies.
-- **Runtime adapter**: Workers detect CodeMachine runs, resolve agent prompts with placeholders, execute via the engine registry, and write artifacts to both `.protocols/<run>/` and `.codemachine/outputs/`. Codex QA is skipped for CodeMachine runs (triggers still fire).
+- **Runtime adapter**: Workers detect CodeMachine runs, resolve agent prompts with placeholders, execute via the engine registry, and write artifacts under `.protocols/<run>/` (including `aux/codemachine/**`).
 - **Condition-aware policies**: loop/trigger policies honor `condition/conditions` when the reason matches; skipped evaluations emit `loop_condition_skipped`/`trigger_condition_skipped` events for observability.
 - **Inline triggers with fakeredis**: When Redis is configured with `fakeredis://`, trigger policies execute inline to mirror the dev/test expectation.
 

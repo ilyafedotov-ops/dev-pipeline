@@ -235,7 +235,7 @@ graph TD
   Runner --> Registry["Engine registry\n(Codex, CodeMachine, ... engines)"]
   Runner --> Outputs["Outputs map\n(.protocols + aux paths)"]
   Outputs --> Prot[".protocols/NNNN-[task] artifacts"]
-  Outputs --> Aux["Aux outputs (e.g., .codemachine/outputs)"]
+  Outputs --> Aux["Aux outputs (.protocols/.../aux/**)"]
   Services --> Git["Git worktrees/branches"]
   Services --> CI["CI (GitHub/GitLab)"]
   CI --> Webhooks["Webhooks / report.sh"]

@@ -192,7 +192,14 @@ class ExecutionService:
             workspace_root = worktree
             protocol_root = worktree / ".protocols" / run.protocol_name
 
-        spec_errors = validate_step_spec_paths(protocol_root, step_spec or {}, workspace=workspace_root)
+        outputs_root = workspace_root / ".protocols" / run.protocol_name
+        outputs_root.mkdir(parents=True, exist_ok=True)
+        (outputs_root / "outputs").mkdir(parents=True, exist_ok=True)
+        (outputs_root / "aux").mkdir(parents=True, exist_ok=True)
+        if codemachine:
+            (outputs_root / "aux" / "codemachine").mkdir(parents=True, exist_ok=True)
+
+        spec_errors = validate_step_spec_paths(protocol_root, step_spec or {}, workspace=workspace_root, outputs_base=outputs_root)
         if spec_errors:
             for err in spec_errors:
                 self.db.append_event(
@@ -211,6 +218,7 @@ class ExecutionService:
             protocol_root=protocol_root,
             workspace_root=workspace_root,
             protocol_spec=protocol_spec,
+            outputs_root=outputs_root,
             default_engine_id=step.engine_id or registry.get_default().metadata.id,
         )
         kind = "codemachine" if codemachine else "codex"

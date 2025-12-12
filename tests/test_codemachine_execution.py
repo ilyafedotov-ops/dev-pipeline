@@ -53,7 +53,6 @@ def _make_workspace(tmp_path: Path) -> Path:
     workspace = tmp_path / "workspace"
     config_dir = workspace / ".codemachine" / "config"
     (workspace / ".codemachine" / "outputs").mkdir(parents=True, exist_ok=True)
-    (workspace / "outputs").mkdir(parents=True, exist_ok=True)
     _write(
         config_dir / "main.agents.js",
         """
@@ -85,7 +84,7 @@ def test_codemachine_execute_writes_outputs_and_events(tmp_path) -> None:
     assert step_after.status == StepStatus.NEEDS_QA
 
     protocol_output = workspace / ".protocols" / run.protocol_name / f"{step.step_name}.md"
-    codemachine_output = workspace / "outputs" / "build.md"
+    codemachine_output = workspace / ".protocols" / run.protocol_name / "aux" / "codemachine" / "build.md"
     assert protocol_output.exists()
     assert codemachine_output.exists()
     assert "output for" in protocol_output.read_text(encoding="utf-8")
@@ -191,7 +190,7 @@ def test_codemachine_exec_uses_spec_prompt_outside_codemachine(tmp_path) -> None
     codex_worker.handle_execute_step(step.id, db)
 
     protocol_output = workspace / ".protocols" / run.protocol_name / f"{step.step_name}.md"
-    codemachine_output = workspace / "outputs" / "build.md"
+    codemachine_output = workspace / ".protocols" / run.protocol_name / "aux" / "codemachine" / "build.md"
     assert "External prompt" in protocol_output.read_text(encoding="utf-8")
     assert "External prompt" in codemachine_output.read_text(encoding="utf-8")
 
@@ -222,8 +221,8 @@ def test_codemachine_outputs_follow_spec_map(tmp_path) -> None:
     step = db.list_step_runs(run.id)[0]
     codex_worker.handle_execute_step(step.id, db)
 
-    proto_out = workspace / "outputs" / "spec-protocol.md"
-    cm_out = workspace / "outputs" / "spec-cm.md"
+    proto_out = workspace / ".protocols" / run.protocol_name / "outputs" / "spec-protocol.md"
+    cm_out = workspace / ".protocols" / run.protocol_name / "outputs" / "spec-cm.md"
     assert proto_out.exists()
     assert cm_out.exists()
     assert proto_out.read_text(encoding="utf-8")
