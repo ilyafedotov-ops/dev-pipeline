@@ -1,4 +1,6 @@
 import html
+import asyncio
+import os
 import time
 import threading
 import uuid
@@ -9,14 +11,17 @@ from typing import Optional
 import json
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, Query
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import RedirectResponse, JSONResponse
 
 from tasksgodzilla import jobs
 from tasksgodzilla.config import load_config
 from tasksgodzilla.domain import ProtocolStatus, StepStatus
 from tasksgodzilla.codemachine import ConfigError, config_to_template_payload, load_codemachine_config
+from tasksgodzilla.codex import run_process
 from tasksgodzilla.logging import log_context, log_extra, setup_logging, json_logging_from_env
 from tasksgodzilla.metrics import metrics
 from tasksgodzilla.storage import BaseDatabase, create_database
@@ -33,6 +38,7 @@ from tasksgodzilla.services.policy import (
 from hmac import compare_digest
 import hmac
 import hashlib
+from urllib.parse import quote
 
 from . import schemas
 from tasksgodzilla.git_utils import delete_remote_branch, list_remote_branches, resolve_project_repo_path
@@ -40,6 +46,11 @@ from tasksgodzilla.project_setup import local_repo_dir
 
 logger = setup_logging(json_output=json_logging_from_env())
 auth_scheme = HTTPBearer(auto_error=False)
+
+try:  # Optional until OIDC is configured, but installed in requirements.
+    from authlib.integrations.starlette_client import OAuth
+except Exception:  # pragma: no cover - defensive for minimal deployments
+    OAuth = None  # type: ignore[assignment]
 
 ONBOARDING_STAGE_DEFS = [
     {"key": "resolve", "name": "Resolve/Clone"},
@@ -89,6 +100,21 @@ async def lifespan(app: FastAPI):
     app.state.queue = queue  # type: ignore[attr-defined]
     app.state.metrics = metrics  # type: ignore[attr-defined]
     app.state.worker = None  # type: ignore[attr-defined]
+    app.state.oauth = None  # type: ignore[attr-defined]
+    if getattr(config, "oidc_enabled", False):
+        if OAuth is None:
+            logger.error("OIDC configured but authlib is unavailable", extra={"request_id": "-"})
+        else:
+            issuer = (config.oidc_issuer or "").rstrip("/")
+            oauth = OAuth()
+            oauth.register(
+                name="oidc",
+                client_id=config.oidc_client_id,
+                client_secret=config.oidc_client_secret,
+                server_metadata_url=f"{issuer}/.well-known/openid-configuration",
+                client_kwargs={"scope": config.oidc_scopes},
+            )
+            app.state.oauth = oauth  # type: ignore[attr-defined]
     worker = None
     spec_audit_stop: Optional[threading.Event] = None
     spec_audit_thread: Optional[threading.Thread] = None
@@ -145,6 +171,23 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="TasksGodzilla Orchestrator API", version="0.1.0", lifespan=lifespan)
+
+_SESSION_SECRET = os.environ.get("TASKSGODZILLA_SESSION_SECRET") or str(uuid.uuid4())
+_SESSION_COOKIE_SECURE = os.environ.get("TASKSGODZILLA_SESSION_COOKIE_SECURE", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_SESSION_SECRET,
+    session_cookie="tgz_session",
+    same_site="lax",
+    https_only=_SESSION_COOKIE_SECURE,
+    max_age=60 * 60 * 24 * 7,
+)
+
 frontend_dir = Path(__file__).resolve().parent / "frontend"
 if frontend_dir.exists():
     app.mount("/console/static", StaticFiles(directory=frontend_dir), name="console-static")
@@ -204,11 +247,26 @@ def require_auth(
     credentials: HTTPAuthorizationCredentials = Depends(auth_scheme),
 ) -> None:
     config = request.app.state.config  # type: ignore[attr-defined]
+    # Prefer OIDC session auth for the web console when configured.
+    if getattr(config, "oidc_enabled", False):
+        try:
+            user = getattr(request, "session", {}).get("user")
+        except Exception:  # pragma: no cover - defensive
+            user = None
+        if user:
+            return
+
+    # Backward compatible admin/service token (still allowed when set).
     token = getattr(config, "api_token", None)
-    if not token:
+    if token:
+        if credentials is None or credentials.scheme.lower() != "bearer" or credentials.credentials != token:
+            raise HTTPException(status_code=401, detail="Unauthorized")
         return
-    if credentials is None or credentials.scheme.lower() != "bearer" or credentials.credentials != token:
+
+    # No token configured: allow unauthenticated API access only when OIDC is not enabled.
+    if getattr(config, "oidc_enabled", False):
         raise HTTPException(status_code=401, detail="Unauthorized")
+    return
 
 
 def require_project_access(project_id: int, request: Request, db: BaseDatabase) -> None:
@@ -235,6 +293,79 @@ def verify_signature(secret: str, body: bytes, signature_header: str) -> bool:
         signature = signature_header
     digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
     return compare_digest(digest, signature)
+
+
+def require_git_write_access(request: Request) -> None:
+    """
+    RBAC gate for destructive git operations (e.g., deleting remote branches).
+    - When OIDC is enabled: requires a privileged role.
+    - When using the admin bearer token: always allowed.
+    """
+    config = request.app.state.config  # type: ignore[attr-defined]
+    admin_token = getattr(config, "api_token", None)
+    if admin_token and request.headers.get("Authorization") == f"Bearer {admin_token}":
+        return
+    if not getattr(config, "oidc_enabled", False):
+        # No RBAC model available; keep behavior backward compatible.
+        return
+    try:
+        user = getattr(request, "session", {}).get("user") or {}
+        roles = user.get("roles") or []
+        if isinstance(roles, str):
+            roles = [roles]
+        roles_set = {str(r).lower() for r in roles}
+    except Exception:
+        roles_set = set()
+    allowed = {"admin", "maintainer", "owner"}
+    if roles_set & allowed:
+        return
+    raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _repo_web_base_from_git_url(git_url: str) -> Optional[str]:
+    """
+    Best-effort normalize git remotes into a web base URL.
+    Supports common GitHub/GitLab https + ssh formats.
+    """
+    url = (git_url or "").strip()
+    if not url:
+        return None
+    # Local path
+    if url.startswith("/") or url.startswith("."):
+        return None
+    host = None
+    owner_repo = None
+    if url.startswith("http"):
+        if "github.com" in url:
+            host = "github.com"
+        elif "gitlab.com" in url:
+            host = "gitlab.com"
+        if host:
+            owner_repo = url.split(f"{host}/", 1)[-1]
+    elif url.startswith("git@"):
+        # git@github.com:owner/repo.git
+        if "github.com" in url:
+            host = "github.com"
+        elif "gitlab.com" in url:
+            host = "gitlab.com"
+        if host and ":" in url:
+            owner_repo = url.split(":", 1)[-1]
+    if not host or not owner_repo:
+        return None
+    owner_repo = owner_repo.rstrip("/").removesuffix(".git")
+    if "/" not in owner_repo:
+        return None
+    return f"https://{host}/{owner_repo}"
+
+
+def _pr_url(repo_web_base: Optional[str], provider: Optional[str], pr_number: Optional[int]) -> Optional[str]:
+    if not repo_web_base or not provider or not pr_number:
+        return None
+    if provider == "github":
+        return f"{repo_web_base}/pull/{pr_number}"
+    if provider == "gitlab":
+        return f"{repo_web_base}/-/merge_requests/{pr_number}"
+    return None
 
 
 def record_event(
@@ -473,6 +604,121 @@ def console() -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
+def _get_console2_dist_dir() -> Optional[Path]:
+    # Prefer a checked-in build output (if present), otherwise use the dev build under web/console/dist.
+    api_dir = Path(__file__).resolve().parent
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        api_dir / "frontend_dist",
+        repo_root / "web" / "console" / "dist",
+    ]
+    for d in candidates:
+        if (d / "index.html").exists():
+            return d
+    return None
+
+
+_console2_dist_dir = _get_console2_dist_dir()
+if _console2_dist_dir and (_console2_dist_dir / "assets").exists():
+    app.mount(
+        "/console2/assets",
+        StaticFiles(directory=_console2_dist_dir / "assets"),
+        name="console2-assets",
+    )
+
+
+def _oidc_required(request: Request) -> bool:
+    config = request.app.state.config  # type: ignore[attr-defined]
+    return bool(getattr(config, "oidc_enabled", False))
+
+
+@app.get("/auth/login")
+async def auth_login(request: Request, next: Optional[str] = None):
+    config = request.app.state.config  # type: ignore[attr-defined]
+    oauth = getattr(request.app.state, "oauth", None)  # type: ignore[attr-defined]
+    if not getattr(config, "oidc_enabled", False):
+        raise HTTPException(status_code=404, detail="OIDC not configured")
+    if oauth is None:
+        raise HTTPException(status_code=500, detail="OIDC client not initialized")
+    if next:
+        try:
+            request.session["post_login_redirect"] = next
+        except Exception:
+            pass
+    redirect_uri = str(request.url_for("auth_callback"))
+    return await oauth.oidc.authorize_redirect(request, redirect_uri)  # type: ignore[union-attr]
+
+
+@app.get("/auth/callback", name="auth_callback")
+async def auth_callback(request: Request):
+    config = request.app.state.config  # type: ignore[attr-defined]
+    oauth = getattr(request.app.state, "oauth", None)  # type: ignore[attr-defined]
+    if not getattr(config, "oidc_enabled", False):
+        raise HTTPException(status_code=404, detail="OIDC not configured")
+    if oauth is None:
+        raise HTTPException(status_code=500, detail="OIDC client not initialized")
+    token = await oauth.oidc.authorize_access_token(request)  # type: ignore[union-attr]
+    userinfo = await oauth.oidc.parse_id_token(request, token)  # type: ignore[union-attr]
+    user = {
+        "sub": userinfo.get("sub"),
+        "email": userinfo.get("email"),
+        "name": userinfo.get("name") or userinfo.get("preferred_username"),
+        "picture": userinfo.get("picture"),
+        # Optional RBAC sources (provider-dependent).
+        "roles": userinfo.get("roles") or userinfo.get("groups") or [],
+    }
+    try:
+        request.session["user"] = user
+    except Exception:
+        pass
+    try:
+        next_url = request.session.pop("post_login_redirect", None)
+    except Exception:
+        next_url = None
+    return RedirectResponse(url=next_url or "/console2")
+
+
+@app.get("/auth/me")
+def auth_me(request: Request):
+    config = request.app.state.config  # type: ignore[attr-defined]
+    if not getattr(config, "oidc_enabled", False):
+        return JSONResponse(content={"enabled": False, "user": None})
+    try:
+        user = getattr(request, "session", {}).get("user")
+    except Exception:
+        user = None
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return JSONResponse(content={"enabled": True, "user": user})
+
+
+@app.post("/auth/logout")
+def auth_logout(request: Request):
+    try:
+        request.session.clear()
+    except Exception:
+        pass
+    return JSONResponse(content={"ok": True})
+
+
+@app.get("/console2")
+@app.get("/console2/{path:path}")
+def console2(request: Request, path: str = ""):
+    dist_dir = _get_console2_dist_dir()
+    if not dist_dir:
+        raise HTTPException(status_code=404, detail="Console2 assets not available")
+    if _oidc_required(request):
+        try:
+            user = getattr(request, "session", {}).get("user")
+        except Exception:
+            user = None
+        if not user:
+            next_url = "/console2" + (f"/{path}" if path else "")
+            return RedirectResponse(url=f"/auth/login?next={quote(next_url, safe='')}")
+    html_text = (dist_dir / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(content=html_text)
+
+
 @app.get("/console/runs", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def codex_runs_console(
     limit: int = Query(default=100, ge=1, le=500),
@@ -688,6 +934,99 @@ def get_codex_run_logs(run_id: str, db: BaseDatabase = Depends(get_db)) -> Plain
     except Exception as exc:  # pragma: no cover - filesystem edge
         raise HTTPException(status_code=500, detail=f"Unable to read log file: {exc}") from exc
     return PlainTextResponse(content=content or "")
+
+
+@app.get(
+    "/codex/runs/{run_id}/logs/tail",
+    response_model=schemas.LogTailResponse,
+    dependencies=[Depends(require_auth)],
+)
+def tail_codex_run_logs(
+    run_id: str,
+    offset: int = Query(default=0, ge=0),
+    max_bytes: int = Query(default=65536, ge=1024, le=1_000_000),
+    db: BaseDatabase = Depends(get_db),
+) -> schemas.LogTailResponse:
+    """
+    Incremental log reader for building a live console.
+    Clients can poll with an offset and append the returned chunk.
+    """
+    try:
+        run = db.get_codex_run(run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not run.log_path:
+        raise HTTPException(status_code=404, detail="Log path not recorded")
+    log_path = Path(run.log_path)
+    if not log_path.exists():
+        raise HTTPException(status_code=404, detail="Log file not found")
+
+    try:
+        size = log_path.stat().st_size
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Unable to stat log file: {exc}") from exc
+
+    safe_offset = min(offset, size)
+    try:
+        with log_path.open("rb") as f:
+            f.seek(safe_offset)
+            data = f.read(max_bytes)
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Unable to read log file: {exc}") from exc
+
+    next_offset = safe_offset + len(data)
+    eof = next_offset >= size
+    chunk = data.decode("utf-8", errors="replace")
+    return schemas.LogTailResponse(
+        run_id=run_id,
+        offset=safe_offset,
+        next_offset=next_offset,
+        eof=eof,
+        chunk=chunk,
+    )
+
+
+@app.get("/codex/runs/{run_id}/logs/stream", dependencies=[Depends(require_auth)])
+async def stream_codex_run_logs(
+    run_id: str,
+    request: Request,
+    offset: int = Query(default=0, ge=0),
+    poll_interval_ms: int = Query(default=1000, ge=200, le=10000),
+    db: BaseDatabase = Depends(get_db),
+) -> StreamingResponse:
+    """
+    SSE log stream for operator-grade live tailing.
+    Emits JSON payloads of the same shape as /logs/tail.
+    """
+    try:
+        run = db.get_codex_run(run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not run.log_path:
+        raise HTTPException(status_code=404, detail="Log path not recorded")
+    log_path = Path(run.log_path)
+    if not log_path.exists():
+        raise HTTPException(status_code=404, detail="Log file not found")
+
+    async def _gen():
+        current = offset
+        while True:
+            if await request.is_disconnected():
+                break
+            payload = await asyncio.to_thread(
+                tail_codex_run_logs,
+                run_id=run_id,
+                offset=current,
+                max_bytes=65536,
+                db=db,
+            )
+            current = payload.next_offset
+            if payload.chunk:
+                data = json.dumps(payload.model_dump(), ensure_ascii=False)
+                yield f"event: log\ndata: {data}\n\n"
+            await asyncio.sleep(poll_interval_ms / 1000.0)
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
 
 
 @app.get(
@@ -928,6 +1267,7 @@ def delete_branch(
 ):
     if request:
         require_project_access(project_id, request, db)
+        require_git_write_access(request)
     if not payload.confirm:
         raise HTTPException(status_code=400, detail="confirm=true required to delete a remote branch")
     try:
@@ -1124,6 +1464,150 @@ def get_protocol(protocol_run_id: int, db: BaseDatabase = Depends(get_db), reque
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _protocol_out(run, db=db)
+
+
+@app.get(
+    "/protocols/{protocol_run_id}/ci/summary",
+    response_model=schemas.CISummaryOut,
+    dependencies=[Depends(require_auth)],
+)
+def protocol_ci_summary(
+    protocol_run_id: int,
+    db: BaseDatabase = Depends(get_db),
+    request: Request = None,
+) -> schemas.CISummaryOut:
+    if request:
+        project_id = get_protocol_project(protocol_run_id, db)
+        require_project_access(project_id, request, db)
+    run = db.get_protocol_run(protocol_run_id)
+    project = db.get_project(run.project_id)
+    repo_web_base = _repo_web_base_from_git_url(project.git_url)
+
+    provider: Optional[str] = None
+    pr_number: Optional[int] = None
+    sha: Optional[str] = None
+    status: Optional[str] = None
+    conclusion: Optional[str] = None
+    check_name: Optional[str] = None
+    last_event_type: Optional[str] = None
+    last_event_at: Optional[str] = None
+
+    interesting = {
+        "workflow_run",
+        "check_suite",
+        "check_run",
+        "pull_request",
+        "status",
+        "merge_request",
+        "pipeline",
+    }
+    for ev in reversed(db.list_events(protocol_run_id)):
+        if ev.event_type not in interesting:
+            continue
+        meta = ev.metadata if isinstance(ev.metadata, dict) else {}
+        # Prefer explicit provider if present.
+        provider = meta.get("provider") or provider
+        if not provider:
+            provider = "gitlab" if ev.event_type in {"merge_request", "pipeline"} else "github"
+        pr_number = meta.get("pr_number") if meta.get("pr_number") is not None else pr_number
+        check_name = meta.get("check_name") if meta.get("check_name") is not None else check_name
+        sha = meta.get("sha") if meta.get("sha") is not None else sha
+        status = meta.get("status") if meta.get("status") is not None else status
+        conclusion = meta.get("conclusion") if meta.get("conclusion") is not None else conclusion
+        last_event_type = ev.event_type
+        last_event_at = ev.created_at
+        break
+
+    pr_int: Optional[int] = None
+    if isinstance(pr_number, int):
+        pr_int = pr_number
+    else:
+        try:
+            pr_int = int(str(pr_number)) if pr_number is not None else None
+        except Exception:
+            pr_int = None
+
+    return schemas.CISummaryOut(
+        protocol_run_id=protocol_run_id,
+        provider=provider,
+        pr_number=pr_int,
+        pr_url=_pr_url(repo_web_base, provider, pr_int),
+        sha=str(sha) if sha else None,
+        status=str(status) if status else None,
+        conclusion=str(conclusion) if conclusion else None,
+        check_name=str(check_name) if check_name else None,
+        last_event_type=last_event_type,
+        last_event_at=last_event_at,
+    )
+
+
+@app.get(
+    "/protocols/{protocol_run_id}/git/status",
+    response_model=schemas.GitStatusOut,
+    dependencies=[Depends(require_auth)],
+)
+def protocol_git_status(
+    protocol_run_id: int,
+    db: BaseDatabase = Depends(get_db),
+    request: Request = None,
+) -> schemas.GitStatusOut:
+    if request:
+        project_id = get_protocol_project(protocol_run_id, db)
+        require_project_access(project_id, request, db)
+    run = db.get_protocol_run(protocol_run_id)
+    project = db.get_project(run.project_id)
+    try:
+        repo_root = resolve_project_repo_path(
+            project.git_url,
+            project.name,
+            project.local_path,
+            project_id=project.id,
+            clone_if_missing=False,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    worktree_path = Path(run.worktree_path) if run.worktree_path else repo_root
+    if not worktree_path.exists():
+        raise HTTPException(status_code=409, detail="Worktree path not available")
+
+    if not (worktree_path / ".git").exists():
+        return schemas.GitStatusOut(
+            protocol_run_id=protocol_run_id,
+            repo_root=str(repo_root),
+            worktree_path=str(worktree_path),
+            branch=None,
+            head_sha=None,
+            dirty=False,
+            changed_files=[],
+        )
+
+    try:
+        branch_res = run_process(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path, capture_output=True, text=True)
+        head_res = run_process(["git", "rev-parse", "HEAD"], cwd=worktree_path, capture_output=True, text=True)
+        status_res = run_process(["git", "status", "--porcelain"], cwd=worktree_path, capture_output=True, text=True)
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Unable to query git status: {exc}") from exc
+
+    branch = (branch_res.stdout or "").strip() if hasattr(branch_res, "stdout") else None
+    head_sha = (head_res.stdout or "").strip() if hasattr(head_res, "stdout") else None
+    raw_status = (status_res.stdout or "").strip() if hasattr(status_res, "stdout") else ""
+    changed_files = []
+    if raw_status:
+        for line in raw_status.splitlines():
+            # Format: XY path
+            if len(line) >= 4:
+                changed_files.append(line[3:])
+
+    return schemas.GitStatusOut(
+        protocol_run_id=protocol_run_id,
+        repo_root=str(repo_root),
+        worktree_path=str(worktree_path),
+        branch=branch or None,
+        head_sha=head_sha or None,
+        dirty=bool(raw_status),
+        changed_files=changed_files,
+    )
 
 
 @app.post("/protocols/{protocol_run_id}/actions/start", response_model=schemas.ActionResponse, dependencies=[Depends(require_auth)])

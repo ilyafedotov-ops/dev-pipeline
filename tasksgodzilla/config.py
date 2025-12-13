@@ -28,6 +28,13 @@ class Config(BaseModel):
     redis_url: Optional[str] = Field(default=None)
     log_level: str = Field(default="INFO")
     webhook_token: Optional[str] = Field(default=None)
+    # OIDC / SSO (optional; enables cookie-based auth for the web console)
+    oidc_issuer: Optional[str] = Field(default=None)
+    oidc_client_id: Optional[str] = Field(default=None)
+    oidc_client_secret: Optional[str] = Field(default=None)
+    oidc_scopes: str = Field(default="openid profile email")
+    session_secret: Optional[str] = Field(default=None)
+    session_cookie_secure: bool = Field(default=False)
 
     planning_model: Optional[str] = Field(default=None)
     decompose_model: Optional[str] = Field(default=None)
@@ -63,6 +70,10 @@ class Config(BaseModel):
     def is_postgres(self) -> bool:
         return bool(self.db_url and self.db_url.startswith("postgres"))
 
+    @property
+    def oidc_enabled(self) -> bool:
+        return bool(self.oidc_issuer and self.oidc_client_id and self.oidc_client_secret)
+
 
 def load_config() -> Config:
     """
@@ -75,6 +86,17 @@ def load_config() -> Config:
     redis_url = os.environ.get("TASKSGODZILLA_REDIS_URL")
     log_level = os.environ.get("TASKSGODZILLA_LOG_LEVEL", "INFO")
     webhook_token = os.environ.get("TASKSGODZILLA_WEBHOOK_TOKEN")
+    oidc_issuer = os.environ.get("TASKSGODZILLA_OIDC_ISSUER")
+    oidc_client_id = os.environ.get("TASKSGODZILLA_OIDC_CLIENT_ID")
+    oidc_client_secret = os.environ.get("TASKSGODZILLA_OIDC_CLIENT_SECRET")
+    oidc_scopes = os.environ.get("TASKSGODZILLA_OIDC_SCOPES", "openid profile email")
+    session_secret = os.environ.get("TASKSGODZILLA_SESSION_SECRET")
+    session_cookie_secure = os.environ.get("TASKSGODZILLA_SESSION_COOKIE_SECURE", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
     planning_model = os.environ.get("PROTOCOL_PLANNING_MODEL")
     decompose_model = os.environ.get("PROTOCOL_DECOMPOSE_MODEL")
     exec_model = os.environ.get("PROTOCOL_EXEC_MODEL")
@@ -116,6 +138,12 @@ def load_config() -> Config:
         redis_url=redis_url,
         log_level=log_level,
         webhook_token=webhook_token,
+        oidc_issuer=oidc_issuer,
+        oidc_client_id=oidc_client_id,
+        oidc_client_secret=oidc_client_secret,
+        oidc_scopes=oidc_scopes,
+        session_secret=session_secret,
+        session_cookie_secure=session_cookie_secure,
         planning_model=planning_model,
         decompose_model=decompose_model,
         exec_model=exec_model,

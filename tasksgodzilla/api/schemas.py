@@ -147,6 +147,37 @@ class CodexRunOut(BaseModel):
     cost_cents: Optional[int] = None
 
 
+class LogTailResponse(BaseModel):
+    run_id: str
+    offset: int
+    next_offset: int
+    eof: bool
+    chunk: str
+
+
+class CISummaryOut(BaseModel):
+    protocol_run_id: int
+    provider: Optional[str] = None
+    pr_number: Optional[int] = None
+    pr_url: Optional[str] = None
+    sha: Optional[str] = None
+    status: Optional[str] = None
+    conclusion: Optional[str] = None
+    check_name: Optional[str] = None
+    last_event_type: Optional[str] = None
+    last_event_at: Optional[str] = None
+
+
+class GitStatusOut(BaseModel):
+    protocol_run_id: int
+    repo_root: Optional[str] = None
+    worktree_path: Optional[str] = None
+    branch: Optional[str] = None
+    head_sha: Optional[str] = None
+    dirty: bool = False
+    changed_files: list[str] = []
+
+
 class RunArtifactOut(BaseModel):
     id: int
     run_id: str
