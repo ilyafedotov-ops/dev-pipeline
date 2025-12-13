@@ -18,7 +18,7 @@ import { SettingsPage } from '@/features/settings/SettingsPage';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 const DISABLE_AUTH = import.meta.env.VITE_DISABLE_AUTH === 'true';
-const ROUTER_BASEPATH = import.meta.env.MODE === 'production' ? '/console2' : '';
+const ROUTER_BASEPATH = import.meta.env.MODE === 'production' ? '/console' : '';
 
 const queryClient = new QueryClient({
   defaultOptions: {

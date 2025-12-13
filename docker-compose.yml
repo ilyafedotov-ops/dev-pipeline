@@ -3,9 +3,10 @@ version: "3.9"
 services:
   api:
     build: .
+    restart: unless-stopped
     environment:
-      TASKSGODZILLA_DB_URL: postgresql://tasksgodzilla:tasksgodzilla@db:5432/tasksgodzilla
-      TASKSGODZILLA_REDIS_URL: redis://redis:6379/0
+      TASKSGODZILLA_DB_URL: ${TASKSGODZILLA_DB_URL:-postgresql://tasksgodzilla:${POSTGRES_PASSWORD:-tasksgodzilla}@db:5432/tasksgodzilla}
+      TASKSGODZILLA_REDIS_URL: ${TASKSGODZILLA_REDIS_URL:-redis://redis:6379/0}
       TASKSGODZILLA_API_TOKEN: ${TASKSGODZILLA_API_TOKEN:-changeme}
       TASKSGODZILLA_LOG_LEVEL: INFO
     ports:
@@ -14,12 +15,18 @@ services:
       - db
       - redis
     command: ["python", "scripts/api_server.py"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   worker:
     build: .
+    restart: unless-stopped
     environment:
-      TASKSGODZILLA_DB_URL: postgresql://tasksgodzilla:tasksgodzilla@db:5432/tasksgodzilla
-      TASKSGODZILLA_REDIS_URL: redis://redis:6379/0
+      TASKSGODZILLA_DB_URL: ${TASKSGODZILLA_DB_URL:-postgresql://tasksgodzilla:${POSTGRES_PASSWORD:-tasksgodzilla}@db:5432/tasksgodzilla}
+      TASKSGODZILLA_REDIS_URL: ${TASKSGODZILLA_REDIS_URL:-redis://redis:6379/0}
       TASKSGODZILLA_LOG_LEVEL: INFO
     depends_on:
       - db
@@ -28,9 +35,10 @@ services:
 
   codex-worker:
     build: .
+    restart: unless-stopped
     environment:
-      TASKSGODZILLA_DB_URL: postgresql://tasksgodzilla:tasksgodzilla@db:5432/tasksgodzilla
-      TASKSGODZILLA_REDIS_URL: redis://redis:6379/0
+      TASKSGODZILLA_DB_URL: ${TASKSGODZILLA_DB_URL:-postgresql://tasksgodzilla:${POSTGRES_PASSWORD:-tasksgodzilla}@db:5432/tasksgodzilla}
+      TASKSGODZILLA_REDIS_URL: ${TASKSGODZILLA_REDIS_URL:-redis://redis:6379/0}
       TASKSGODZILLA_LOG_LEVEL: INFO
     depends_on:
       - db
@@ -44,19 +52,17 @@ services:
 
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: tasksgodzilla
-      POSTGRES_PASSWORD: tasksgodzilla
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tasksgodzilla}
       POSTGRES_DB: tasksgodzilla
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6380:6379"
+    restart: unless-stopped
 
 volumes:
   pgdata:

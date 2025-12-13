@@ -1285,7 +1285,7 @@ app.mount("/console", StaticFiles(directory="frontend_dist"), name="console")
 - [ ] Error handling refinement
 - [ ] Loading states
 - [ ] Responsive design
-- [ ] A/B serve at `/console2`
+- [ ] A/B serve at `/console`
 - [ ] Parity testing vs old console
 - [ ] Cutover `/console` to new SPA
 

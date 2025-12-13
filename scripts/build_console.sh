@@ -18,5 +18,5 @@ rm -rf "${OUT_DIR}"
 mkdir -p "${OUT_DIR}"
 cp -R "${CONSOLE_DIR}/dist/." "${OUT_DIR}/"
 
-echo "Done. Serve at /console2 (restart API)."
+echo "Done. Serve at /console (restart API)."
 

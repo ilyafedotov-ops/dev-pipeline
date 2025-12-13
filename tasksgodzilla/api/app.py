@@ -190,7 +190,8 @@ app.add_middleware(
 
 frontend_dir = Path(__file__).resolve().parent / "frontend"
 if frontend_dir.exists():
-    app.mount("/console/static", StaticFiles(directory=frontend_dir), name="console-static")
+    # Legacy (pre-Vite) console assets. Keep available, but do not occupy /console.
+    app.mount("/console-legacy/static", StaticFiles(directory=frontend_dir), name="console-legacy-static")
 
 
 def get_db(request: Request) -> BaseDatabase:
@@ -595,16 +596,15 @@ async def add_request_id(request: Request, call_next):
     return response
 
 
-@app.get("/", response_class=HTMLResponse)
-@app.get("/console", response_class=HTMLResponse)
-def console() -> HTMLResponse:
+@app.get("/console-legacy", response_class=HTMLResponse)
+def console_legacy() -> HTMLResponse:
     if not frontend_dir.exists():
         raise HTTPException(status_code=404, detail="Console assets not available")
     html = (frontend_dir / "index.html").read_text(encoding="utf-8")
     return HTMLResponse(content=html)
 
 
-def _get_console2_dist_dir() -> Optional[Path]:
+def _get_console_dist_dir() -> Optional[Path]:
     # Prefer a checked-in build output (if present), otherwise use the dev build under web/console/dist.
     api_dir = Path(__file__).resolve().parent
     repo_root = Path(__file__).resolve().parents[2]
@@ -618,12 +618,12 @@ def _get_console2_dist_dir() -> Optional[Path]:
     return None
 
 
-_console2_dist_dir = _get_console2_dist_dir()
-if _console2_dist_dir and (_console2_dist_dir / "assets").exists():
+_console_dist_dir = _get_console_dist_dir()
+if _console_dist_dir and (_console_dist_dir / "assets").exists():
     app.mount(
-        "/console2/assets",
-        StaticFiles(directory=_console2_dist_dir / "assets"),
-        name="console2-assets",
+        "/console/assets",
+        StaticFiles(directory=_console_dist_dir / "assets"),
+        name="console-assets",
     )
 
 
@@ -675,7 +675,7 @@ async def auth_callback(request: Request):
         next_url = request.session.pop("post_login_redirect", None)
     except Exception:
         next_url = None
-    return RedirectResponse(url=next_url or "/console2")
+    return RedirectResponse(url=next_url or "/console")
 
 
 @app.get("/auth/me")
@@ -701,19 +701,20 @@ def auth_logout(request: Request):
     return JSONResponse(content={"ok": True})
 
 
-@app.get("/console2")
-@app.get("/console2/{path:path}")
-def console2(request: Request, path: str = ""):
-    dist_dir = _get_console2_dist_dir()
+@app.get("/", response_class=HTMLResponse)
+@app.get("/console", response_class=HTMLResponse)
+@app.get("/console/{path:path}", response_class=HTMLResponse)
+def console(request: Request, path: str = ""):
+    dist_dir = _get_console_dist_dir()
     if not dist_dir:
-        raise HTTPException(status_code=404, detail="Console2 assets not available")
+        raise HTTPException(status_code=404, detail="Console assets not available")
     if _oidc_required(request):
         try:
             user = getattr(request, "session", {}).get("user")
         except Exception:
             user = None
         if not user:
-            next_url = "/console2" + (f"/{path}" if path else "")
+            next_url = "/console" + (f"/{path}" if path else "")
             return RedirectResponse(url=f"/auth/login?next={quote(next_url, safe='')}")
     html_text = (dist_dir / "index.html").read_text(encoding="utf-8")
     return HTMLResponse(content=html_text)

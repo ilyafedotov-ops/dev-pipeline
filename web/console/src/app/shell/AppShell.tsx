@@ -324,7 +324,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <a
                   className="rounded-md border border-border bg-bg-muted px-3 py-2 text-xs text-fg hover:bg-bg-panel"
                   href={`${apiBase}/auth/login?next=${encodeURIComponent(
-                    typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/console2',
+                    typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/console',
                   )}`}
                 >
                   Sign in
