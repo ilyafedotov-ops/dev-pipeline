@@ -296,14 +296,23 @@ def test_property_no_duplicate_git_implementations():
                                     f"This should be in GitService only."
                                 )
     
-    # Verify that GitService methods are being called instead
-    git_service_calls = []
+    # Verify that codex_worker delegates to services (which use GitService)
+    # The worker should call PlanningService, ExecutionService, QualityService, OrchestratorService
+    # These services in turn use GitService, so we verify service delegation instead
+    service_imports = []
+    service_instantiations = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute):
-            if isinstance(node.value, ast.Name) and node.value.id == "git_service":
-                git_service_calls.append(node.attr)
+        if isinstance(node, ast.ImportFrom):
+            if node.module and "services" in node.module:
+                service_imports.extend([alias.name for alias in node.names])
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                # Check for service instantiation: PlanningService(db), etc.
+                if node.func.id.endswith("Service") and node.func.id in service_imports:
+                    service_instantiations.append(node.func.id)
     
-    # Verify expected GitService methods are being called
-    expected_methods = ["ensure_worktree", "push_and_open_pr", "trigger_ci", "remote_branch_exists"]
-    for method in expected_methods:
-        assert method in git_service_calls, f"GitService.{method} should be called in codex_worker"
+    # Verify that codex_worker delegates to services that use GitService
+    expected_services = ["PlanningService", "ExecutionService", "QualityService", "OrchestratorService"]
+    for service in expected_services:
+        assert service in service_imports, f"{service} should be imported in codex_worker"
+        assert service in service_instantiations, f"{service} should be instantiated in codex_worker"

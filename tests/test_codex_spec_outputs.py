@@ -210,8 +210,8 @@ def test_custom_qa_prompt_version_is_recorded(tmp_path, monkeypatch) -> None:
     codex_worker.handle_execute_step(step.id, db)
 
     # Force stub QA path for portability but keep prompt version resolution
-    monkeypatch.setattr(codex_worker.shutil, "which", lambda _: None)
-    monkeypatch.setattr(codex_worker, "run_qa_unified", lambda *_args, **_kwargs: SimpleNamespace(result=SimpleNamespace(stdout="VERDICT: PASS")))
+    monkeypatch.setattr("shutil.which", lambda _: None)
+    monkeypatch.setattr("tasksgodzilla.workers.unified_runner.run_qa_unified", lambda *_args, **_kwargs: SimpleNamespace(result=SimpleNamespace(stdout="VERDICT: PASS")))
     codex_worker.handle_quality(step.id, db)
 
     qa_event = next(e for e in db.list_events(run.id) if e.event_type == "qa_passed")

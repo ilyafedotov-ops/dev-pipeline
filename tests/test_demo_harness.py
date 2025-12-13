@@ -30,6 +30,7 @@ def test_demo_harness_covers_discovery_to_validation(monkeypatch, tmp_path) -> N
 
     workspace = _seed_workspace(tmp_path)
     project = db.create_project("demo", str(workspace), "main", None, None, None, str(workspace))
+    db.update_project_policy(project.id, policy_pack_key="beginner-guided", policy_pack_version="1.0")
 
     # Discovery/onboarding should finish even when repo is local-only.
     onboarding_worker.handle_project_setup(project.id, db)
@@ -53,6 +54,15 @@ def test_demo_harness_covers_discovery_to_validation(monkeypatch, tmp_path) -> N
     assert run_after_plan.status == ProtocolStatus.PLANNED
     events = [e.event_type for e in db.list_events(run.id)]
     assert "planned" in events
+    assert "policy_autofix" in events
+
+    proto_root = Path(db.get_protocol_run(run.id).protocol_root)
+    step_file = proto_root / "01-demo.md"
+    content = step_file.read_text(encoding="utf-8")
+    assert "## Sub-tasks" in content
+    assert "## Verification" in content
+    assert "## Rollback" in content
+    assert "## Definition of Done" in content
 
     audit_results = spec_worker.handle_spec_audit_job({"protocol_id": run.id, "backfill_missing": False}, db)
     assert audit_results and audit_results[0]["errors"] == []
