@@ -17,6 +17,7 @@ from .git import GitService
 from .budget import BudgetService
 from .policy import PolicyService
 from .clarifications import ClarificationsService
+from .planning import PlanningService
 
 __all__ = [
     "ExecutionService",
@@ -29,4 +30,5 @@ __all__ = [
     "BudgetService",
     "PolicyService",
     "ClarificationsService",
+    "PlanningService",
 ]
