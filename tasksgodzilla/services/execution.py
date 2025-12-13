@@ -376,6 +376,7 @@ class ExecutionService:
                 or step.model
                 or (project.default_models.get("exec") if project.default_models else None)
                 or config.exec_model
+                or registry.get(engine_id).metadata.default_model
                 or "gpt-5.1-codex-max"
             )
             resolution.prompt_path = step_path

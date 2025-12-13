@@ -183,7 +183,8 @@ class PlanningService:
             },
         )
 
-        if shutil.which("codex") is None:
+        engine_id = getattr(config, "default_engine_id", None) or registry.get_default().metadata.id
+        if engine_id == "codex" and shutil.which("codex") is None:
             self._stub_plan(
                 run,
                 project,
@@ -214,6 +215,7 @@ class PlanningService:
         planning_model = (
             (project.default_models or {}).get("planning")
             or config.planning_model
+            or registry.get(engine_id).metadata.default_model
             or "gpt-5.1-codex-max"
         )
         protocol_root = worktree / ".protocols" / run.protocol_name

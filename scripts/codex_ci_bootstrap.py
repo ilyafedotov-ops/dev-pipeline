@@ -134,7 +134,7 @@ def run_opencode_discovery(
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Codex discovery to bootstrap CI.")
     parser.add_argument("--engine", default="codex", choices=["codex", "opencode"])
-    parser.add_argument("--model", default="gpt-5.1-codex-max")
+    parser.add_argument("--model", default=None, help="Model to use (engine-specific default if omitted).")
     parser.add_argument("--prompt-file", default="prompts/repo-discovery.prompt.md")
     parser.add_argument("--repo-root", default=".")
     parser.add_argument("--sandbox", default="workspace-write")
@@ -147,6 +147,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main() -> int:
     args = parse_args(sys.argv[1:])
     setup_logging(json_output=json_logging_from_env())
+
+    if args.engine == "opencode":
+        model = args.model or "zai-coding-plan/glm-4.6"
+    else:
+        model = args.model or "gpt-5.1-codex-max"
 
     if args.engine == "codex" and not shutil.which("codex"):
         print("[codex-ci-bootstrap] codex CLI not found in PATH", file=sys.stderr)
@@ -168,7 +173,7 @@ def main() -> int:
         run_id=run_id,
         params={
             "engine": args.engine,
-            "model": args.model,
+            "model": model,
             "prompt_file": str(prompt_file),
             "repo_root": str(repo_root),
             "sandbox": args.sandbox,
@@ -181,11 +186,11 @@ def main() -> int:
     RUN_LOG_PATH = Path(run.log_path) if run.log_path else None
     try:
         if args.engine == "opencode":
-            rc = run_opencode_discovery(repo_root=repo_root, model=args.model, prompt_file=prompt_file, strict=args.strict)
+            rc = run_opencode_discovery(repo_root=repo_root, model=model, prompt_file=prompt_file, strict=args.strict)
         else:
             proc = run_codex_discovery(
                 repo_root=repo_root,
-                model=args.model,
+                model=model,
                 prompt_file=prompt_file,
                 sandbox=args.sandbox,
                 skip_git_check=args.skip_git_check,

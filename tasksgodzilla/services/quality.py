@@ -284,17 +284,19 @@ Latest commit message:
 Use the format from the quality-validator prompt. If any blocking issue, verdict = FAIL."""
         qa_prompt_full = f"{qa_prefix}\\n\\n{qa_body}"
 
-        qa_model = (
-            qa_cfg.get("model")
-            or (project.default_models.get("qa") if project.default_models else None)
-            or config.qa_model
-            or "codex-5.1-max"
-        )
         qa_engine_id = (
             qa_cfg.get("engine_id")
             or step.engine_id
             or getattr(config, "default_engine_id", None)
             or registry.get_default().metadata.id
+        )
+
+        qa_model = (
+            qa_cfg.get("model")
+            or (project.default_models.get("qa") if project.default_models else None)
+            or config.qa_model
+            or registry.get(qa_engine_id).metadata.default_model
+            or "codex-5.1-max"
         )
 
         try:
@@ -605,17 +607,19 @@ Latest commit message:
 Use the format from the quality-validator prompt. If any blocking issue, verdict = FAIL."""
         qa_prompt_full = f"{qa_prefix}\\n\\n{qa_body}\\n\\nKeep this QA brief; focus on must-fix issues only."
         
-        qa_model = (
-            qa_cfg.get("model")
-            or (project.default_models.get("qa") if project.default_models else None)
-            or config.qa_model
-            or "codex-5.1-max"
-        )
         qa_engine_id = (
             qa_cfg.get("engine_id")
             or step.engine_id
             or getattr(config, "default_engine_id", None)
             or registry.get_default().metadata.id
+        )
+
+        qa_model = (
+            qa_cfg.get("model")
+            or (project.default_models.get("qa") if project.default_models else None)
+            or config.qa_model
+            or registry.get(qa_engine_id).metadata.default_model
+            or "codex-5.1-max"
         )
         
         try:

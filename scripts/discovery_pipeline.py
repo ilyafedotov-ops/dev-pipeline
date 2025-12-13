@@ -50,7 +50,18 @@ def main() -> int:
         return EXIT_RUNTIME_ERROR
 
     engine_id = args.engine or os.environ.get("PROTOCOL_DISCOVERY_ENGINE") or getattr(config, "default_engine_id", None) or "codex"
-    model = args.model or os.environ.get("PROTOCOL_DISCOVERY_MODEL", "gpt-5.1-codex-max")
+    env_model = os.environ.get("PROTOCOL_DISCOVERY_MODEL")
+    if args.model:
+        model = args.model
+    elif env_model:
+        model = env_model
+    elif engine_id == "opencode":
+        from tasksgodzilla.engines import registry
+        import tasksgodzilla.engines_opencode  # noqa: F401
+
+        model = registry.get("opencode").metadata.default_model or "zai-coding-plan/glm-4.6"
+    else:
+        model = "gpt-5.1-codex-max"
     artifacts = [a.strip() for a in args.artifacts.split(",") if a.strip()]
 
     try:
