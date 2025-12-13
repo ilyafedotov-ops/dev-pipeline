@@ -22,7 +22,7 @@ fi
 "${VENV_PATH}/bin/pip" install -r "${REQ_FILE}" ruff
 
 export TASKSGODZILLA_DB_PATH="${TASKSGODZILLA_DB_PATH:-/tmp/tasksgodzilla-ci.sqlite}"
-export TASKSGODZILLA_REDIS_URL="${TASKSGODZILLA_REDIS_URL:-redis://localhost:6379/15}"
+export TASKSGODZILLA_REDIS_URL="${TASKSGODZILLA_REDIS_URL:-redis://localhost:6380/15}"
 
 ci_info "bootstrap ready" "venv=${VENV_PATH} db=${TASKSGODZILLA_DB_PATH} redis=${TASKSGODZILLA_REDIS_URL}"
 

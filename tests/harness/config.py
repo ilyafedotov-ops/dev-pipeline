@@ -82,7 +82,7 @@ class EnvironmentConfig:
         import os
         return cls(
             database_url=os.environ.get("TASKSGODZILLA_DB_URL") or os.environ.get("TASKSGODZILLA_DB_PATH"),
-            redis_url=os.environ.get("TASKSGODZILLA_REDIS_URL", "redis://localhost:6379/15"),
+            redis_url=os.environ.get("TASKSGODZILLA_REDIS_URL", "redis://localhost:6380/15"),
             codex_available=bool(os.environ.get("CODEX_CLI_PATH")),
             api_token=os.environ.get("TASKSGODZILLA_API_TOKEN"),
         )

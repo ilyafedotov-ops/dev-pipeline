@@ -8,6 +8,7 @@ from .errors import CodexCommandError
 from tasksgodzilla.engines import EngineRequest, registry
 from tasksgodzilla.logging import get_logger
 import tasksgodzilla.engines_codex  # noqa: F401 - ensure Codex engine is registered
+import tasksgodzilla.engines_opencode  # noqa: F401 - ensure OpenCode engine is registered
 
 log = get_logger(__name__)
 
@@ -105,9 +106,6 @@ def run_quality_check(
             "engine_id": engine_id or "default",
         },
     )
-    if shutil.which("codex") is None:
-        log.error("codex_cli_missing", extra={"protocol_root": str(protocol_root)})
-        raise FileNotFoundError("codex CLI not found in PATH")
     if not step_file.is_file():
         log.error("qa_step_missing", extra={"step_file": str(step_file), "protocol_root": str(protocol_root)})
         raise FileNotFoundError(f"Step file not found: {step_file}")
@@ -127,6 +125,9 @@ def run_quality_check(
     # the CLI directly so existing mocks against `codex.run_process` continue to work.
     engine = registry.get(engine_id) if engine_id else registry.get_default()
     if engine.metadata.id == "codex":
+        if shutil.which("codex") is None:
+            log.error("codex_cli_missing", extra={"protocol_root": str(protocol_root)})
+            raise FileNotFoundError("codex CLI not found in PATH")
         log.info(
             "qa_exec_codex",
             extra={

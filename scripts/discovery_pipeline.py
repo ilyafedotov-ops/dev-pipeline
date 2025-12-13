@@ -25,6 +25,7 @@ log = get_logger(__name__)
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run multi-pass discovery and generate artifacts.")
     parser.add_argument("--repo-root", default=".", help="Repository root to analyze.")
+    parser.add_argument("--engine", default=None, help="Engine to use for discovery (codex|opencode). Defaults to TASKSGODZILLA_DEFAULT_ENGINE_ID or codex.")
     parser.add_argument("--model", default=None, help="Codex model to use (default PROTOCOL_DISCOVERY_MODEL or gpt-5.1-codex-max).")
     parser.add_argument("--sandbox", default="workspace-write", help="Codex sandbox (default: workspace-write).")
     parser.add_argument(
@@ -48,19 +49,58 @@ def main() -> int:
         log.error("repo_root_missing", extra={"repo_root": str(repo_root)})
         return EXIT_RUNTIME_ERROR
 
+    engine_id = args.engine or os.environ.get("PROTOCOL_DISCOVERY_ENGINE") or getattr(config, "default_engine_id", None) or "codex"
     model = args.model or os.environ.get("PROTOCOL_DISCOVERY_MODEL", "gpt-5.1-codex-max")
     artifacts = [a.strip() for a in args.artifacts.split(",") if a.strip()]
 
     try:
-        run_codex_discovery_pipeline(
-            repo_root=repo_root,
-            model=model,
-            sandbox=args.sandbox,
-            skip_git_check=args.skip_git_check,
-            strict=args.strict,
-            timeout_seconds=args.timeout_seconds,
-            artifacts=artifacts,
-        )
+        if engine_id == "opencode":
+            from tasksgodzilla.engines import EngineRequest, registry
+            import tasksgodzilla.engines_opencode  # noqa: F401
+            from tasksgodzilla.project_setup import _resolve_prompt  # type: ignore
+
+            stage_map: dict[str, str] = {
+                "inventory": "discovery-inventory.prompt.md",
+                "architecture": "discovery-architecture.prompt.md",
+                "api_reference": "discovery-api-reference.prompt.md",
+                "ci_notes": "discovery-ci-notes.prompt.md",
+            }
+            selected = list(stage_map.keys()) if artifacts is None else artifacts
+            engine = registry.get("opencode")
+            log_path = repo_root / "opencode-discovery.log"
+            for stage in selected:
+                prompt_name = stage_map.get(stage)
+                if not prompt_name:
+                    continue
+                prompt_path = _resolve_prompt(repo_root, prompt_name)
+                if not prompt_path:
+                    if args.strict:
+                        raise FileNotFoundError(f"discovery prompt missing: {prompt_name}")
+                    continue
+                prompt_text = prompt_path.read_text(encoding="utf-8")
+                req = EngineRequest(
+                    project_id=0,
+                    protocol_run_id=0,
+                    step_run_id=0,
+                    model=model,
+                    prompt_files=[],
+                    working_dir=str(repo_root),
+                    extra={"prompt_text": prompt_text, "sandbox": "workspace-write", "timeout_seconds": args.timeout_seconds},
+                )
+                result = engine.execute(req)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(f"\n\n===== discovery stage: {stage} ({prompt_name}) =====\n")
+                    f.write((result.stdout or "") + "\n")
+        else:
+            run_codex_discovery_pipeline(
+                repo_root=repo_root,
+                model=model,
+                sandbox=args.sandbox,
+                skip_git_check=args.skip_git_check,
+                strict=args.strict,
+                timeout_seconds=args.timeout_seconds,
+                artifacts=artifacts,
+            )
     except FileNotFoundError as exc:
         log.error("discovery_dependency_missing", extra={"error": str(exc)})
         return EXIT_DEP_MISSING

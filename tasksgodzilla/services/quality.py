@@ -97,7 +97,7 @@ class QualityService:
         from tasksgodzilla.domain import ProtocolStatus
         from tasksgodzilla.engine_resolver import resolve_prompt_and_outputs
         from tasksgodzilla.engines import registry
-        from tasksgodzilla.errors import CodexCommandError
+        from tasksgodzilla.errors import CodexCommandError, TasksGodzillaError
         from tasksgodzilla.logging import get_logger, log_extra
         from tasksgodzilla.spec import PROTOCOL_SPEC_KEY, get_step_spec, protocol_spec_hash
         from tasksgodzilla.services.budget import BudgetService
@@ -290,7 +290,12 @@ Use the format from the quality-validator prompt. If any blocking issue, verdict
             or config.qa_model
             or "codex-5.1-max"
         )
-        qa_engine_id = qa_cfg.get("engine_id") or step.engine_id or registry.get_default().metadata.id
+        qa_engine_id = (
+            qa_cfg.get("engine_id")
+            or step.engine_id
+            or getattr(config, "default_engine_id", None)
+            or registry.get_default().metadata.id
+        )
 
         try:
             registry.get(qa_engine_id)
@@ -345,7 +350,7 @@ Use the format from the quality-validator prompt. If any blocking issue, verdict
                 qa_model=qa_model,
                 sandbox="read-only",
             )
-        except CodexCommandError as exc:
+        except (CodexCommandError, TasksGodzillaError) as exc:
             self.db.update_step_status(step.id, StepStatus.FAILED, summary=f"QA error: {exc}")
             self.db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
             self.db.append_event(
@@ -480,7 +485,8 @@ Use the format from the quality-validator prompt. If any blocking issue, verdict
                     "estimated_tokens": {"qa": qa_tokens},
                     "prompt_versions": {"qa": qa_prompt_version},
                     "model": qa_model,
-                    "spec_hash": spec_hash_val},
+                    "spec_hash": spec_hash_val,
+                },
             )
             spec_service.append_protocol_log(protocol_root, f"{step.step_name} QA PASS ({qa_model}).")
             orchestrator.handle_step_completion(step.id, qa_verdict="PASS")
@@ -605,7 +611,12 @@ Use the format from the quality-validator prompt. If any blocking issue, verdict
             or config.qa_model
             or "codex-5.1-max"
         )
-        qa_engine_id = qa_cfg.get("engine_id") or step.engine_id or registry.get_default().metadata.id
+        qa_engine_id = (
+            qa_cfg.get("engine_id")
+            or step.engine_id
+            or getattr(config, "default_engine_id", None)
+            or registry.get_default().metadata.id
+        )
         
         try:
             registry.get(qa_engine_id)

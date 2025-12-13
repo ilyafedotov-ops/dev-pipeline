@@ -73,3 +73,13 @@ class EngineRegistry:
 
 registry = EngineRegistry()
 
+
+# Ensure built-in engines are registered when the registry is imported.
+# This keeps service layer code simple (it can assume "codex"/"opencode" exist).
+try:  # pragma: no cover - import side effects only
+    import tasksgodzilla.engines_codex  # noqa: F401
+    import tasksgodzilla.engines_opencode  # noqa: F401
+except Exception:
+    # Best effort: unit tests may register their own engines and not require these.
+    pass
+

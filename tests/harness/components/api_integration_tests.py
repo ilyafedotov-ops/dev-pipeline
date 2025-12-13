@@ -368,7 +368,7 @@ class WorkerIntegrationTests:
             # Set up environment for worker
             env = os.environ.copy()
             env.update({
-                "TASKSGODZILLA_REDIS_URL": "redis://localhost:6379/15",  # Test Redis DB
+                "TASKSGODZILLA_REDIS_URL": "redis://localhost:6380/15",  # Test Redis DB
                 "TASKSGODZILLA_DB_PATH": ":memory:",  # Use in-memory SQLite for testing
                 "TASKSGODZILLA_LOG_LEVEL": "WARNING",  # Reduce log noise
             })
@@ -411,7 +411,7 @@ class WorkerIntegrationTests:
             # Test Redis connection
             try:
                 import redis
-                r = redis.from_url("redis://localhost:6379/15")
+                r = redis.from_url("redis://localhost:6380/15")
                 r.ping()
                 self.logger.info("Redis connection successful")
             except ImportError:

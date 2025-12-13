@@ -15,7 +15,7 @@ from tasksgodzilla.codemachine.runtime_adapter import (
 from tasksgodzilla.domain import ProtocolStatus, StepStatus
 from tasksgodzilla.engine_resolver import resolve_prompt_and_outputs
 from tasksgodzilla.engines import registry
-from tasksgodzilla.errors import CodexCommandError
+from tasksgodzilla.errors import CodexCommandError, TasksGodzillaError
 from tasksgodzilla.logging import get_logger, log_extra
 from tasksgodzilla.pipeline import execute_step_prompt
 from tasksgodzilla.project_setup import auto_clone_enabled
@@ -195,6 +195,12 @@ class ExecutionService:
         codemachine = is_codemachine_run(run)
         step_path: Optional[Path] = None
         repo_root: Optional[Path] = None
+        requested_engine_id = (
+            (step_spec.get("engine_id") if isinstance(step_spec, dict) else None)
+            or step.engine_id
+            or getattr(config, "default_engine_id", None)
+            or registry.get_default().metadata.id
+        )
 
         def _stub_execute(reason: str) -> None:
             summary = f"Executed via stub ({reason})"
@@ -257,7 +263,7 @@ class ExecutionService:
             workspace_root = Path(run.worktree_path).expanduser() if run.worktree_path else repo_root
             protocol_root = Path(run.protocol_root).resolve() if run.protocol_root else (workspace_root / ".codemachine")
         else:
-            if shutil.which("codex") is None:
+            if requested_engine_id == "codex" and shutil.which("codex") is None:
                 _stub_execute("codex unavailable")
                 return
             worktree = git_service.ensure_worktree(
@@ -298,7 +304,7 @@ class ExecutionService:
             workspace_root=workspace_root,
             protocol_spec=protocol_spec,
             outputs_root=outputs_root,
-            default_engine_id=step.engine_id or registry.get_default().metadata.id,
+            default_engine_id=step.engine_id or getattr(config, "default_engine_id", None) or registry.get_default().metadata.id,
         )
         kind = "codemachine" if codemachine else "codex"
         engine_id = resolution.engine_id or registry.get_default().metadata.id
@@ -433,7 +439,7 @@ class ExecutionService:
                 step_run_id=step.id,
                 extra={"timeout_seconds": timeout_seconds} if timeout_seconds else None,
             )
-        except CodexCommandError as exc:
+        except (CodexCommandError, TasksGodzillaError) as exc:
             self.db.update_step_status(step.id, StepStatus.FAILED, summary=f"Execution error: {exc}")
             self.db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
             self.db.append_event(

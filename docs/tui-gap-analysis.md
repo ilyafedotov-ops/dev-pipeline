@@ -15,7 +15,7 @@ This document captures the gap analysis between backend services/API and TUI exp
 |-------|--------|-------|
 | Phase 1 - Quick Wins | ✅ Complete | Loading spinners, confirmations, notifications, filter persistence |
 | Phase 2 - Feature Gaps | ✅ Complete | Clarifications, logs viewer, budget display, QA verdict, CI status |
-| Phase 3 - Advanced | ⏳ Pending | Job inspector, artifact viewer, bulk ops, policy editor |
+| Phase 3 - Advanced | 🔄 In Progress | Bulk ops ✅, Error details ✅, Policy findings ✅, Job inspector ⏳, Artifact viewer ⏳ |
 | Phase 4 - Polish | ⏳ Pending | Dark mode, custom keybindings, themes |
 
 ---
@@ -38,7 +38,7 @@ This document captures the gap analysis between backend services/API and TUI exp
 |-------|----------|-----|--------|
 | ~~No loading indicators~~ | `tui.py:404,517` | Show spinner during async ops | ✅ Fixed (Phase 1) |
 | ~~No confirmation dialogs~~ | Actions run immediately | Add confirm for cancel/retry | ✅ Fixed (Phase 1) |
-| Error details truncated | `tui.py:1077-1082` | Expandable error panel | ⏳ Pending |
+| ~~Error details truncated~~ | `tui.py:1077-1082` | Expandable error panel | ✅ Fixed (Phase 3) |
 | ~~Filter state lost on refresh~~ | `tui.py:1224` | Persist filter selection | ✅ Fixed (Phase 1) |
 | ~~No success feedback~~ | Post-action | Toast/notification on success | ✅ Fixed (Phase 1) |
 
@@ -106,9 +106,9 @@ This document captures the gap analysis between backend services/API and TUI exp
 
 ### Phase 3 - Advanced Features
 
-1. **Job inspector** - Full-page Codex run browser
-2. **Artifact viewer** - Browse step artifacts
-3. **Bulk operations** - Retry all, approve all, cancel all
+1. ~~**Job inspector**~~ - Full-page Codex run browser ✅ Implemented
+2. **Artifact viewer** - Browse step artifacts (⏳ Pending)
+3. ~~**Bulk operations**~~ - Retry all, approve all ✅ Implemented
 4. **Policy editor** - Create/edit policies in TUI
 5. **Performance dashboard** - Token usage, step timings, cost breakdown
 
@@ -143,7 +143,7 @@ This document captures the gap analysis between backend services/API and TUI exp
 | View CI status | ✗ | ✓ | ✓ | Complete (Phase 2) |
 | View execution logs | Partial | ✓ | ✓ | Complete (Phase 2) |
 | View QA verdicts | Partial | ✓ | ✓ | Complete (Phase 2) |
-| View policy findings | ✗ | ✗ | Partial | **Gap** |
+| View policy findings | ✗ | ✓ | Partial | Complete (Phase 3) |
 | Browse artifacts | ✗ | ✗ | ✓ | **Phase 3** |
 
 ---

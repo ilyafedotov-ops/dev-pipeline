@@ -117,7 +117,7 @@ class TestDocumentationExamples:
         # Test environment variable parsing
         test_env = {
             'TASKSGODZILLA_DB_PATH': '/tmp/tasksgodzilla-test.sqlite',
-            'TASKSGODZILLA_REDIS_URL': 'redis://localhost:6379/15',
+            'TASKSGODZILLA_REDIS_URL': 'redis://localhost:6380/15',
             'TASKSGODZILLA_API_TOKEN': 'test-token',
             'CODEX_CLI_PATH': '/usr/local/bin/codex'
         }
@@ -125,7 +125,7 @@ class TestDocumentationExamples:
         with patch.dict(os.environ, test_env, clear=True):
             env_config = EnvironmentConfig.from_environment()
             assert env_config.database_url == '/tmp/tasksgodzilla-test.sqlite'
-            assert env_config.redis_url == 'redis://localhost:6379/15'
+            assert env_config.redis_url == 'redis://localhost:6380/15'
             assert env_config.api_token == 'test-token'
             assert env_config.codex_available is True
     
@@ -450,7 +450,7 @@ class TestCIIntegrationExamples:
         """Test GitHub Actions environment variable examples."""
         github_env = {
             'TASKSGODZILLA_DB_PATH': '/tmp/tasksgodzilla-ci.sqlite',
-            'TASKSGODZILLA_REDIS_URL': 'redis://localhost:6379/15',
+            'TASKSGODZILLA_REDIS_URL': 'redis://localhost:6380/15',
             'TASKSGODZILLA_CI_PROVIDER': 'github',
             'TASKSGODZILLA_API_BASE': 'https://api.tasksgodzilla.com',
             'TASKSGODZILLA_API_TOKEN': 'github-token',
@@ -461,7 +461,7 @@ class TestCIIntegrationExamples:
         with patch.dict(os.environ, github_env, clear=True):
             env_config = EnvironmentConfig.from_environment()
             assert env_config.database_url == '/tmp/tasksgodzilla-ci.sqlite'
-            assert env_config.redis_url == 'redis://localhost:6379/15'
+            assert env_config.redis_url == 'redis://localhost:6380/15'
             assert env_config.api_token == 'github-token'
     
     def test_gitlab_ci_environment_variables(self):
@@ -610,7 +610,7 @@ class TestTroubleshootingExamples:
         
         # Test Redis URL format validation
         valid_redis_urls = [
-            "redis://localhost:6379/15",
+            "redis://localhost:6380/15",
             "redis://redis:6379/15",
             "redis://127.0.0.1:6379/0"
         ]

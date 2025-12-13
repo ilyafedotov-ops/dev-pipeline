@@ -20,7 +20,7 @@ fi
 
 export PYTHONPATH="${PYTHONPATH:-.}"
 export TASKSGODZILLA_DB_PATH="${TASKSGODZILLA_DB_PATH:-/tmp/tasksgodzilla-test.sqlite}"
-export TASKSGODZILLA_REDIS_URL="${TASKSGODZILLA_REDIS_URL:-redis://localhost:6379/15}"
+export TASKSGODZILLA_REDIS_URL="${TASKSGODZILLA_REDIS_URL:-redis://localhost:6380/15}"
 export TASKSGODZILLA_AUTO_CLONE="${TASKSGODZILLA_AUTO_CLONE:-false}"
 
 "${PYTEST_BIN}" -q --disable-warnings --maxfail=1

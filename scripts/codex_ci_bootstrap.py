@@ -97,8 +97,43 @@ def run_codex_discovery(
             run_log_file.close()
 
 
+def run_opencode_discovery(
+    repo_root: Path,
+    model: str,
+    prompt_file: Path,
+    strict: bool = True,
+) -> int:
+    """
+    Invoke the OpenCode engine via the TasksGodzilla engine registry.
+    Writes output to stdout and to opencode-discovery.log in the repo.
+    """
+    from tasksgodzilla.engines import EngineRequest, registry
+    import tasksgodzilla.engines_opencode  # noqa: F401
+
+    prompt_text = prompt_file.read_text(encoding="utf-8")
+    engine = registry.get("opencode")
+    req = EngineRequest(
+        project_id=0,
+        protocol_run_id=0,
+        step_run_id=0,
+        model=model,
+        prompt_files=[],
+        working_dir=str(repo_root),
+        extra={"prompt_text": prompt_text, "sandbox": "workspace-write"},
+    )
+    result = engine.execute(req)
+    out = (result.stdout or "")
+
+    repo_log_path = repo_root / "opencode-discovery.log"
+    repo_log_path.parent.mkdir(parents=True, exist_ok=True)
+    repo_log_path.write_text(out, encoding="utf-8")
+    sys.stdout.write(out)
+    sys.stdout.flush()
+    return 0
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Codex discovery to bootstrap CI.")
+    parser.add_argument("--engine", default="codex", choices=["codex", "opencode"])
     parser.add_argument("--model", default="gpt-5.1-codex-max")
     parser.add_argument("--prompt-file", default="prompts/repo-discovery.prompt.md")
     parser.add_argument("--repo-root", default=".")
@@ -113,7 +148,7 @@ def main() -> int:
     args = parse_args(sys.argv[1:])
     setup_logging(json_output=json_logging_from_env())
 
-    if not shutil.which("codex"):
+    if args.engine == "codex" and not shutil.which("codex"):
         print("[codex-ci-bootstrap] codex CLI not found in PATH", file=sys.stderr)
         return 127
 
@@ -132,6 +167,7 @@ def main() -> int:
         "codex_ci_bootstrap",
         run_id=run_id,
         params={
+            "engine": args.engine,
             "model": args.model,
             "prompt_file": str(prompt_file),
             "repo_root": str(repo_root),
@@ -144,15 +180,18 @@ def main() -> int:
     global RUN_LOG_PATH
     RUN_LOG_PATH = Path(run.log_path) if run.log_path else None
     try:
-        proc = run_codex_discovery(
-            repo_root=repo_root,
-            model=args.model,
-            prompt_file=prompt_file,
-            sandbox=args.sandbox,
-            skip_git_check=args.skip_git_check,
-            strict=args.strict,
-        )
-        rc = getattr(proc, "returncode", 0) if proc is not None else 0
+        if args.engine == "opencode":
+            rc = run_opencode_discovery(repo_root=repo_root, model=args.model, prompt_file=prompt_file, strict=args.strict)
+        else:
+            proc = run_codex_discovery(
+                repo_root=repo_root,
+                model=args.model,
+                prompt_file=prompt_file,
+                sandbox=args.sandbox,
+                skip_git_check=args.skip_git_check,
+                strict=args.strict,
+            )
+            rc = getattr(proc, "returncode", 0) if proc is not None else 0
         registry.mark_succeeded(run_id, result={"returncode": rc})
         log.info("codex_ci_bootstrap_complete", extra=log_extra(run_id=run_id))
         return rc

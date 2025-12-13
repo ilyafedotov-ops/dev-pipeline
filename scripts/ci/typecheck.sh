@@ -20,7 +20,7 @@ fi
 
 export PYTHONPATH="${PYTHONPATH:-.}"
 export TASKSGODZILLA_DB_PATH="${TASKSGODZILLA_DB_PATH:-/tmp/tasksgodzilla-ci.sqlite}"
-export TASKSGODZILLA_REDIS_URL="${TASKSGODZILLA_REDIS_URL:-redis://localhost:6379/15}"
+export TASKSGODZILLA_REDIS_URL="${TASKSGODZILLA_REDIS_URL:-redis://localhost:6380/15}"
 
 "${PY_BIN}" -m compileall -q tasksgodzilla scripts
 

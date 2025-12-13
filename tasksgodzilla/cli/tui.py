@@ -376,6 +376,233 @@ class LogViewerScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class ErrorDetailScreen(ModalScreen[None]):
+    """Modal to view full error details."""
+
+    def __init__(self, error_type: str, error_message: str, context: Optional[Dict[str, Any]] = None) -> None:
+        super().__init__()
+        self.error_type = error_type
+        self.error_message = error_message
+        self.context = context or {}
+
+    def compose(self) -> ComposeResult:
+        yield Static(f"Error: {self.error_type}", classes="title")
+        with VerticalScroll(id="error_content"):
+            yield Static(f"Message:\n{self.error_message}\n")
+            if self.context:
+                ctx_text = "\n".join(f"  {k}: {v}" for k, v in self.context.items())
+                yield Static(f"Context:\n{ctx_text}")
+        yield Button("Close", id="close", variant="default")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
+class PolicyFindingsScreen(ModalScreen[None]):
+    """Modal to view policy findings."""
+
+    def __init__(self, findings: List[Dict[str, Any]]) -> None:
+        super().__init__()
+        self.findings = findings
+
+    def compose(self) -> ComposeResult:
+        yield Static("Policy Findings", classes="title")
+        if not self.findings:
+            yield Static("No policy issues found.")
+        else:
+            with VerticalScroll(id="findings_list"):
+                for f in self.findings:
+                    severity = f.get("severity", "info")
+                    code = f.get("code", "unknown")
+                    message = f.get("message", "")
+                    fix = f.get("suggested_fix", "")
+                    icon = "🚫" if severity == "error" else "⚠️" if severity == "warning" else "ℹ️"
+                    text = f"{icon} [{code}] {message}"
+                    if fix:
+                        text += f"\n   Fix: {fix}"
+                    yield Static(text)
+        yield Button("Close", id="close", variant="default")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
+class JobInspectorScreen(ModalScreen[Optional[str]]):
+    """Modal to inspect Codex runs for a step."""
+
+    def __init__(self, runs: List[Dict[str, Any]], step_name: str = "") -> None:
+        super().__init__()
+        self.runs = runs
+        self.step_name = step_name
+        self.selected_idx = 0
+
+    def compose(self) -> ComposeResult:
+        title = f"Job Inspector: {self.step_name}" if self.step_name else "Job Inspector"
+        yield Static(title, classes="title")
+        if not self.runs:
+            yield Static("No Codex runs found for this step.")
+        else:
+            yield Static(f"{len(self.runs)} run(s) found. Select one to view details.", id="runs_count")
+            with Horizontal(id="inspector_layout"):
+                with Vertical(id="runs_list_panel"):
+                    yield Static("Runs", classes="title")
+                    yield ListView(id="runs_list")
+                with VerticalScroll(id="run_detail_panel"):
+                    yield Static("Details", classes="title")
+                    yield Static("Select a run from the list.", id="run_detail")
+        with Horizontal(classes="row"):
+            yield Button("View Logs", id="view_logs", variant="primary")
+            yield Button("Artifacts", id="view_artifacts", variant="default")
+            yield Button("Close", id="close", variant="default")
+
+    def on_mount(self) -> None:
+        if not self.runs:
+            return
+        runs_view = self.query_one("#runs_list", ListView)
+        for run in self.runs:
+            run_id = run.get("run_id", "?")
+            status = run.get("status", "?")
+            job_type = run.get("job_type", "?")
+            created = run.get("created_at", "")[:19] if run.get("created_at") else "-"
+            label = f"{run_id[:8]} [{status}] {job_type} {created}"
+            runs_view.append(DataListItem(label, run_id))
+        if self.runs:
+            runs_view.index = 0
+            self._render_run_detail(self.runs[0])
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        if not event.item or not isinstance(event.item, DataListItem):
+            return
+        run_id = event.item.item_id
+        run = next((r for r in self.runs if r.get("run_id") == run_id), None)
+        if run:
+            self._render_run_detail(run)
+            self.selected_idx = next((i for i, r in enumerate(self.runs) if r.get("run_id") == run_id), 0)
+
+    def _render_run_detail(self, run: Dict[str, Any]) -> None:
+        lines = [
+            f"Run ID: {run.get('run_id', '-')}",
+            f"Status: {run.get('status', '-')}",
+            f"Job Type: {run.get('job_type', '-')}",
+            f"Run Kind: {run.get('run_kind', '-')}",
+            f"Model: {run.get('params', {}).get('model', '-') if run.get('params') else '-'}",
+            "",
+            f"Created: {run.get('created_at', '-')}",
+            f"Started: {run.get('started_at', '-')}",
+            f"Finished: {run.get('finished_at', '-')}",
+            "",
+            f"Tokens: {run.get('cost_tokens', 0):,}",
+            f"Cost: {run.get('cost_cents', 0)} cents",
+            "",
+            f"Worker: {run.get('worker_id', '-')}",
+            f"Queue: {run.get('queue', '-')}",
+            f"Attempt: {run.get('attempt', '-')}",
+        ]
+        if run.get("error"):
+            lines.extend(["", f"Error: {run.get('error')}"])
+        detail_widget = self.query_one("#run_detail", Static)
+        detail_widget.update("\n".join(lines))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close":
+            self.dismiss(None)
+        elif event.button.id == "view_logs":
+            if self.runs and 0 <= self.selected_idx < len(self.runs):
+                run_id = self.runs[self.selected_idx].get("run_id")
+                self.dismiss({"action": "logs", "run_id": run_id})
+            else:
+                self.dismiss(None)
+        elif event.button.id == "view_artifacts":
+            if self.runs and 0 <= self.selected_idx < len(self.runs):
+                run_id = self.runs[self.selected_idx].get("run_id")
+                self.dismiss({"action": "artifacts", "run_id": run_id})
+            else:
+                self.dismiss(None)
+
+
+class ArtifactViewerScreen(ModalScreen[Optional[Dict[str, Any]]]):
+    """Modal to browse artifacts for a Codex run."""
+
+    def __init__(self, artifacts: List[Dict[str, Any]], run_id: str = "") -> None:
+        super().__init__()
+        self.artifacts = artifacts
+        self.run_id = run_id
+        self.selected_idx = 0
+
+    def compose(self) -> ComposeResult:
+        title = f"Artifacts: {self.run_id[:12]}" if self.run_id else "Artifacts"
+        yield Static(title, classes="title")
+        if not self.artifacts:
+            yield Static("No artifacts found for this run.")
+        else:
+            yield Static(f"{len(self.artifacts)} artifact(s) found.", id="artifacts_count")
+            with Horizontal(id="artifacts_layout"):
+                with Vertical(id="artifacts_list_panel"):
+                    yield Static("Files", classes="title")
+                    yield ListView(id="artifacts_list")
+                with VerticalScroll(id="artifact_detail_panel"):
+                    yield Static("Details", classes="title")
+                    yield Static("Select an artifact.", id="artifact_detail")
+        with Horizontal(classes="row"):
+            yield Button("View Content", id="view_content", variant="primary")
+            yield Button("Close", id="close", variant="default")
+
+    def on_mount(self) -> None:
+        if not self.artifacts:
+            return
+        artifacts_view = self.query_one("#artifacts_list", ListView)
+        for art in self.artifacts:
+            name = art.get("name", "?")
+            kind = art.get("kind", "?")
+            size = art.get("bytes", 0)
+            size_str = self._format_size(size) if size else "-"
+            label = f"{name} [{kind}] {size_str}"
+            artifacts_view.append(DataListItem(label, art.get("id")))
+        if self.artifacts:
+            artifacts_view.index = 0
+            self._render_artifact_detail(self.artifacts[0])
+
+    def _format_size(self, size: int) -> str:
+        if size < 1024:
+            return f"{size}B"
+        elif size < 1024 * 1024:
+            return f"{size // 1024}KB"
+        else:
+            return f"{size // (1024 * 1024)}MB"
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        if not event.item or not isinstance(event.item, DataListItem):
+            return
+        artifact_id = event.item.item_id
+        artifact = next((a for a in self.artifacts if a.get("id") == artifact_id), None)
+        if artifact:
+            self._render_artifact_detail(artifact)
+            self.selected_idx = next((i for i, a in enumerate(self.artifacts) if a.get("id") == artifact_id), 0)
+
+    def _render_artifact_detail(self, art: Dict[str, Any]) -> None:
+        size = art.get("bytes", 0)
+        lines = [
+            f"ID: {art.get('id', '-')}",
+            f"Name: {art.get('name', '-')}",
+            f"Kind: {art.get('kind', '-')}",
+            f"Size: {self._format_size(size) if size else '-'}",
+            f"Path: {art.get('path', '-')}",
+            f"SHA256: {art.get('sha256', '-')[:16]}..." if art.get("sha256") else "SHA256: -",
+            f"Created: {art.get('created_at', '-')}",
+        ]
+        detail_widget = self.query_one("#artifact_detail", Static)
+        detail_widget.update("\n".join(lines))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close":
+            self.dismiss(None)
+        elif event.button.id == "view_content":
+            if self.artifacts and 0 <= self.selected_idx < len(self.artifacts):
+                self.dismiss(self.artifacts[self.selected_idx])
+            else:
+                self.dismiss(None)
+
+
 class TuiDashboard(App):
     CSS = """
     Screen { layout: vertical; }
@@ -442,11 +669,13 @@ class TuiDashboard(App):
         Binding("i", "import_codemachine", "Import CodeMachine", show=True),
         Binding("k", "view_clarifications", "Clarifications", show=True),
         Binding("l", "view_logs", "View logs", show=True),
+        Binding("e", "view_error", "View error", show=True),
+        Binding("j", "view_jobs", "Job inspector", show=True),
     ]
     HELP_TEXT = (
         "1-6 switch pages • r refresh • f filter steps • enter step actions • "
         "n run next • t retry • y run QA • a approve • o open PR • i import CodeMachine • "
-        "k clarifications • l logs • c config • q quit"
+        "k clarifications • l logs • e error • j jobs • c config • q quit"
     )
 
     status_message = reactive("Ready")
@@ -480,6 +709,19 @@ class TuiDashboard(App):
         self.protocol_clarifications: List[Dict[str, Any]] = []
         self.ci_summary: Optional[Dict[str, Any]] = None
         self.step_runs: List[Dict[str, Any]] = []
+        self.last_error: Optional[Dict[str, Any]] = None
+        self.policy_findings: List[Dict[str, Any]] = []
+
+    def _record_error(self, error_type: str, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+        self.last_error = {
+            "type": error_type,
+            "message": str(message),
+            "context": context or {},
+            "timestamp": datetime.now().isoformat(),
+        }
+        short_msg = str(message)[:80] + "..." if len(str(message)) > 80 else str(message)
+        self.status_message = f"Error: {short_msg} (press 'e' for details)"
+        self.notify(f"{error_type}: {short_msg}", severity="error", timeout=5)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -505,6 +747,9 @@ class TuiDashboard(App):
                                 yield Button("Approve", id="approve")
                                 yield Button("Open PR", id="open_pr")
                                 yield Button("Filter", id="filter_steps")
+                            with Horizontal(id="bulk-actions", classes="row"):
+                                yield Button("Retry All Failed", id="retry_all_failed", variant="warning")
+                                yield Button("Approve All Pending", id="approve_all_pending", variant="success")
                             with Vertical(id="steps-panel", classes="panel"):
                                 yield Static("Steps", classes="title")
                                 yield Static("Filter: all", id="step_filter_label")
@@ -530,6 +775,7 @@ class TuiDashboard(App):
                             yield Static("", id="step_meta")
                             with Horizontal(classes="row"):
                                 yield Button("View Logs", id="view_step_logs", variant="default")
+                                yield Button("Jobs", id="view_jobs", variant="default")
                             yield Static("Policy", classes="title")
                             yield Static("", id="step_policy")
                             yield Static("Runtime", classes="title")
@@ -537,9 +783,11 @@ class TuiDashboard(App):
                         with Vertical(id="onboarding-detail", classes="panel"):
                             yield Static("Onboarding", classes="title")
                             yield Static("", id="onboarding_meta")
+                            yield Static("Policy: no issues", id="policy_findings_summary")
                             yield Static("Clarifications: none pending", id="clarifications_summary")
                             with Horizontal(classes="row"):
                                 yield Button("Answer", id="answer_clarifications", variant="primary")
+                                yield Button("Policy", id="view_policy", variant="default")
                 with TabPane("Projects", id="projects-page"):
                     with Horizontal(id="projects-layout"):
                         with Vertical(classes="panel", id="projects-full-panel"):
@@ -735,6 +983,14 @@ class TuiDashboard(App):
             await self._open_clarifications_modal()
         elif bid == "view_step_logs":
             await self._view_step_logs()
+        elif bid == "view_policy":
+            await self._view_policy_findings()
+        elif bid == "view_jobs":
+            await self._open_job_inspector()
+        elif bid == "retry_all_failed":
+            await self._retry_all_failed()
+        elif bid == "approve_all_pending":
+            await self._approve_all_pending()
 
     async def refresh_all(self) -> None:
         if self.refreshing or self.modal_open:
@@ -753,6 +1009,7 @@ class TuiDashboard(App):
             await self._load_clarifications()
             await self._load_ci_summary()
             await self._load_step_runs()
+            await self._load_policy_findings()
             self._render_settings()
         finally:
             self.refreshing = False
@@ -1017,6 +1274,30 @@ class TuiDashboard(App):
         except Exception as exc:
             log.error("load_step_runs_failed", extra={"error": str(exc), "step_id": self.step_id})
 
+    async def _load_policy_findings(self) -> None:
+        self.policy_findings = []
+        if not self.project_id:
+            self._render_policy_findings()
+            return
+        try:
+            findings = await asyncio.to_thread(self.client.get, f"/projects/{self.project_id}/policy/findings")
+            self.policy_findings = findings or []
+        except Exception as exc:
+            log.error("load_policy_findings_failed", extra={"error": str(exc), "project_id": self.project_id})
+        self._render_policy_findings()
+
+    def _render_policy_findings(self) -> None:
+        if not self.policy_findings:
+            self._update_text("Policy: no issues", "policy_findings_summary")
+            return
+        blocking = [f for f in self.policy_findings if f.get("severity") == "error"]
+        warnings = [f for f in self.policy_findings if f.get("severity") == "warning"]
+        text = f"Policy: {len(blocking)} blocking, {len(warnings)} warnings"
+        if blocking:
+            codes = ", ".join(f["code"] for f in blocking[:3])
+            text += f" [{codes}{'...' if len(blocking) > 3 else ''}]"
+        self._update_text(text, "policy_findings_summary")
+
     def _render_clarifications_summary(self) -> None:
         total_project = len(self.project_clarifications)
         total_protocol = len(self.protocol_clarifications)
@@ -1240,6 +1521,113 @@ class TuiDashboard(App):
     async def action_view_logs(self) -> None:
         await self._view_step_logs()
 
+    async def action_view_error(self) -> None:
+        if not self.last_error:
+            self.status_message = "No recent errors."
+            self.notify("No recent errors to display.", severity="information", timeout=2)
+            return
+        await self._show_modal(
+            ErrorDetailScreen(
+                error_type=self.last_error["type"],
+                error_message=self.last_error["message"],
+                context=self.last_error.get("context"),
+            )
+        )
+
+    async def action_view_jobs(self) -> None:
+        await self._open_job_inspector()
+
+    async def _open_job_inspector(self) -> None:
+        if not self.step_id:
+            self.status_message = "Select a step to view its execution history."
+            self.notify("Select a step first.", severity="warning", timeout=3)
+            return
+        if not self.step_runs:
+            await self._load_step_runs()
+        step = next((s for s in self.steps if s["id"] == self.step_id), None)
+        step_name = step["step_name"] if step else ""
+        result = await self._show_modal(JobInspectorScreen(self.step_runs, step_name))
+        if result and isinstance(result, dict):
+            action = result.get("action")
+            run_id = result.get("run_id")
+            if action == "logs" and run_id:
+                await self._fetch_and_show_logs(run_id)
+            elif action == "artifacts" and run_id:
+                await self._fetch_and_show_artifacts(run_id)
+
+    async def _fetch_and_show_logs(self, run_id: str) -> None:
+        global_loader = next(iter(self.query("#global_loader")), None)
+        if global_loader:
+            global_loader.remove_class("hidden")
+            global_loader.update("Loading logs...")
+        try:
+            logs = await asyncio.to_thread(self.client.get, f"/codex/runs/{run_id}/logs")
+            if global_loader:
+                global_loader.add_class("hidden")
+            if logs:
+                await self._show_modal(LogViewerScreen(f"Logs: {run_id[:12]}", logs))
+            else:
+                self.status_message = "No logs available."
+                self.notify("No logs available for this run.", severity="warning", timeout=3)
+        except Exception as exc:
+            if global_loader:
+                global_loader.add_class("hidden")
+            self._record_error("Load Logs Failed", str(exc), {"run_id": run_id})
+
+    async def _fetch_and_show_artifacts(self, run_id: str) -> None:
+        global_loader = next(iter(self.query("#global_loader")), None)
+        if global_loader:
+            global_loader.remove_class("hidden")
+            global_loader.update("Loading artifacts...")
+        try:
+            artifacts = await asyncio.to_thread(self.client.get, f"/codex/runs/{run_id}/artifacts")
+            if global_loader:
+                global_loader.add_class("hidden")
+            if not artifacts:
+                self.status_message = "No artifacts available."
+                self.notify("No artifacts for this run.", severity="warning", timeout=3)
+                return
+            selected = await self._show_modal(ArtifactViewerScreen(artifacts, run_id))
+            if selected and isinstance(selected, dict):
+                await self._view_artifact_content(run_id, selected)
+        except Exception as exc:
+            if global_loader:
+                global_loader.add_class("hidden")
+            self._record_error("Load Artifacts Failed", str(exc), {"run_id": run_id})
+
+    async def _view_artifact_content(self, run_id: str, artifact: Dict[str, Any]) -> None:
+        artifact_id = artifact.get("id")
+        if not artifact_id:
+            return
+        global_loader = next(iter(self.query("#global_loader")), None)
+        if global_loader:
+            global_loader.remove_class("hidden")
+            global_loader.update("Loading artifact content...")
+        try:
+            content = await asyncio.to_thread(
+                self.client.get, f"/codex/runs/{run_id}/artifacts/{artifact_id}/content"
+            )
+            if global_loader:
+                global_loader.add_class("hidden")
+            if content:
+                name = artifact.get("name", "artifact")
+                await self._show_modal(LogViewerScreen(f"Artifact: {name}", content))
+            else:
+                self.status_message = "No content available."
+                self.notify("Artifact content is empty.", severity="warning", timeout=3)
+        except Exception as exc:
+            if global_loader:
+                global_loader.add_class("hidden")
+            self._record_error("Load Artifact Content Failed", str(exc), {"run_id": run_id, "artifact_id": artifact_id})
+
+    async def _view_policy_findings(self) -> None:
+        if not self.project_id:
+            self.status_message = "Select a project."
+            return
+        if not self.policy_findings:
+            await self._load_policy_findings()
+        await self._show_modal(PolicyFindingsScreen(self.policy_findings))
+
     async def action_step_menu(self) -> None:
         if not self.protocol_id:
             self.status_message = "Select a protocol."
@@ -1297,12 +1685,10 @@ class TuiDashboard(App):
             await self._load_steps()
             await self._load_events()
         except APIClientError as exc:
-            self.status_message = str(exc)
-            self.notify(f"Error: {exc}", severity="error", timeout=5)
+            self._record_error("API Error", str(exc), {"path": path, "protocol_id": self.protocol_id})
             log.error("action_failed", extra={"path": path, "error": str(exc), "protocol_id": self.protocol_id})
         except Exception as exc:  # pragma: no cover - defensive
-            self.status_message = f"Error: {exc}"
-            self.notify(f"Error: {exc}", severity="error", timeout=5)
+            self._record_error("Action Failed", str(exc), {"path": path, "protocol_id": self.protocol_id})
             log.error("action_failed", extra={"path": path, "error": str(exc), "protocol_id": self.protocol_id})
         finally:
             if global_loader:
@@ -1321,8 +1707,7 @@ class TuiDashboard(App):
             await self._load_projects()
             await self._load_onboarding()
         except Exception as exc:
-            self.status_message = f"Create project failed: {exc}"
-            self.notify(f"Create project failed: {exc}", severity="error", timeout=5)
+            self._record_error("Create Project Failed", str(exc), {"payload": payload})
 
     async def _create_protocol(self) -> None:
         if not self.project_id:
@@ -1351,8 +1736,7 @@ class TuiDashboard(App):
             await self._load_protocols()
             await self._load_steps()
         except Exception as exc:
-            self.status_message = f"Create protocol failed: {exc}"
-            self.notify(f"Create protocol failed: {exc}", severity="error", timeout=5)
+            self._record_error("Create Protocol Failed", str(exc), {"project_id": self.project_id, "payload": create_payload})
 
     async def _protocol_action(self, action: str, success: str) -> None:
         if not self.protocol_id:
@@ -1396,6 +1780,92 @@ class TuiDashboard(App):
         if confirm:
             await self._post_action(f"/protocols/{self.protocol_id}/actions/retry_latest", "Retry enqueued.")
 
+    async def _retry_all_failed(self) -> None:
+        if not self.protocol_id:
+            self.status_message = "Select a protocol."
+            return
+        failed_steps = [s for s in self.steps if s.get("status") == "failed"]
+        if not failed_steps:
+            self.status_message = "No failed steps to retry."
+            self.notify("No failed steps to retry.", severity="warning", timeout=3)
+            return
+        step_names = ", ".join(s["step_name"] for s in failed_steps[:3])
+        if len(failed_steps) > 3:
+            step_names += f" (+{len(failed_steps) - 3} more)"
+        confirm = await self._show_modal(
+            ConfirmActionScreen(
+                title="Retry All Failed Steps?",
+                message=f"This will retry {len(failed_steps)} failed step(s):\n{step_names}\n\nExisting work may be overwritten.",
+                confirm_label="Retry All",
+                danger=False,
+            )
+        )
+        if not confirm:
+            return
+        global_loader = next(iter(self.query("#global_loader")), None)
+        if global_loader:
+            global_loader.remove_class("hidden")
+            global_loader.update(f"Retrying {len(failed_steps)} steps...")
+        success_count = 0
+        error_count = 0
+        for step in failed_steps:
+            try:
+                await asyncio.to_thread(self.client.post, f"/steps/{step['id']}/actions/run")
+                success_count += 1
+            except Exception as exc:
+                error_count += 1
+                log.error("bulk_retry_step_failed", extra={"step_id": step["id"], "error": str(exc)})
+        if global_loader:
+            global_loader.add_class("hidden")
+        msg = f"Retry: {success_count} enqueued, {error_count} failed"
+        self.status_message = msg
+        self.notify(msg, severity="information" if error_count == 0 else "warning", timeout=4)
+        await self._load_steps()
+        await self._load_events()
+
+    async def _approve_all_pending(self) -> None:
+        if not self.protocol_id:
+            self.status_message = "Select a protocol."
+            return
+        pending_steps = [s for s in self.steps if s.get("status") == "needs_qa"]
+        if not pending_steps:
+            self.status_message = "No steps pending approval."
+            self.notify("No steps pending approval.", severity="warning", timeout=3)
+            return
+        step_names = ", ".join(s["step_name"] for s in pending_steps[:3])
+        if len(pending_steps) > 3:
+            step_names += f" (+{len(pending_steps) - 3} more)"
+        confirm = await self._show_modal(
+            ConfirmActionScreen(
+                title="Approve All Pending Steps?",
+                message=f"This will approve {len(pending_steps)} step(s) pending QA:\n{step_names}",
+                confirm_label="Approve All",
+                danger=False,
+            )
+        )
+        if not confirm:
+            return
+        global_loader = next(iter(self.query("#global_loader")), None)
+        if global_loader:
+            global_loader.remove_class("hidden")
+            global_loader.update(f"Approving {len(pending_steps)} steps...")
+        success_count = 0
+        error_count = 0
+        for step in pending_steps:
+            try:
+                await asyncio.to_thread(self.client.post, f"/steps/{step['id']}/actions/approve")
+                success_count += 1
+            except Exception as exc:
+                error_count += 1
+                log.error("bulk_approve_step_failed", extra={"step_id": step["id"], "error": str(exc)})
+        if global_loader:
+            global_loader.add_class("hidden")
+        msg = f"Approve: {success_count} approved, {error_count} failed"
+        self.status_message = msg
+        self.notify(msg, severity="information" if error_count == 0 else "warning", timeout=4)
+        await self._load_steps()
+        await self._load_events()
+
     async def _run_selected_step(self) -> None:
         if not self.step_id:
             self.status_message = "Select a step."
@@ -1411,8 +1881,7 @@ class TuiDashboard(App):
             self.status_message = "Spec audit enqueued."
             self.notify("Spec audit enqueued.", severity="information", timeout=3)
         except Exception as exc:
-            self.status_message = f"Spec audit failed: {exc}"
-            self.notify(f"Spec audit failed: {exc}", severity="error", timeout=5)
+            self._record_error("Spec Audit Failed", str(exc), {"payload": payload})
 
     async def _delete_branch(self) -> None:
         if not self.selected_branch:
@@ -1434,8 +1903,7 @@ class TuiDashboard(App):
             self.selected_branch = None
             await self._load_branches(force=True)
         except Exception as exc:
-            self.status_message = f"Delete failed: {exc}"
-            self.notify(f"Delete failed: {exc}", severity="error", timeout=5)
+            self._record_error("Delete Branch Failed", str(exc), {"branch": self.selected_branch, "project_id": self.project_id})
 
     async def _cycle_job_filter(self) -> None:
         order = [None, "queued", "started", "failed", "finished"]
@@ -1482,8 +1950,7 @@ class TuiDashboard(App):
             await self._load_steps()
             await self._load_events()
         except Exception as exc:
-            self.status_message = f"Import failed: {exc}"
-            self.notify(f"Import failed: {exc}", severity="error", timeout=5)
+            self._record_error("Import Failed", str(exc), {"project_id": self.project_id, "workspace_path": str(workspace_path)})
         finally:
             if global_loader:
                 global_loader.add_class("hidden")
@@ -1517,8 +1984,7 @@ class TuiDashboard(App):
             await self._load_clarifications()
             await self._load_onboarding()
         except Exception as exc:
-            self.status_message = f"Failed to answer: {exc}"
-            self.notify(f"Failed to answer: {exc}", severity="error", timeout=5)
+            self._record_error("Answer Clarification Failed", str(exc), {"key": key, "endpoint": endpoint})
 
     async def _view_step_logs(self) -> None:
         if not self.step_runs:
@@ -1546,8 +2012,7 @@ class TuiDashboard(App):
             step_name = step["step_name"] if step else f"Step #{self.step_id}"
             await self._show_modal(LogViewerScreen(f"Logs: {step_name} (run {run_id})", log_content))
         except Exception as exc:
-            self.status_message = f"Failed to load logs: {exc}"
-            self.notify(f"Failed to load logs: {exc}", severity="error", timeout=5)
+            self._record_error("Load Logs Failed", str(exc), {"run_id": run_id, "step_id": self.step_id})
         finally:
             if global_loader:
                 global_loader.add_class("hidden")

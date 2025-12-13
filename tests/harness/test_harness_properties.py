@@ -1726,7 +1726,7 @@ def test_property_12_service_integration_validation(api_endpoints, job_types, da
         # Create environment context with service integration capabilities
         config = EnvironmentConfig(
             database_url=str(temp_path / "test.db") if expect_database_available else None,
-            redis_url="redis://localhost:6379/15" if expect_redis_available else None,
+            redis_url="redis://localhost:6380/15" if expect_redis_available else None,
             codex_available=False,
             api_token="test-token-12345",
         )

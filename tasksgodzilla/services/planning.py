@@ -10,7 +10,7 @@ from typing import List, Optional
 from tasksgodzilla.config import load_config
 from tasksgodzilla.domain import ProtocolStatus
 from tasksgodzilla.engines import EngineRequest, registry
-from tasksgodzilla.errors import CodexCommandError
+from tasksgodzilla.errors import CodexCommandError, TasksGodzillaError
 from tasksgodzilla.logging import get_logger, log_extra
 from tasksgodzilla.pipeline import (
     decompose_step_prompt,
@@ -252,7 +252,8 @@ class PlanningService:
         planning_tokens = budget_service.check_and_track(
             planning_text, planning_model, "planning", config.token_budget_mode, budget_limit
         )
-        engine = registry.get_default()
+        engine_id = getattr(config, "default_engine_id", None) or registry.get_default().metadata.id
+        engine = registry.get(engine_id)
         planning_request = EngineRequest(
             project_id=project.id,
             protocol_run_id=run.id,
@@ -272,16 +273,17 @@ class PlanningService:
             if not planning_json:
                 raise ValueError("Empty planning result from Codex")
             data = json.loads(planning_json)
-        except CodexCommandError as exc:
+        except (CodexCommandError, TasksGodzillaError) as exc:
             self.db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
             self.db.append_event(
                 protocol_run_id,
                 "planning_failed",
-                f"Codex planning failed: {exc}",
+                f"Planning failed: {exc}",
                 metadata={
                     "error": str(exc),
                     "error_type": exc.__class__.__name__,
                     "returncode": (exc.metadata or {}).get("returncode"),
+                    "engine_id": engine.metadata.id,
                 },
                 job_id=job_id,
             )
@@ -292,6 +294,7 @@ class PlanningService:
                     "error": str(exc),
                     "error_type": exc.__class__.__name__,
                     "returncode": (exc.metadata or {}).get("returncode"),
+                    "engine_id": engine.metadata.id,
                 },
             )
             raise
@@ -314,12 +317,13 @@ class PlanningService:
             self.db.append_event(
                 protocol_run_id,
                 "planning_failed",
-                f"Invalid Codex planning output: {exc}",
+                f"Invalid planning output: {exc}",
                 metadata={
                     "error": str(exc),
                     "error_type": exc.__class__.__name__,
                     "stdout": planning_result.stdout if "planning_result" in locals() else None,
                     "stderr": planning_result.stderr if "planning_result" in locals() else None,
+                    "engine_id": engine.metadata.id,
                 },
                 job_id=job_id,
             )

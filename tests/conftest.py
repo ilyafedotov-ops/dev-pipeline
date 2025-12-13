@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 
 @pytest.fixture(scope="session")
 def redis_url() -> str:
-    url = os.environ.get("TASKSGODZILLA_REDIS_URL", "redis://localhost:6379/15")
+    url = os.environ.get("TASKSGODZILLA_REDIS_URL", "redis://localhost:6380/15")
     client = redis.Redis.from_url(url)
     try:
         client.ping()

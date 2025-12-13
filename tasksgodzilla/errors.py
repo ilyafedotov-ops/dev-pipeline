@@ -43,6 +43,12 @@ class CodexCommandError(TasksGodzillaError):
     category = "codex"
 
 
+class OpenCodeCommandError(TasksGodzillaError):
+    """Raised when OpenCode execution (CLI/API) fails."""
+
+    category = "opencode"
+
+
 class GitCommandError(TasksGodzillaError):
     """Raised when git commands fail."""
 
