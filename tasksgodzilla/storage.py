@@ -602,10 +602,12 @@ class BaseDatabase(Protocol):
     def find_protocol_run_by_name(self, protocol_name: str) -> Optional[ProtocolRun]: ...
     def find_protocol_run_by_branch(self, branch: str) -> Optional[ProtocolRun]: ...
     def list_protocol_runs(self, project_id: int) -> List[ProtocolRun]: ...
+    def list_all_protocol_runs(self) -> List[ProtocolRun]: ...
     def update_protocol_status(self, run_id: int, status: str, expected_status: Optional[str] = None) -> ProtocolRun: ...
     def create_step_run(self, protocol_run_id: int, step_index: int, step_name: str, step_type: str, status: str, model: Optional[str] = None, engine_id: Optional[str] = None, retries: int = 0, summary: Optional[str] = None, policy: Optional[dict] = None) -> StepRun: ...
     def get_step_run(self, step_run_id: int) -> StepRun: ...
     def list_step_runs(self, protocol_run_id: int) -> List[StepRun]: ...
+    def list_all_step_runs(self) -> List[StepRun]: ...
     def latest_step_run(self, protocol_run_id: int) -> Optional[StepRun]: ...
     def update_step_status(self, step_run_id: int, status: str, retries: Optional[int] = None, summary: Optional[str] = None, model: Optional[str] = None, engine_id: Optional[str] = None, runtime_state: Optional[dict] = None, expected_status: Optional[str] = None) -> StepRun: ...
     def append_event(self, protocol_run_id: int, event_type: str, message: str, metadata: Optional[Dict[str, Any]] = None, step_run_id: Optional[int] = None, request_id: Optional[str] = None, job_id: Optional[str] = None) -> Event: ...
@@ -1207,6 +1209,12 @@ class Database:
         )
         return [self._row_to_protocol(row) for row in rows]
 
+    def list_all_protocol_runs(self) -> List[ProtocolRun]:
+        rows = self._fetchall(
+            "SELECT * FROM protocol_runs ORDER BY created_at DESC",
+        )
+        return [self._row_to_protocol(row) for row in rows]
+
     def update_protocol_status(self, run_id: int, status: str, expected_status: Optional[str] = None) -> ProtocolRun:
         with self._connect() as conn:
             if expected_status:
@@ -1275,6 +1283,12 @@ class Database:
         rows = self._fetchall(
             "SELECT * FROM step_runs WHERE protocol_run_id = ? ORDER BY step_index ASC",
             (protocol_run_id,),
+        )
+        return [self._row_to_step(row) for row in rows]
+
+    def list_all_step_runs(self) -> List[StepRun]:
+        rows = self._fetchall(
+            "SELECT * FROM step_runs ORDER BY created_at DESC",
         )
         return [self._row_to_step(row) for row in rows]
 
@@ -2567,6 +2581,12 @@ class PostgresDatabase:
         )
         return [Database._row_to_protocol(row) for row in rows]  # type: ignore[arg-type]
 
+    def list_all_protocol_runs(self) -> List[ProtocolRun]:
+        rows = self._fetchall(
+            "SELECT * FROM protocol_runs ORDER BY created_at DESC",
+        )
+        return [Database._row_to_protocol(row) for row in rows]  # type: ignore[arg-type]
+
     def update_protocol_status(self, run_id: int, status: str, expected_status: Optional[str] = None) -> ProtocolRun:
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -2667,6 +2687,12 @@ class PostgresDatabase:
         rows = self._fetchall(
             "SELECT * FROM step_runs WHERE protocol_run_id = %s ORDER BY step_index ASC",
             (protocol_run_id,),
+        )
+        return [Database._row_to_step(row) for row in rows]  # type: ignore[arg-type]
+
+    def list_all_step_runs(self) -> List[StepRun]:
+        rows = self._fetchall(
+            "SELECT * FROM step_runs ORDER BY created_at DESC",
         )
         return [Database._row_to_step(row) for row in rows]  # type: ignore[arg-type]
 

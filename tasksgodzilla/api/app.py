@@ -1451,6 +1451,12 @@ def import_codemachine(
 
 
 
+@app.get("/protocols", response_model=list[schemas.ProtocolRunOut], dependencies=[Depends(require_auth)])
+def list_all_protocols(db: BaseDatabase = Depends(get_db)) -> list[schemas.ProtocolRunOut]:
+    runs = db.list_all_protocol_runs()
+    return [_protocol_out(r, db=db) for r in runs]
+
+
 @app.get("/projects/{project_id}/protocols", response_model=list[schemas.ProtocolRunOut], dependencies=[Depends(require_auth)])
 def list_protocol_runs(project_id: int, db: BaseDatabase = Depends(get_db), request: Request = None) -> list[schemas.ProtocolRunOut]:
     if request:
@@ -1806,6 +1812,12 @@ def create_step(
         policy=payload.policy,
     )
     return schemas.StepRunOut(**step.__dict__)
+
+
+@app.get("/steps", response_model=list[schemas.StepRunOut], dependencies=[Depends(require_auth)])
+def list_all_steps(db: BaseDatabase = Depends(get_db)) -> list[schemas.StepRunOut]:
+    steps = db.list_all_step_runs()
+    return [schemas.StepRunOut(**s.__dict__) for s in steps]
 
 
 @app.get("/protocols/{protocol_run_id}/steps", response_model=list[schemas.StepRunOut], dependencies=[Depends(require_auth)])
