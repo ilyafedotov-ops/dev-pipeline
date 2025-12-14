@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 from tasksgodzilla.jobs import BaseQueue, Job, RedisQueue
+from tasksgodzilla.logging import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass

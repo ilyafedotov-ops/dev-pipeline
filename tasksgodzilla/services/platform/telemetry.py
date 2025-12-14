@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tasksgodzilla.logging import get_logger
 from tasksgodzilla.metrics import metrics
+
+log = get_logger(__name__)
 
 
 @dataclass

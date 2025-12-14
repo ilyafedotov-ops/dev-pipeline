@@ -6,6 +6,9 @@ from typing import Any, Optional
 from tasksgodzilla.auth.jwt import JwtError, decode_hs256, encode_hs256
 from tasksgodzilla.auth.passwords import verify_pbkdf2_sha256
 from tasksgodzilla.config import Config
+from tasksgodzilla.logging import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)

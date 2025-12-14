@@ -4,7 +4,10 @@ import hashlib
 from pathlib import Path
 from typing import Optional, Tuple
 
+from tasksgodzilla.logging import get_logger
 from tasksgodzilla.storage import BaseDatabase
+
+log = get_logger(__name__)
 
 
 def _sha256_and_size(path: Path, *, chunk_size: int = 1024 * 1024) -> Tuple[Optional[str], Optional[int]]:
