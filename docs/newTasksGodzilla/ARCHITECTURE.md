@@ -133,6 +133,16 @@ graph TB
 
 ## 2. Subsystem Architecture
 
+> [!TIP]
+> **Detailed Documentation Available**
+> Each subsystem has its own detailed architecture document in [subsystems/](./subsystems/):
+> - [01-SPECIFICATION-ENGINE.md](./subsystems/01-SPECIFICATION-ENGINE.md) - SpecKit integration, typed models
+> - [02-ORCHESTRATION-CORE.md](./subsystems/02-ORCHESTRATION-CORE.md) - Windmill DAG execution
+> - [03-EXECUTION-LAYER.md](./subsystems/03-EXECUTION-LAYER.md) - Multi-agent execution (18+ agents)
+> - [04-QUALITY-ASSURANCE.md](./subsystems/04-QUALITY-ASSURANCE.md) - Constitutional QA gates
+> - [05-PLATFORM-SERVICES.md](./subsystems/05-PLATFORM-SERVICES.md) - Database, Git, Events
+> - [06-USER-INTERFACE.md](./subsystems/06-USER-INTERFACE.md) - Svelte extensions, CLI
+
 ### 2.1 Specification Engine (SpecKit Integration)
 
 The Specification Engine manages the spec-driven development workflow, providing structured planning before code execution.
@@ -1094,3 +1104,18 @@ This architecture combines:
 - **TasksGodzilla's multi-agent execution layer** with feedback loops
 
 The result is **DevGodzilla**: a unified platform for AI-driven software development with proper orchestration, quality gates, and self-healing capabilities through specification feedback loops.
+
+---
+
+## Related Documentation
+
+| Document | Description |
+|----------|-------------|
+| [API-ARCHITECTURE.md](./API-ARCHITECTURE.md) | Detailed REST API specification |
+| [subsystems/README.md](./subsystems/README.md) | Subsystem documentation index |
+| [subsystems/01-SPECIFICATION-ENGINE.md](./subsystems/01-SPECIFICATION-ENGINE.md) | SpecKit integration details |
+| [subsystems/02-ORCHESTRATION-CORE.md](./subsystems/02-ORCHESTRATION-CORE.md) | Windmill workflow engine |
+| [subsystems/03-EXECUTION-LAYER.md](./subsystems/03-EXECUTION-LAYER.md) | Multi-agent execution (18+ agents) |
+| [subsystems/04-QUALITY-ASSURANCE.md](./subsystems/04-QUALITY-ASSURANCE.md) | Constitutional QA gates |
+| [subsystems/05-PLATFORM-SERVICES.md](./subsystems/05-PLATFORM-SERVICES.md) | Database, Git, Events |
+| [subsystems/06-USER-INTERFACE.md](./subsystems/06-USER-INTERFACE.md) | Svelte UI + CLI |
