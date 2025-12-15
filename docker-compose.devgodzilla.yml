@@ -44,6 +44,8 @@ services:
     build:
       context: ./Origins/Windmill
       dockerfile: Dockerfile
+      args:
+        features: static_frontend
     restart: unless-stopped
     expose:
       - "8000"
