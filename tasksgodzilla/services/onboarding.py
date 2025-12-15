@@ -21,6 +21,7 @@ from tasksgodzilla.domain import ProtocolStatus
 from tasksgodzilla.git_utils import resolve_project_repo_path
 from tasksgodzilla.services.policy import PolicyService
 from tasksgodzilla.services.clarifications import ClarificationsService
+from tasksgodzilla.services.git import GitService
 
 log = get_logger(__name__)
 
@@ -421,6 +422,12 @@ class OnboardingService:
             else:
                 self.db.update_protocol_status(protocol_run_id, ProtocolStatus.COMPLETED)
                 self.db.append_event(protocol_run_id, "setup_completed", "Project setup job finished.")
+                self._finalize_setup(
+                    project_id=project_id,
+                    protocol_run_id=protocol_run_id,
+                    repo_path=repo_path,
+                    base_branch=project.base_branch,
+                )
         except Exception as exc:  # pragma: no cover - defensive
             log.exception(
                 "Project setup failed",
@@ -562,6 +569,115 @@ class OnboardingService:
                     "engine_id": engine_id,
                     "failed_stages": failed_stages,
                 },
+            )
+
+    def _finalize_setup(
+        self,
+        project_id: int,
+        protocol_run_id: int,
+        repo_path: Path,
+        base_branch: str,
+    ) -> None:
+        """
+        Finalize project setup by creating branch, worktree, and protocols directory.
+
+        This ensures the project is ready for spec-driven workflows after onboarding:
+        1. Creates a git worktree for the setup protocol
+        2. Creates the .protocols/<protocol_name>/ directory structure
+        3. Commits and pushes the starter assets to the branch
+
+        Called automatically after setup_completed when blocking=False.
+        """
+        run = self.db.get_protocol_run(protocol_run_id)
+        protocol_name = run.protocol_name
+
+        git_service = GitService(self.db)
+
+        try:
+            worktree_path = git_service.ensure_worktree(
+                repo_root=repo_path,
+                protocol_name=protocol_name,
+                base_branch=base_branch,
+                protocol_run_id=protocol_run_id,
+                project_id=project_id,
+            )
+
+            self.db.append_event(
+                protocol_run_id,
+                "setup_worktree_created",
+                f"Created worktree for {protocol_name}.",
+                metadata={
+                    "worktree_path": str(worktree_path),
+                    "protocol_name": protocol_name,
+                    "base_branch": base_branch,
+                },
+            )
+
+            protocol_root = worktree_path / ".protocols" / protocol_name
+            protocol_root.mkdir(parents=True, exist_ok=True)
+
+            plan_file = protocol_root / "plan.md"
+            if not plan_file.exists():
+                plan_file.write_text(
+                    f"# Protocol: {protocol_name}\n\n"
+                    f"Setup protocol for project onboarding.\n\n"
+                    f"## Status\n\nCompleted.\n",
+                    encoding="utf-8",
+                )
+
+            self.db.update_protocol_paths(
+                protocol_run_id,
+                worktree_path=str(worktree_path),
+                protocol_root=str(protocol_root),
+            )
+
+            self.db.append_event(
+                protocol_run_id,
+                "setup_protocols_dir_created",
+                f"Created protocols directory at {protocol_root}.",
+                metadata={
+                    "protocol_root": str(protocol_root),
+                    "protocol_name": protocol_name,
+                },
+            )
+
+            pushed = git_service.push_and_open_pr(
+                worktree=worktree_path,
+                protocol_name=protocol_name,
+                base_branch=base_branch,
+                protocol_run_id=protocol_run_id,
+                project_id=project_id,
+            )
+
+            if pushed:
+                self.db.append_event(
+                    protocol_run_id,
+                    "setup_branch_pushed",
+                    f"Pushed branch {protocol_name} with starter assets.",
+                    metadata={"branch": protocol_name, "pushed": True},
+                )
+            else:
+                self.db.append_event(
+                    protocol_run_id,
+                    "setup_branch_push_skipped",
+                    "No changes to push or push skipped.",
+                    metadata={"branch": protocol_name, "pushed": False},
+                )
+
+        except Exception as exc:
+            log.warning(
+                "setup_finalize_failed",
+                extra={
+                    **log_extra(project_id=project_id, protocol_run_id=protocol_run_id),
+                    "error": str(exc),
+                    "error_type": exc.__class__.__name__,
+                },
+            )
+            self.db.append_event(
+                protocol_run_id,
+                "setup_finalize_warning",
+                f"Post-setup finalization had issues: {exc}",
+                metadata={"error": str(exc)},
             )
 
 
