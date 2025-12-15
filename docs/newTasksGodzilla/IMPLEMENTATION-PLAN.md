@@ -16,10 +16,10 @@ gantt
     title DevGodzilla Implementation Timeline
     dateFormat  YYYY-MM-DD
     section Phase 1: Foundation
-    Migrate Core Utils    :p1, 2024-01-01, 1w
-    Setup DB & Events     :p1, 1w
+    Migrate Core Utils    :p1a, 2024-01-01, 1w
+    Setup DB & Events     :p1b, after p1a, 1w
     section Phase 2: Specification
-    Refactor Spec Engine  :p2, after p1, 2w
+    Refactor Spec Engine  :p2, after p1b, 2w
     section Phase 3: Orchestration
     Windmill Integration  :p3, after p2, 2w
     section Phase 4: Execution
