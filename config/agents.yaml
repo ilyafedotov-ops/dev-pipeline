@@ -1,0 +1,12 @@
+agents:
+  - id: gemini-pro
+    name: Gemini Pro
+    kind: api
+    model: gemini-pro
+    capabilities: [reasoning, coding]
+    
+  - id: gpt-4
+    name: GPT-4
+    kind: api
+    model: gpt-4
+    capabilities: [reasoning, coding]

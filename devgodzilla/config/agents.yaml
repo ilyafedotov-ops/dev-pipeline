@@ -1,0 +1,123 @@
+# DevGodzilla Agent Configuration
+# 
+# This file defines available AI coding agents and their configurations.
+# Each agent has: kind, command, default_model, sandbox support, and capabilities.
+
+agents:
+  # Core agents (currently implemented)
+  codex:
+    name: "OpenAI Codex"
+    kind: cli
+    command: "codex"
+    default_model: "gpt-4.1"
+    sandbox: workspace-write
+    capabilities:
+      - code_gen
+      - review
+      - refactor
+    enabled: true
+    
+  opencode:
+    name: "OpenCode"
+    kind: cli
+    command: "opencode"
+    default_model: "claude-sonnet-4-20250514"
+    sandbox: workspace-write
+    capabilities:
+      - code_gen
+      - review
+      - refactor
+    enabled: true
+    
+  claude-code:
+    name: "Claude Code"
+    kind: cli
+    command: "claude"
+    command_dir: ".claude/commands/"
+    default_model: "claude-sonnet-4-20250514"
+    sandbox: workspace-write
+    capabilities:
+      - code_gen
+      - review
+      - refactor
+      - long_context
+    enabled: true
+
+  # Additional agents (to be implemented)
+  gemini-cli:
+    name: "Gemini CLI"
+    kind: cli
+    command: "gemini"
+    command_dir: ".gemini/commands/"
+    default_model: "gemini-2.5-pro"
+    format: toml
+    sandbox: workspace-write
+    capabilities:
+      - code_gen
+      - review
+      - multimodal
+    enabled: true
+    
+  cursor:
+    name: "Cursor Editor"
+    kind: ide
+    command: "cursor"
+    command_dir: ".cursor/commands/"
+    default_model: "gpt-4"
+    sandbox: none
+    capabilities:
+      - code_gen
+      - interactive
+    enabled: false
+    
+  copilot:
+    name: "GitHub Copilot"
+    kind: ide
+    command: "gh copilot"
+    default_model: "copilot"
+    sandbox: none
+    capabilities:
+      - code_gen
+      - autocomplete
+    enabled: false
+    
+  windsurf:
+    name: "Windsurf"
+    kind: ide
+    command: "windsurf"
+    sandbox: none
+    capabilities:
+      - code_gen
+    enabled: false
+    
+  jules:
+    name: "Jules"
+    kind: api
+    endpoint: "https://api.jules.ai"
+    sandbox: cloud
+    capabilities:
+      - code_gen
+      - autonomous
+    enabled: false
+    
+  qoder:
+    name: "Qoder"
+    kind: cli
+    command: "qoder"
+    sandbox: workspace-write
+    capabilities:
+      - code_gen
+    enabled: false
+
+# Default agent for each task type
+defaults:
+  code_gen: opencode
+  review: claude-code
+  refactor: codex
+  discovery: opencode
+  
+# Health check configuration
+health_check:
+  timeout_seconds: 30
+  retry_count: 2
+  interval_minutes: 5

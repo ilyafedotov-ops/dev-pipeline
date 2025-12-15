@@ -1,0 +1,17 @@
+fastapi==0.124.0
+uvicorn==0.38.0
+pydantic==2.12.5
+pytest==9.0.2
+httpx==0.28.1
+authlib==1.4.1
+itsdangerous==2.2.0
+redis==7.1.0
+rq==2.6.1
+prometheus-client==0.23.1
+psycopg[binary,pool]==3.3.2
+alembic==1.17.2
+SQLAlchemy==2.0.44
+textual==6.7.1
+jsonschema==4.22.0
+hypothesis==6.122.3
+psutil==6.1.0

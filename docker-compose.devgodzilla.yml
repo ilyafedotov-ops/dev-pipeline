@@ -1,0 +1,66 @@
+version: "3.9"
+
+services:
+  devgodzilla-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # Database access for DevGodzilla
+      DATABASE_URL: postgresql://devgodzilla:changeme@db:5432/devgodzilla_db
+      REDIS_URL: redis://redis:6379/0
+      # API Config
+      LOG_LEVEL: INFO
+    ports:
+    ports:
+      - "8010:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: ["uvicorn", "devgodzilla.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - .:/app  # Hot, live reload for development
+      - /var/run/docker.sock:/var/run/docker.sock # For agent execution
+
+  windmill:
+    build:
+      context: ./Origins/Windmill
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8000" # Windmill UI
+    environment:
+      - DATABASE_URL=postgresql://windmill:changeme@db:5432/windmill_db
+      - MODE=server
+      - BASE_URL=http://localhost:8080
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - windmill_data:/tmp/windmill
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  windmill_data:
