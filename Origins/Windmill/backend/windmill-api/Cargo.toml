@@ -1,0 +1,160 @@
+[package]
+name = "windmill-api"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api"
+path = "src/lib.rs"
+
+[features]
+default = []
+private = ["windmill-audit/private"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise"]
+stripe = []
+agent_worker_server = []
+enterprise_saml = ["dep:samael", "dep:libxml"]
+benchmark = []
+embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
+parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker/parquet"]
+prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker/prometheus"]
+openidconnect = ["dep:openidconnect", "windmill-common/openidconnect"]
+tantivy = ["dep:windmill-indexer"]
+kafka = ["dep:rdkafka"]
+nats = ["dep:async-nats", "dep:nkeys"]
+websocket = ["dep:tokio-tungstenite"]
+smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
+license = ["dep:rsa"]
+zip = ["dep:async_zip"]
+oauth2 = ["dep:async-oauth2"]
+http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq"]
+static_frontend = ["dep:rust-embed"]
+postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
+mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
+sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:aws-config", "dep:backon"]
+deno_core = ["dep:deno_core", "dep:deno_error"]
+gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic"]
+cloud = ["windmill-common/cloud"]
+mcp = ["dep:rmcp"]
+python = []
+
+[dependencies]
+rmcp = { version = "0.8.1", features=["transport-streamable-http-server", "transport-streamable-http-server-session", "transport-worker"], optional = true }
+windmill-queue.workspace = true
+windmill-common = { workspace = true, default-features = false }
+windmill-audit.workspace = true
+windmill-parser.workspace = true
+windmill-parser-ts.workspace = true
+windmill-parser-py.workspace = true
+windmill-parser-py-imports.workspace = true
+windmill-git-sync.workspace = true
+windmill-indexer = { workspace = true, optional = true }
+windmill-autoscaling.workspace = true
+windmill-worker.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+anyhow.workspace = true
+argon2.workspace = true
+axum.workspace = true
+futures.workspace = true
+git-version.workspace = true
+tower.workspace = true
+tower-cookies.workspace = true
+tower-http.workspace = true
+hyper.workspace = true
+itertools.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+async-oauth2 = { workspace = true, optional = true }
+tracing.workspace = true
+sql-builder.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+hex.workspace = true
+base64.workspace = true
+base32.workspace = true
+serde_urlencoded.workspace = true
+serde_yml.workspace = true
+cron.workspace = true
+mime_guess.workspace = true
+rust-embed = { workspace = true, optional = true }
+tracing-subscriber.workspace = true
+quick_cache.workspace = true
+rand.workspace = true
+time.workspace = true
+native-tls.workspace = true
+tokio-native-tls.workspace = true
+openssl = { workspace = true, optional = true }
+mail-parser = { workspace = true, features = ["serde_support"], optional = true }
+magic-crypt.workspace = true
+tempfile.workspace = true
+tokio-util.workspace = true
+tokio-tar.workspace = true
+tokio-postgres.workspace = true
+postgres-native-tls.workspace = true
+hmac.workspace = true
+cookie.workspace = true
+sha2.workspace = true
+sha1 = { workspace = true, optional = true }
+constant_time_eq = { workspace = true, optional = true }
+urlencoding.workspace = true
+lazy_static.workspace = true
+prometheus = { workspace = true, optional = true }
+async_zip = { workspace = true, optional = true }
+regex.workspace = true
+bytes.workspace = true
+url.workspace = true
+samael = { workspace = true, optional = true }
+libxml = { workspace = true, optional = true }
+async-recursion.workspace = true
+rsa = { workspace = true, optional = true}
+uuid.workspace = true
+tinyvector = { workspace = true, optional = true}
+hf-hub  = { workspace = true, optional = true}
+tokenizers = { workspace = true, optional = true}
+candle-core = { workspace = true, optional = true}
+candle-transformers = { workspace = true, optional = true}
+candle-nn = { workspace = true, optional = true}
+datafusion = { workspace = true, optional = true}
+object_store = { workspace = true, optional = true}
+openidconnect = { workspace = true, optional = true}
+jsonwebtoken = { workspace = true }
+matchit = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true}
+rdkafka = { workspace = true, optional = true }
+async-nats = { workspace = true, optional = true }
+nkeys = { workspace = true, optional = true }
+const_format.workspace = true
+pin-project.workspace = true
+http.workspace = true
+indexmap.workspace = true
+async-stream.workspace = true
+ulid.workspace = true
+rust-postgres = { workspace = true, optional = true }
+pg_escape = { workspace = true, optional = true }
+byteorder = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+rust_decimal = { workspace = true, optional = true }
+rust-postgres-native-tls = { workspace = true, optional = true}
+rumqttc = { workspace = true, optional = true }
+aws-sdk-sqs = { workspace = true, optional = true }
+aws-sdk-sso = { workspace = true, optional = true }
+aws-sdk-ssooidc = { workspace = true, optional = true }
+aws-sdk-sts = { workspace = true, optional = true }
+rustls = { workspace = true }
+
+aws-sigv4.workspace = true
+aws-sdk-config.workspace = true
+aws-config = { workspace = true, optional = true }
+async-trait.workspace = true
+google-cloud-pubsub = { workspace = true, optional = true }
+google-cloud-googleapis = { workspace = true , optional = true }
+tonic = { workspace = true, optional = true }
+deno_error = { workspace = true, optional = true }
+deno_core = { workspace = true, optional = true }
+backon = {workspace = true, optional = true}
+[build-dependencies]
+deno_core = { workspace = true, optional = true }
