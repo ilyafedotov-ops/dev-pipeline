@@ -5,6 +5,7 @@ High-level protocol and step orchestration.
 Manages lifecycle of protocol runs and coordinates with Windmill for execution.
 """
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -39,6 +40,7 @@ class OrchestratorResult:
     message: Optional[str] = None
     job_id: Optional[str] = None
     flow_id: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
 
@@ -179,9 +181,20 @@ class OrchestratorService(Service):
         # Trigger planning
         if self.mode == OrchestratorMode.WINDMILL and self.windmill:
             job_id = self.windmill.run_script(
-                "u/devgodzilla/plan_protocol",
+                "u/devgodzilla/protocol_plan_and_wait",
                 {"protocol_run_id": protocol_run_id},
             )
+            try:
+                self.db.create_job_run(
+                    run_id=str(uuid.uuid4()),
+                    job_type="protocol_plan_and_wait",
+                    status="queued",
+                    project_id=run.project_id,
+                    protocol_run_id=protocol_run_id,
+                    windmill_job_id=job_id,
+                )
+            except Exception:
+                pass
             return OrchestratorResult(success=True, job_id=job_id)
         elif self.planning_service:
             # Local mode - run planning directly
@@ -262,7 +275,7 @@ class OrchestratorService(Service):
             extra=self.log_extra(protocol_run_id=protocol_run_id, flow_path=flow_path),
         )
         
-        return OrchestratorResult(success=True, flow_id=flow_path)
+        return OrchestratorResult(success=True, flow_id=flow_path, data={"flow_definition": flow_def})
 
     def run_protocol_flow(self, protocol_run_id: int) -> OrchestratorResult:
         """
@@ -295,6 +308,18 @@ class OrchestratorService(Service):
             run.windmill_flow_id,
             {"protocol_run_id": protocol_run_id},
         )
+        try:
+            self.db.create_job_run(
+                run_id=str(uuid.uuid4()),
+                job_type="run_flow",
+                status="queued",
+                project_id=run.project_id,
+                protocol_run_id=protocol_run_id,
+                windmill_job_id=job_id,
+                params={"flow_id": run.windmill_flow_id},
+            )
+        except Exception:
+            pass
         
         self.logger.info(
             "protocol_flow_started",
@@ -338,12 +363,22 @@ class OrchestratorService(Service):
         
         if self.mode == OrchestratorMode.WINDMILL and self.windmill:
             job_id = self.windmill.run_script(
-                "u/devgodzilla/execute_step",
-                {
-                    "step_run_id": step_run_id,
-                    "agent_id": step.assigned_agent or "codex",
-                },
+                "u/devgodzilla/step_execute_api",
+                {"step_run_id": step_run_id},
             )
+            try:
+                self.db.create_job_run(
+                    run_id=str(uuid.uuid4()),
+                    job_type="execute_step",
+                    status="queued",
+                    project_id=self.db.get_protocol_run(step.protocol_run_id).project_id,
+                    protocol_run_id=step.protocol_run_id,
+                    step_run_id=step_run_id,
+                    windmill_job_id=job_id,
+                    params={},
+                )
+            except Exception:
+                pass
             return OrchestratorResult(success=True, job_id=job_id)
         elif self.execution_service:
             # Local mode
@@ -372,9 +407,21 @@ class OrchestratorService(Service):
         
         if self.mode == OrchestratorMode.WINDMILL and self.windmill:
             job_id = self.windmill.run_script(
-                "u/devgodzilla/run_qa",
+                "u/devgodzilla/step_run_qa_api",
                 {"step_run_id": step_run_id},
             )
+            try:
+                self.db.create_job_run(
+                    run_id=str(uuid.uuid4()),
+                    job_type="run_qa",
+                    status="queued",
+                    project_id=self.db.get_protocol_run(step.protocol_run_id).project_id,
+                    protocol_run_id=step.protocol_run_id,
+                    step_run_id=step_run_id,
+                    windmill_job_id=job_id,
+                )
+            except Exception:
+                pass
             return OrchestratorResult(success=True, job_id=job_id)
         elif self.quality_service:
             # Local mode

@@ -1,145 +1,65 @@
 {
-    "summary": "Spec to Tasks Flow",
-    "description": "Generate specification, implementation plan, and task breakdown from a feature request.",
-    "value": {
-        "modules": [
-            {
-                "id": "tgz_emit_refs",
-                "value": {
-                    "type": "script",
-                    "path": "u/devgodzilla/emit_tasksgodzilla_codex_refs"
-                },
-                "input_transforms": {
-                    "run_id": {
-                        "type": "javascript",
-                        "expr": "flow_input.tgz_run_id || null"
-                    },
-                    "job_type": {
-                        "type": "static",
-                        "value": "windmill_spec_to_tasks"
-                    },
-                    "run_kind": {
-                        "type": "static",
-                        "value": "planning"
-                    },
-                    "project_id": {
-                        "type": "javascript",
-                        "expr": "flow_input.project_id || null"
-                    },
-                    "params": {
-                        "type": "javascript",
-                        "expr": "flow_input.tgz_params || null"
-                    },
-                    "attach_default_artifacts": {
-                        "type": "javascript",
-                        "expr": "flow_input.tgz_attach_default_artifacts !== false"
-                    }
-                }
-            },
-            {
-                "id": "generate_spec",
-                "value": {
-                    "type": "script",
-                    "path": "u/devgodzilla/generate_spec"
-                },
-                "input_transforms": {
-                    "project_path": {
-                        "type": "javascript",
-                        "expr": "flow_input.project_path"
-                    },
-                    "feature_request": {
-                        "type": "javascript",
-                        "expr": "flow_input.feature_request"
-                    },
-                    "constitution": {
-                        "type": "static",
-                        "value": ""
-                    }
-                }
-            },
-            {
-                "id": "generate_plan",
-                "value": {
-                    "type": "script",
-                    "path": "u/devgodzilla/generate_plan"
-                },
-                "input_transforms": {
-                    "project_path": {
-                        "type": "javascript",
-                        "expr": "flow_input.project_path"
-                    },
-                    "spec_path": {
-                        "type": "javascript",
-                        "expr": "results.generate_spec.spec_path"
-                    },
-                    "tech_hints": {
-                        "type": "javascript",
-                        "expr": "flow_input.tech_hints || ''"
-                    }
-                }
-            },
-            {
-                "id": "generate_tasks",
-                "value": {
-                    "type": "script",
-                    "path": "u/devgodzilla/generate_tasks"
-                },
-                "input_transforms": {
-                    "project_path": {
-                        "type": "javascript",
-                        "expr": "flow_input.project_path"
-                    },
-                    "plan_path": {
-                        "type": "javascript",
-                        "expr": "results.generate_plan.plan_path"
-                    }
-                }
-            }
-        ]
-    },
-    "schema": {
+  "summary": "Spec to Tasks Flow",
+  "description": "Generate specification, implementation plan, and task breakdown for a project by calling the DevGodzilla API (via API-wrapper scripts).",
+  "value": {
+    "modules": [
+      {
+        "id": "speckit_specify",
+        "value": {
+          "type": "script",
+          "path": "u/devgodzilla/speckit_specify_api"
+        },
+        "input_transforms": {
+          "project_id": { "type": "javascript", "expr": "flow_input.project_id" },
+          "description": { "type": "javascript", "expr": "flow_input.feature_request" },
+          "feature_name": { "type": "javascript", "expr": "flow_input.feature_name || ''" }
+        }
+      },
+      {
+        "id": "speckit_plan",
+        "value": {
+          "type": "script",
+          "path": "u/devgodzilla/speckit_plan_api"
+        },
+        "input_transforms": {
+          "project_id": { "type": "javascript", "expr": "flow_input.project_id" },
+          "spec_path": {
+            "type": "javascript",
+            "expr": "results.speckit_specify.spec_path"
+          }
+        }
+      },
+      {
+        "id": "speckit_tasks",
+        "value": {
+          "type": "script",
+          "path": "u/devgodzilla/speckit_tasks_api"
+        },
+        "input_transforms": {
+          "project_id": { "type": "javascript", "expr": "flow_input.project_id" },
+          "plan_path": {
+            "type": "javascript",
+            "expr": "results.speckit_plan.plan_path"
+          }
+        }
+      }
+    ]
+  },
+  "schema": {
         "type": "object",
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-            "project_id": {
-                "type": "integer",
-                "description": "Optional TasksGodzilla project_id to associate with the emitted run",
-                "default": 0
-            },
-            "project_path": {
-                "type": "string",
-                "description": "Path to the project directory",
-                "default": ""
-            },
-            "feature_request": {
-                "type": "string",
-                "description": "Description of the feature to implement",
-                "default": ""
-            },
-            "tech_hints": {
-                "type": "string",
-                "description": "Optional technology hints for the plan",
-                "default": ""
-            },
-            "tgz_run_id": {
-                "type": "string",
-                "description": "Optional TasksGodzilla codex run_id to update instead of using WM_JOB_ID",
-                "default": ""
-            },
-            "tgz_params": {
-                "type": "object",
-                "description": "Optional params to store in TasksGodzilla codex run record",
-                "default": {}
-            },
-            "tgz_attach_default_artifacts": {
-                "type": "boolean",
-                "description": "Whether to upsert windmill.{logs,result,error} artifacts in TasksGodzilla",
-                "default": true
-            }
-        },
-        "required": [
-            "project_path",
-            "feature_request"
-        ]
-    }
+    "properties": {
+      "project_id": { "type": "integer", "description": "Project ID", "default": 1 },
+      "feature_request": {
+        "type": "string",
+        "description": "Description of the feature to implement",
+        "default": ""
+      },
+      "feature_name": { "type": "string", "description": "Optional feature slug/name", "default": "" }
+    },
+    "required": [
+      "project_id",
+      "feature_request"
+    ]
+  }
 }

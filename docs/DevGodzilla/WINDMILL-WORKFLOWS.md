@@ -8,6 +8,8 @@
 
 DevGodzilla uses Windmill as its workflow orchestration engine, replacing the previous Redis/RQ implementation. This document describes the available scripts, flows, and how to use them for AI-driven development.
 
+**Current-state reference:** `docs/DevGodzilla/CURRENT_STATE.md`
+
 ```mermaid
 graph TB
     subgraph Flows["Windmill Flows"]
@@ -45,6 +47,35 @@ graph TB
     FullFlow --> OpenPR
     FullFlow --> Feedback
 ```
+
+## Where these live (in this repo)
+
+- Flow JSON exports: `windmill/flows/devgodzilla/`
+- Python scripts intended for Windmill runtime: `windmill/scripts/devgodzilla/`
+- Scripts call the DevGodzilla API via `windmill/scripts/devgodzilla/_api.py` using `DEVGODZILLA_API_URL` (Docker Compose sets this for the Windmill server/workers).
+
+---
+
+## Docker Compose bootstrap (single-solution stack)
+
+The repo’s `docker-compose.yml` brings up nginx + DevGodzilla API + Windmill + workers + DB + Redis.
+
+```bash
+docker compose up --build -d
+docker compose logs -f windmill_import
+```
+
+`windmill_import` imports local assets into Windmill:
+- `windmill/scripts/devgodzilla/` → `u/devgodzilla/*`
+- `windmill/flows/devgodzilla/` → `f/devgodzilla/*`
+- `windmill/apps/devgodzilla/` + `windmill/apps/devgodzilla-react-app/`
+
+For local development, the Windmill token/workspace are typically kept in `windmill/apps/devgodzilla-react-app/.env.development` (local-only) and used by `windmill_import` via `--token-file`.
+
+### Useful endpoints (via nginx)
+
+- DevGodzilla OpenAPI: `http://localhost:8080/docs`
+- Windmill API introspection through DevGodzilla: `http://localhost:8080/flows`, `http://localhost:8080/jobs`, `http://localhost:8080/runs`
 
 ---
 
@@ -111,15 +142,24 @@ Handle feedback loop actions when QA fails (clarify, re-plan, retry).
 
 All flows are located at `f/devgodzilla/` in Windmill.
 
+### Supported flows (default stack)
+
+These flows are intended to work in the default Docker Compose stack, without requiring Windmill workers to import the `devgodzilla` Python package (they rely on API-wrapper scripts):
+- `onboard_to_tasks`
+- `protocol_start`
+- `step_execute_with_qa`
+- `run_next_step` (selection only; execution is separate)
+
 ### Note: JavaScript `input_transforms` require `deno_core`
 
 The `protocol_start`, `run_next_step`, and `step_execute_with_qa` flows use `input_transforms` of type `javascript` (e.g. `flow_input.protocol_run_id`, `results.select_next_step.step_run_id`). That requires Windmill to be built with the `deno_core` feature enabled.
 
-If your Windmill build is `python`-only (like the default `docker-compose.devgodzilla.yml`), run the Python scripts directly instead:
+The default `docker-compose.yml` build enables `deno_core` (see `WINDMILL_FEATURES` in compose). If you intentionally build Windmill as `python`-only (e.g. `WINDMILL_FEATURES="static_frontend python"` for faster builds), run the Python scripts directly instead:
 - `u/devgodzilla/protocol_plan_and_wait`
 - `u/devgodzilla/protocol_select_next_step`
 - `u/devgodzilla/step_execute_api`
 - `u/devgodzilla/step_run_qa_api`
+- For onboarding + SpecKit generation without JS transforms: `u/devgodzilla/onboard_to_tasks_api`
 
 ### protocol_start
 Plan a protocol in DevGodzilla (via API) and wait until it reaches a stable status (`planned`, `running`, `blocked`, etc).
@@ -142,6 +182,8 @@ Execute a step with QA checks.
 ### full_protocol
 **[NEW]** Complete protocol execution with DAG-based parallel tasks, QA checks, and feedback loops.
 
+> Note: `full_protocol` is not imported by default in the current repo state; see `docs/DevGodzilla/CURRENT_STATE.md`.
+
 ```mermaid
 graph TB
     Start[plan_protocol] --> Tasks{Parallel Tasks}
@@ -163,7 +205,7 @@ graph TB
   "feature_request": "Add feature X",
   "protocol_name": "Protocol 1",
   "branch_name": "feature-x",
-  "agent_id": "codex"
+  "agent_id": "opencode"
 }
 ```
 
@@ -195,8 +237,11 @@ Configuration for 7 AI agents:
 Use the import script to sync local changes to Windmill:
 
 ```bash
-# Import everything
-python3 windmill/import_to_windmill.py --url http://192.168.1.227 --token <YOUR_TOKEN>
+# Import everything (prefer token-file for local-only tokens)
+python3 windmill/import_to_windmill.py \
+  --url http://localhost:8000 \
+  --workspace "${DEVGODZILLA_WINDMILL_WORKSPACE:-demo1}" \
+  --token-file windmill/apps/devgodzilla-react-app/.env.development
 ```
 
 ---

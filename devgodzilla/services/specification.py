@@ -2,7 +2,13 @@
 DevGodzilla Specification Service
 
 Manages SpecKit integration, .specify directory structure, and spec-driven
-development workflow. Uses CLI wrapper approach to call specify-cli.
+development workflow.
+
+Current implementation is template-based:
+- creates `.specify/` structure (constitution + templates)
+- generates `feature-spec.md`, `plan.md`, `tasks.md` by filling templates
+
+No external `specify` binary is required for the current code path.
 """
 
 import hashlib
@@ -61,8 +67,8 @@ class SpecificationService(Service):
     """
     Manages the SpecKit integration and .specify directory structure.
 
-    Uses CLI wrapper approach to call specify-cli for spec generation,
-    while handling directory management and DB integration internally.
+    Generates SpecKit-style artifacts by filling templates, while handling
+    directory management and DB integration internally.
     """
 
     DOT_SPECIFY = ".specify"
@@ -231,7 +237,7 @@ class SpecificationService(Service):
         project_id: Optional[int] = None,
     ) -> SpecifyResult:
         """
-        Generate a feature specification using specify-cli.
+        Generate a feature specification by filling the spec template.
 
         Args:
             project_path: Path to the project root

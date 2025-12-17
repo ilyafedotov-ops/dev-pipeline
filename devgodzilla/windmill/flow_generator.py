@@ -180,8 +180,8 @@ class FlowGenerator:
 
     def __init__(
         self,
-        script_path: str = "u/devgodzilla/execute_step",
-        qa_script_path: str = "u/devgodzilla/run_qa",
+        script_path: str = "u/devgodzilla/step_execute_api",
+        qa_script_path: str = "u/devgodzilla/step_run_qa_api",
     ) -> None:
         self.script_path = script_path
         self.qa_script_path = qa_script_path
@@ -192,7 +192,7 @@ class FlowGenerator:
         protocol_run_id: int,
         *,
         include_qa: bool = True,
-        default_agent: str = "codex",
+        default_agent: str = "opencode",
     ) -> Dict[str, Any]:
         """
         Generate Windmill flow definition from DAG.
@@ -267,18 +267,13 @@ class FlowGenerator:
         include_qa: bool,
     ) -> Dict[str, Any]:
         """Create a module for executing a step."""
-        agent_id = node.agent_id or default_agent
-        
         step_module = {
             "id": node.id,
             "value": {
                 "type": "script",
                 "path": self.script_path,
                 "input_transforms": {
-                    "step_id": {"type": "static", "value": node.id},
                     "step_run_id": {"type": "static", "value": node.step_run_id},
-                    "agent_id": {"type": "static", "value": agent_id},
-                    "protocol_run_id": {"type": "flow_input", "key": "protocol_run_id"},
                 },
             },
         }
@@ -298,9 +293,7 @@ class FlowGenerator:
                                     "type": "script",
                                     "path": self.qa_script_path,
                                     "input_transforms": {
-                                        "step_id": {"type": "static", "value": node.id},
                                         "step_run_id": {"type": "static", "value": node.step_run_id},
-                                        "protocol_run_id": {"type": "flow_input", "key": "protocol_run_id"},
                                     },
                                 },
                             },
@@ -327,7 +320,6 @@ class FlowGenerator:
         for step in steps:
             step_id = step.get("step_name", f"step-{len(modules)}")
             step_run_id = step.get("id")
-            agent_id = step.get("assigned_agent", "codex")
             
             modules.append({
                 "id": step_id,
@@ -335,10 +327,7 @@ class FlowGenerator:
                     "type": "script",
                     "path": self.script_path,
                     "input_transforms": {
-                        "step_id": {"type": "static", "value": step_id},
                         "step_run_id": {"type": "static", "value": step_run_id},
-                        "agent_id": {"type": "static", "value": agent_id},
-                        "protocol_run_id": {"type": "flow_input", "key": "protocol_run_id"},
                     },
                 },
             })

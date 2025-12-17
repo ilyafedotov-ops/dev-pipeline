@@ -7,6 +7,7 @@ node_modules/
 dist/
 build/
 coverage/
+archive/tasksgodzilla/api/frontend_dist/
 .vscode/
 .idea/
 .venv/
@@ -41,3 +42,6 @@ GEMINI.md
 .devgodzilla.sqlite
 .protocols/
 windmill/apps/devgodzilla-react-app/.env.development
+
+# DevGodzilla SpecKit runtime artifacts (ephemeral)
+.specify/specs/*/_runtime/runs/

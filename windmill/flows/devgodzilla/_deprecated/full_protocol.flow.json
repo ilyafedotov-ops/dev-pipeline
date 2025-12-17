@@ -1,41 +1,8 @@
 {
     "summary": "Full Protocol Execution Flow",
-    "description": "Complete protocol execution with DAG-based parallel tasks, QA checks, and feedback loops.",
+  "description": "DEPRECATED: Placeholder flow kept for reference; not imported by default (see docs/DevGodzilla/CURRENT_STATE.md).",
     "value": {
         "modules": [
-            {
-                "id": "tgz_emit_refs",
-                "value": {
-                    "type": "script",
-                    "path": "u/devgodzilla/emit_tasksgodzilla_codex_refs"
-                },
-                "input_transforms": {
-                    "run_id": {
-                        "type": "javascript",
-                        "expr": "flow_input.tgz_run_id || null"
-                    },
-                    "job_type": {
-                        "type": "static",
-                        "value": "windmill_full_protocol"
-                    },
-                    "run_kind": {
-                        "type": "static",
-                        "value": "exec"
-                    },
-                    "project_id": {
-                        "type": "javascript",
-                        "expr": "flow_input.project_id || null"
-                    },
-                    "params": {
-                        "type": "javascript",
-                        "expr": "flow_input.tgz_params || null"
-                    },
-                    "attach_default_artifacts": {
-                        "type": "javascript",
-                        "expr": "flow_input.tgz_attach_default_artifacts !== false"
-                    }
-                }
-            },
             {
                 "id": "plan_protocol",
                 "value": {
@@ -81,7 +48,7 @@
                                         },
                                         "agent_id": {
                                             "type": "javascript",
-                                            "expr": "flow_input.agent_id || 'codex'"
+                                            "expr": "flow_input.agent_id || 'opencode'"
                                         },
                                         "protocol_run_id": {
                                             "type": "javascript",
@@ -110,7 +77,7 @@
                                         },
                                         "agent_id": {
                                             "type": "javascript",
-                                            "expr": "flow_input.agent_id || 'codex'"
+                                            "expr": "flow_input.agent_id || 'opencode'"
                                         },
                                         "protocol_run_id": {
                                             "type": "javascript",
@@ -244,22 +211,7 @@
             "agent_id": {
                 "type": "string",
                 "description": "AI agent to use",
-                "default": "codex"
-            },
-            "tgz_run_id": {
-                "type": "string",
-                "description": "Optional TasksGodzilla codex run_id to update instead of using WM_JOB_ID",
-                "default": ""
-            },
-            "tgz_params": {
-                "type": "object",
-                "description": "Optional params to store in TasksGodzilla codex run record",
-                "default": {}
-            },
-            "tgz_attach_default_artifacts": {
-                "type": "boolean",
-                "description": "Whether to upsert windmill.{logs,result,error} artifacts in TasksGodzilla",
-                "default": true
+                "default": "opencode"
             }
         },
         "required": [

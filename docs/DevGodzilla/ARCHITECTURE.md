@@ -1,6 +1,6 @@
 # DevGodzilla: Integrated Architecture Design
 
-> **SpecKit + WindMill + TasksGodzilla**
+> **Speckit + Windmill + DevGodzilla**
 > 
 > A unified AI-driven development platform combining specification-driven development, industrial-grade workflow orchestration, and multi-agent code execution.
 >
@@ -20,15 +20,21 @@
 > - **Gitignore Runtime**: `_runtime/runs/` is gitignored (ephemeral execution data)
 > - **Frontend**: Extend existing Windmill frontend (Svelte) with DevGodzilla-specific features
 
+**Current-state reference (what actually runs today):** `docs/DevGodzilla/CURRENT_STATE.md`
+
 ## Executive Summary
 
 This document defines the architecture for **DevGodzilla**, a new integrated platform combining:
 
 | Component | Role | Source |
 |-----------|------|--------|
-| **SpecKit** | Specification-driven development methodology | [Origins/spec-kit](file:///home/ilya/Documents/dev-pipeline/Origins/spec-kit) |
-| **WindMill** | Industrial-grade workflow engine | [Origins/Windmill](file:///home/ilya/Documents/dev-pipeline/Origins/Windmill) |
-| **TasksGodzilla** | AI orchestration & multi-agent execution | [tasksgodzilla/](file:///home/ilya/Documents/dev-pipeline/tasksgodzilla) |
+| **Speckit** | Spec-style artifacts (`.specify/`) + API/CLI surface | `devgodzilla/services/specification.py` |
+| **Windmill** | Workflow engine + UI (flows/scripts execute DevGodzilla jobs) | `Origins/Windmill/`, `windmill/` |
+| **DevGodzilla** | FastAPI API + services + agent execution | `devgodzilla/` |
+
+> Notes:
+> - The upstream SpecKit project is vendored under `Origins/spec-kit/` for reference, but the current implementation generates `.specify/` artifacts directly (no external `specify` CLI/library dependency).
+> - The legacy TasksGodzilla stack lives under `archive/` and is not part of the main DevGodzilla runtime.
 
 ---
 
@@ -450,7 +456,7 @@ agents:
     
   opencode:
     kind: cli
-    default_model: claude-sonnet-4-20250514
+    default_model: zai-coding-plan/glm-4.6
     sandbox: workspace-write
     
   claude-code:
@@ -473,7 +479,7 @@ agents:
 # tasks.md or protocol config
 steps:
   - name: "Create data models"
-    agent: codex           # User assigns agent
+    agent: opencode        # User assigns agent
     
   - name: "Implement API routes"
     agent: claude-code     # Different agent for this step
@@ -1111,13 +1117,14 @@ graph LR
 
 ### 4.2 Service Layer Mapping
 
-| Current Service | New Role | Integration |
+| Current Service | Role (current) | Integration |
 |-----------------|----------|-------------|
-| `PlanningService` | Calls SpecKit library | Direct library import |
+| `SpecificationService` | Speckit-style artifacts | Writes `.specify/` (constitution, templates, spec/plan/tasks markdown) |
+| `PlanningService` | Protocol planning | Parses protocol specs and creates step DAG; can generate Windmill flows |
 | `ExecutionService` | Uses Engine Registry | Multi-agent dispatch |
-| `QualityService` | Constitutional QA | SpecKit checklist + gates |
+| `QualityService` | Constitutional QA | Constitution + gates (lint/type/tests today; checklist integration is planned) |
 | `OrchestratorService` | Windmill adapter | DAG → Flow conversion |
-| `OnboardingService` | Project setup | .specify/ initialization |
+| `OnboardingService` | Project setup | `.specify/` initialization (when onboarding is enabled) |
 | `PolicyService` | Constitution reader | Bidirectional sync |
 
 ---
