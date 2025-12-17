@@ -1,0 +1,267 @@
+/* App-specific styles */
+#root {
+  max-width: 100%;
+  margin: 0 auto;
+  min-height: 100vh;
+}
+
+/* Main wrapper - matching Windmill surface */
+.app-wrapper {
+  min-height: 100vh;
+  background-color: rgb(var(--color-surface-secondary));
+}
+
+.dark .app-wrapper {
+  background-color: #2e3440;
+}
+
+/* Card hover effects */
+.list-item-hover:hover {
+  background-color: rgb(var(--color-surface-hover));
+}
+
+/* Progress bar */
+.progress-bar {
+  background-color: rgb(var(--color-surface-hover));
+  border-radius: 9999px;
+  height: 0.5rem;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+.progress-fill-success {
+  background-color: #22c55e;
+}
+
+.progress-fill-info {
+  background-color: var(--frost-500);
+}
+
+.progress-fill-error {
+  background-color: #ef4444;
+}
+
+/* Step icons */
+.step-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+}
+
+/* Table styling */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table thead {
+  background-color: rgb(var(--color-surface-secondary));
+}
+
+.dark .data-table thead {
+  background-color: #374151;
+}
+
+.data-table th {
+  padding: 0.75rem 1.5rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  color: rgb(var(--color-text-tertiary));
+}
+
+.data-table td {
+  padding: 1rem 1.5rem;
+}
+
+.data-table tbody tr {
+  border-top: 1px solid rgb(var(--color-surface-hover));
+  transition: background-color 0.15s;
+}
+
+.dark .data-table tbody tr {
+  border-color: #4b5563;
+}
+
+.data-table tbody tr:hover {
+  background-color: rgb(var(--color-surface-hover));
+  cursor: pointer;
+}
+
+/* Stat cards */
+.stat-card {
+  background-color: rgb(var(--color-surface));
+  border: 1px solid rgb(var(--color-surface-hover));
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.dark .stat-card {
+  border-color: #4b5563;
+}
+
+.stat-value {
+  font-size: 1.875rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.stat-value-frost {
+  color: var(--frost-500);
+}
+
+.stat-value-success {
+  color: #22c55e;
+}
+
+.stat-value-warning {
+  color: #f59e0b;
+}
+
+.stat-value-error {
+  color: #ef4444;
+}
+
+.stat-value-neutral {
+  color: rgb(var(--color-text-secondary));
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: rgb(var(--color-text-tertiary));
+  margin-top: 0.25rem;
+}
+
+/* Form layout */
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgb(var(--color-text-secondary));
+  margin-bottom: 0.5rem;
+}
+
+.form-input {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.form-input:focus {
+  border-color: var(--frost-500);
+  box-shadow: 0 0 0 3px rgba(94, 129, 172, 0.2);
+  outline: none;
+}
+
+.dark .form-input {
+  background-color: #374151;
+  border-color: #4b5563;
+  color: #e5e7eb;
+}
+
+/* Action buttons group */
+.btn-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Page header */
+.page-header {
+  margin-bottom: 2rem;
+}
+
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: rgb(var(--color-text-primary));
+}
+
+.page-subtitle {
+  color: rgb(var(--color-text-tertiary));
+  margin-top: 0.25rem;
+}
+
+/* Back button / breadcrumb */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  color: rgb(var(--color-text-tertiary));
+  margin-bottom: 1rem;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.back-link:hover {
+  color: rgb(var(--color-text-primary));
+}
+
+/* Section dividers */
+.section-divider {
+  border-top: 1px solid rgb(var(--color-surface-hover));
+}
+
+.dark .section-divider {
+  border-color: #4b5563;
+}
+
+/* Empty state */
+.empty-state {
+  padding: 3rem;
+  text-align: center;
+  color: rgb(var(--color-text-tertiary));
+}
+
+/* Loading state */
+.loading-state {
+  padding: 3rem;
+  text-align: center;
+  color: rgb(var(--color-text-tertiary));
+}
+
+/* Error state */
+.error-state {
+  padding: 1rem;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 0.5rem;
+  color: #991b1b;
+}
+
+.dark .error-state {
+  background-color: rgba(185, 28, 28, 0.2);
+  border-color: rgba(185, 28, 28, 0.4);
+  color: #fca5a5;
+}
+
+/* Code / monospace text */
+.code-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  background-color: rgb(var(--color-surface-secondary));
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+}
+
+.dark .code-text {
+  background-color: #374151;
+}

@@ -99,29 +99,30 @@ def create_script(base_url: str, token: str, workspace: str, path: str, content:
     # Check if script exists
     check = api_request(base_url, f"/w/{workspace}/scripts/get/p/{path}", token)
     
-    if "error" not in check or check.get("code") != 404:
-        # Script exists, we need to create a new version
-        print(f"  Script exists, creating new version...")
-        # For existing scripts, we use the scripts/create endpoint with force
-        payload = {
-            "path": path,
-            "summary": summary,
-            "description": f"DevGodzilla: {summary}",
-            "content": content,
-            "language": "python3",
-            "is_template": False,
-        }
-        result = api_request(base_url, f"/w/{workspace}/scripts/create", token, "POST", payload)
-    else:
-        # Create new script
-        payload = {
-            "path": path,
-            "summary": summary,
-            "description": f"DevGodzilla: {summary}",
-            "content": content,
-            "language": "python3",
-            "is_template": False,
-        }
+    exists = "error" not in check
+
+    payload = {
+        "path": path,
+        "summary": summary,
+        "description": f"DevGodzilla: {summary}",
+        "content": content,
+        "language": "python3",
+        "is_template": False,
+    }
+
+    if exists:
+        # Script exists: create a new version by chaining from the latest hash.
+        # Without parent_hash, Windmill rejects the create with a path-conflict.
+        print("  Script exists, creating new version...")
+        existing_hash = check.get("hash")
+        if existing_hash:
+            payload["parent_hash"] = existing_hash
+
+    result = api_request(base_url, f"/w/{workspace}/scripts/create", token, "POST", payload)
+
+    # If still conflicting, archive then create (last resort).
+    if "error" in result and result.get("code") == 400 and "Path conflict" in str(result.get("error", "")):
+        api_request(base_url, f"/w/{workspace}/scripts/archive/p/{path}", token, "POST", {})
         result = api_request(base_url, f"/w/{workspace}/scripts/create", token, "POST", payload)
     
     return "error" not in result
@@ -150,6 +151,40 @@ def create_flow(base_url: str, token: str, workspace: str, path: str, flow_def: 
         result = api_request(base_url, f"/w/{workspace}/flows/create", token, "POST", payload)
     
     return "error" not in result
+
+
+def _inject_script_hashes_into_flow(base_url: str, token: str, workspace: str, flow_def: dict) -> None:
+    """
+    Best-effort: add script hashes to PathScript modules.
+
+    Some Windmill deployments disallow running scripts by path via the jobs API.
+    Including the script hash allows flows to execute script modules reliably.
+    """
+
+    def visit(node: object) -> None:
+        if isinstance(node, dict):
+            # PathScript node (OpenFlow schema)
+            if node.get("type") == "script" and node.get("path") and not node.get("hash"):
+                path = node["path"]
+                info = api_request(base_url, f"/w/{workspace}/scripts/get/p/{path}", token)
+                if "hash" in info:
+                    node["hash"] = info["hash"]
+
+            # Windmill flow module wrapper commonly stores the spec under "value"
+            inner = node.get("value")
+            if isinstance(inner, (dict, list)):
+                visit(inner)
+
+            # Recurse into all child containers (modules, branches, etc.)
+            for v in node.values():
+                if isinstance(v, (dict, list)):
+                    visit(v)
+
+        elif isinstance(node, list):
+            for item in node:
+                visit(item)
+
+    visit(flow_def.get("value", {}))
 def create_app(base_url: str, token: str, workspace: str, path: str, app_def: dict) -> bool:
     """Create or update an app in Windmill."""
     
@@ -245,6 +280,7 @@ def main():
             flow_name = flow_file.name.removesuffix(".flow.json")
             path = f"f/devgodzilla/{flow_name}"
             flow_def = json.loads(flow_file.read_text())
+            _inject_script_hashes_into_flow(args.url, token, args.workspace, flow_def)
             print(f"Importing {path}...", end=" ")
 
             if create_flow(args.url, token, args.workspace, path, flow_def):

@@ -1,0 +1,308 @@
+/* Windmill-aligned Design System for DevGodzilla React App */
+
+/* CSS Variables matching Windmill's design tokens */
+:root {
+  /* Surface colors */
+  --color-surface: 255 255 255;
+  --color-surface-secondary: 243 244 246;
+  --color-surface-hover: 229 231 235;
+  --color-surface-disabled: 249 250 251;
+  --color-surface-selected: 209 213 219;
+  
+  /* Text colors */
+  --color-text-primary: 45 55 72;
+  --color-text-secondary: 74 85 104;
+  --color-text-tertiary: 107 114 128;
+  --color-text-disabled: 160 174 192;
+  
+  /* Frost (Nord blue) colors */
+  --frost-100: #eaeff4;
+  --frost-200: #cfd9e8;
+  --frost-300: #a6bad3;
+  --frost-400: #7594bb;
+  --frost-500: #5e81ac;
+  --frost-600: #415f88;
+  --frost-700: #364d6e;
+  --frost-800: #2f425d;
+  --frost-900: #2b394f;
+  
+  /* Marine colors */
+  --marine-400: #394a6d;
+  --marine-500: #323f5b;
+  
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-surface));
+}
+
+/* Dark mode support */
+.dark {
+  --color-surface: 46 52 64;
+  --color-surface-secondary: 59 66 82;
+  --color-surface-hover: 69 79 100;
+  --color-surface-disabled: 33 39 50;
+  --color-surface-selected: 67 76 94;
+  
+  --color-text-primary: 238 238 238;
+  --color-text-secondary: 194 201 209;
+  --color-text-tertiary: 168 174 183;
+  --color-text-disabled: 152 157 165;
+  
+  color: #eee;
+  background-color: #2e3440;
+}
+
+/* Links - Windmill blue */
+a {
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Button base styling */
+button {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+/* Form inputs - Windmill style */
+input, select, textarea {
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  font-size: 0.875rem;
+  padding: 0.25rem 0.5rem;
+  background-color: rgb(var(--color-surface-secondary) / 30%);
+}
+
+input:focus, select:focus, textarea:focus {
+  --tw-ring-color: #eaeef4;
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px var(--tw-ring-color);
+}
+
+.dark input, .dark select, .dark textarea {
+  background-color: #374151;
+  border-color: #4b5563;
+  color: #e5e7eb;
+}
+
+.dark input:focus, .dark select:focus, .dark textarea:focus {
+  --tw-ring-color: #364d6e;
+}
+
+/* Typography - Windmill style */
+h1 {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+h2 {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+h3 {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+h4 {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+h5, h6 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--color-text-tertiary));
+  border-radius: 3px;
+}
+
+/* Tables - Windmill style */
+.table-custom th {
+  color: #111827;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.75rem 0.25rem;
+  text-align: left;
+  text-transform: capitalize;
+}
+
+.dark .table-custom th {
+  color: #e5e7eb;
+}
+
+.table-custom td {
+  color: #374151;
+  font-size: 0.875rem;
+  padding: 0.5rem 0.25rem;
+}
+
+.dark .table-custom td {
+  color: #e5e7eb;
+}
+
+/* Card component - matches Windmill's box style */
+.wm-card {
+  border: 1px solid #d1d5db;
+  border-radius: 0.25rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  background-color: rgb(var(--color-surface));
+}
+
+.dark .wm-card {
+  border-color: #4b5563;
+}
+
+/* Status badges - Windmill aligned */
+.wm-badge {
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+}
+
+.wm-badge-success {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.dark .wm-badge-success {
+  background-color: rgba(20, 83, 45, 0.4);
+  color: #86efac;
+}
+
+.wm-badge-info {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.dark .wm-badge-info {
+  background-color: rgba(30, 58, 138, 0.4);
+  color: #93c5fd;
+}
+
+.wm-badge-warning {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.dark .wm-badge-warning {
+  background-color: rgba(161, 98, 7, 0.4);
+  color: #fcd34d;
+}
+
+.wm-badge-error {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.dark .wm-badge-error {
+  background-color: rgba(185, 28, 28, 0.4);
+  color: #fca5a5;
+}
+
+.wm-badge-neutral {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+.dark .wm-badge-neutral {
+  background-color: #374151;
+  color: #d1d5db;
+}
+
+/* Primary button - Frost blue */
+.wm-btn-primary {
+  background-color: var(--frost-500);
+  color: white;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border: none;
+  transition: background-color 0.15s;
+}
+
+.wm-btn-primary:hover {
+  background-color: var(--frost-600);
+}
+
+.wm-btn-primary:focus-visible {
+  outline: 2px solid var(--frost-600);
+  outline-offset: 2px;
+}
+
+/* Secondary button */
+.wm-btn-secondary {
+  background-color: rgb(var(--color-surface-secondary));
+  color: rgb(var(--color-text-primary));
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border: 1px solid #d1d5db;
+  transition: background-color 0.15s;
+}
+
+.wm-btn-secondary:hover {
+  background-color: rgb(var(--color-surface-hover));
+}
+
+.dark .wm-btn-secondary {
+  border-color: #4b5563;
+}
+
+/* Danger button */
+.wm-btn-danger {
+  background-color: #dc2626;
+  color: white;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border: none;
+  transition: background-color 0.15s;
+}
+
+.wm-btn-danger:hover {
+  background-color: #b91c1c;
+}
+
+/* Tab styling */
+.wm-tab-active {
+  border-color: #3e4c60;
+  color: rgb(var(--color-text-primary));
+}
+
+.dark .wm-tab-active {
+  border-color: #ddd;
+  color: #eee;
+}
