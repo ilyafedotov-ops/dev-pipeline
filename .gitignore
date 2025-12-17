@@ -39,3 +39,5 @@ reliability-output/
 validation-output/
 GEMINI.md
 .devgodzilla.sqlite
+.protocols/
+windmill/apps/devgodzilla-react-app/.env.development
