@@ -52,7 +52,7 @@ services:
       context: ./Origins/Windmill
       dockerfile: Dockerfile
       args:
-        features: "static_frontend python deno_core"
+        features: "static_frontend python"
     restart: unless-stopped
     expose:
       - "8000"
@@ -75,7 +75,7 @@ services:
       context: ./Origins/Windmill
       dockerfile: Dockerfile
       args:
-        features: "static_frontend python deno_core"
+        features: "static_frontend python"
     restart: unless-stopped
     deploy:
       resources:
@@ -104,7 +104,7 @@ services:
       context: ./Origins/Windmill
       dockerfile: Dockerfile
       args:
-        features: "static_frontend python deno_core"
+        features: "static_frontend python"
     restart: unless-stopped
     deploy:
       resources:

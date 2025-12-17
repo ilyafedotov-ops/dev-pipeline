@@ -38,7 +38,9 @@ def register_run_artifact(
     kind: str,
     path: str,
 ) -> None:
+    if path.startswith("windmill://"):
+        db.upsert_run_artifact(run_id, name, kind=kind, path=path, sha256=None, bytes=None)
+        return
     file_path = Path(path)
     sha256, size = _sha256_and_size(file_path)
     db.upsert_run_artifact(run_id, name, kind=kind, path=str(file_path), sha256=sha256, bytes=size)
-

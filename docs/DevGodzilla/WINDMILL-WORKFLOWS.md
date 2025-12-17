@@ -111,6 +111,16 @@ Handle feedback loop actions when QA fails (clarify, re-plan, retry).
 
 All flows are located at `f/devgodzilla/` in Windmill.
 
+### Note: JavaScript `input_transforms` require `deno_core`
+
+The `protocol_start`, `run_next_step`, and `step_execute_with_qa` flows use `input_transforms` of type `javascript` (e.g. `flow_input.protocol_run_id`, `results.select_next_step.step_run_id`). That requires Windmill to be built with the `deno_core` feature enabled.
+
+If your Windmill build is `python`-only (like the default `docker-compose.devgodzilla.yml`), run the Python scripts directly instead:
+- `u/devgodzilla/protocol_plan_and_wait`
+- `u/devgodzilla/protocol_select_next_step`
+- `u/devgodzilla/step_execute_api`
+- `u/devgodzilla/step_run_qa_api`
+
 ### protocol_start
 Plan a protocol in DevGodzilla (via API) and wait until it reaches a stable status (`planned`, `running`, `blocked`, etc).
 

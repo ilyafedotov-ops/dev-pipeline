@@ -71,6 +71,11 @@ class Config(BaseModel):
     qa_max_auto_fix_attempts: int = Field(default=3)
     git_lock_max_retries: int = Field(default=5)
     git_lock_retry_delay: float = Field(default=1.0)
+    # Optional Windmill integration for log/artifact proxying.
+    windmill_url: Optional[str] = Field(default=None)
+    windmill_token: Optional[str] = Field(default=None)
+    windmill_workspace: str = Field(default="starter")
+    windmill_timeout_seconds: float = Field(default=30.0)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -194,6 +199,10 @@ def load_config() -> Config:
     qa_max_auto_fix_attempts = int(os.environ.get("TASKSGODZILLA_QA_MAX_AUTO_FIX_ATTEMPTS", "3"))
     git_lock_max_retries = int(os.environ.get("TASKSGODZILLA_GIT_LOCK_MAX_RETRIES", "5"))
     git_lock_retry_delay = float(os.environ.get("TASKSGODZILLA_GIT_LOCK_RETRY_DELAY", "1.0"))
+    windmill_url = os.environ.get("TASKSGODZILLA_WINDMILL_URL")
+    windmill_token = os.environ.get("TASKSGODZILLA_WINDMILL_TOKEN")
+    windmill_workspace = os.environ.get("TASKSGODZILLA_WINDMILL_WORKSPACE", "starter")
+    windmill_timeout_seconds = float(os.environ.get("TASKSGODZILLA_WINDMILL_TIMEOUT_SECONDS", "30"))
     return Config(
         db_url=db_url,
         db_path=db_path,
@@ -238,4 +247,8 @@ def load_config() -> Config:
         qa_max_auto_fix_attempts=qa_max_auto_fix_attempts,
         git_lock_max_retries=git_lock_max_retries,
         git_lock_retry_delay=git_lock_retry_delay,
+        windmill_url=windmill_url,
+        windmill_token=windmill_token,
+        windmill_workspace=windmill_workspace,
+        windmill_timeout_seconds=windmill_timeout_seconds,
     )

@@ -4,6 +4,43 @@
   "value": {
     "modules": [
       {
+        "id": "tgz_emit_refs",
+        "value": {
+          "type": "script",
+          "path": "u/devgodzilla/emit_tasksgodzilla_codex_refs"
+        },
+        "input_transforms": {
+          "run_id": {
+            "type": "javascript",
+            "expr": "flow_input.tgz_run_id || null"
+          },
+          "job_type": {
+            "type": "static",
+            "value": "windmill_protocol_start"
+          },
+          "run_kind": {
+            "type": "static",
+            "value": "planning"
+          },
+          "project_id": {
+            "type": "javascript",
+            "expr": "flow_input.project_id || null"
+          },
+          "protocol_run_id": {
+            "type": "javascript",
+            "expr": "flow_input.protocol_run_id || null"
+          },
+          "params": {
+            "type": "javascript",
+            "expr": "flow_input.tgz_params || null"
+          },
+          "attach_default_artifacts": {
+            "type": "javascript",
+            "expr": "flow_input.tgz_attach_default_artifacts !== false"
+          }
+        }
+      },
+      {
         "id": "plan_and_wait",
         "value": {
           "type": "script",
@@ -30,6 +67,11 @@
     "type": "object",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+      "project_id": {
+        "type": "integer",
+        "description": "Optional TasksGodzilla project_id to associate with the emitted run",
+        "default": 0
+      },
       "protocol_run_id": {
         "type": "integer",
         "description": "Protocol run ID"
@@ -41,9 +83,23 @@
       "poll_interval_ms": {
         "type": "integer",
         "default": 500
+      },
+      "tgz_run_id": {
+        "type": "string",
+        "description": "Optional TasksGodzilla codex run_id to update instead of using WM_JOB_ID",
+        "default": ""
+      },
+      "tgz_params": {
+        "type": "object",
+        "description": "Optional params to store in TasksGodzilla codex run record",
+        "default": {}
+      },
+      "tgz_attach_default_artifacts": {
+        "type": "boolean",
+        "description": "Whether to upsert windmill.{logs,result,error} artifacts in TasksGodzilla",
+        "default": true
       }
     },
     "required": ["protocol_run_id"]
   }
 }
-

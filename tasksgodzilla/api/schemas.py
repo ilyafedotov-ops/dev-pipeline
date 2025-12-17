@@ -189,6 +189,14 @@ class RunArtifactOut(BaseModel):
     created_at: str
 
 
+class RunArtifactUpsertRequest(BaseModel):
+    name: str
+    kind: str
+    path: str
+    sha256: Optional[str] = None
+    bytes: Optional[int] = None
+
+
 class ActionResponse(BaseModel):
     message: str
     job: Optional[dict] = None

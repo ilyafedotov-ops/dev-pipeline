@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 import "./components.css";
 import { OpenAPI } from "windmill-client";
-import { executeWorkspaceFlow, executeWorkspaceScript, token } from "./utils";
+import { executeWorkspaceScript, token } from "./utils";
 
 // Import new components
 import { TaskDAGViewer } from "./components/core/TaskDAGViewer";
@@ -692,7 +692,7 @@ function ProtocolDetail({ protocolId, onNavigate }: { protocolId: number; onNavi
     setActionError(null);
     setActionBusy("plan");
     try {
-      await executeWorkspaceFlow("f/devgodzilla/protocol_start", { protocol_run_id: protocolId });
+      await executeWorkspaceScript("u/devgodzilla/protocol_plan_and_wait", { protocol_run_id: protocolId });
       await loadData();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to plan protocol");
@@ -707,7 +707,13 @@ function ProtocolDetail({ protocolId, onNavigate }: { protocolId: number; onNavi
     setActionError(null);
     setActionBusy("next");
     try {
-      await executeWorkspaceFlow("f/devgodzilla/run_next_step", { protocol_run_id: protocolId, gates: defaultQaGates });
+      const selected = await executeWorkspaceScript("u/devgodzilla/protocol_select_next_step", { protocol_run_id: protocolId });
+      const stepRunId = selected?.step_run_id as number | null | undefined;
+      if (!stepRunId) {
+        setActionError("No runnable steps found");
+        return;
+      }
+      await runStepWithQa(stepRunId);
       await loadData();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to run next step");
@@ -720,7 +726,8 @@ function ProtocolDetail({ protocolId, onNavigate }: { protocolId: number; onNavi
     setActionError(null);
     setActionBusy(`step:${stepRunId}`);
     try {
-      await executeWorkspaceFlow("f/devgodzilla/step_execute_with_qa", { step_run_id: stepRunId, gates: defaultQaGates });
+      await executeWorkspaceScript("u/devgodzilla/step_execute_api", { step_run_id: stepRunId });
+      await executeWorkspaceScript("u/devgodzilla/step_run_qa_api", { step_run_id: stepRunId, gates: defaultQaGates });
       await loadData();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to execute step");

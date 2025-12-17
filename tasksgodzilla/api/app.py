@@ -6,6 +6,7 @@ import threading
 import uuid
 from dataclasses import asdict
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 import json
@@ -31,6 +32,8 @@ from tasksgodzilla.spec import PROTOCOL_SPEC_KEY, SPEC_META_KEY, protocol_spec_h
 from tasksgodzilla.run_registry import RunRegistry
 from tasksgodzilla.services import OrchestratorService, OnboardingService, CodeMachineService, ClarificationsService
 from tasksgodzilla.services.auth import AuthPrincipal, AuthService
+from tasksgodzilla.services.platform.windmill_client import WindmillClient, WindmillConfig
+from tasksgodzilla.services.platform.windmill_refs import parse_windmill_job_ref
 from tasksgodzilla.services.policy import (
     PolicyService,
     validate_policy_override_definition,
@@ -102,6 +105,18 @@ async def lifespan(app: FastAPI):
     app.state.metrics = metrics  # type: ignore[attr-defined]
     app.state.worker = None  # type: ignore[attr-defined]
     app.state.oauth = None  # type: ignore[attr-defined]
+    app.state.windmill = None  # type: ignore[attr-defined]
+    windmill: Optional[WindmillClient] = None
+    if config.windmill_url and config.windmill_token:
+        windmill = WindmillClient(
+            WindmillConfig(
+                base_url=config.windmill_url,
+                token=config.windmill_token,
+                workspace=config.windmill_workspace,
+                timeout_seconds=config.windmill_timeout_seconds,
+            )
+        )
+        app.state.windmill = windmill  # type: ignore[attr-defined]
     if getattr(config, "oidc_enabled", False):
         if OAuth is None:
             logger.error("OIDC configured but authlib is unavailable", extra={"request_id": "-"})
@@ -164,6 +179,8 @@ async def lifespan(app: FastAPI):
     finally:
         if worker:
             worker.stop()
+        if windmill:
+            windmill.close()
         if spec_audit_stop:
             spec_audit_stop.set()
         if spec_audit_thread:
@@ -201,6 +218,10 @@ def get_db(request: Request) -> BaseDatabase:
 
 def get_queue(request: Request) -> jobs.BaseQueue:
     return request.app.state.queue  # type: ignore[attr-defined]
+
+
+def get_windmill(request: Request) -> Optional[WindmillClient]:
+    return getattr(request.app.state, "windmill", None)  # type: ignore[attr-defined]
 
 
 def get_worker(request: Request) -> Optional[RQWorkerThread]:
@@ -1111,6 +1132,52 @@ def start_codex_run(
     payload: schemas.CodexRunCreate,
     registry: RunRegistry = Depends(get_run_registry),
 ) -> dict:
+    if payload.log_path and parse_windmill_job_ref(payload.log_path):
+        # External (Windmill-backed) log source; do not touch local filesystem.
+        run_id = payload.run_id or str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        db = registry.db
+        try:
+            existing = db.get_codex_run(run_id)
+        except KeyError:
+            run = db.create_codex_run(
+                run_id=run_id,
+                job_type=payload.job_type,
+                status="running",
+                run_kind=payload.run_kind,
+                project_id=payload.project_id,
+                protocol_run_id=payload.protocol_run_id,
+                step_run_id=payload.step_run_id,
+                queue=payload.queue,
+                attempt=payload.attempt,
+                worker_id=payload.worker_id,
+                prompt_version=payload.prompt_version,
+                params=payload.params,
+                log_path=payload.log_path,
+                started_at=now,
+                cost_tokens=payload.cost_tokens,
+                cost_cents=payload.cost_cents,
+            )
+        else:
+            run = db.update_codex_run(
+                run_id,
+                status="running",
+                run_kind=payload.run_kind if payload.run_kind is not None else existing.run_kind,
+                project_id=payload.project_id if payload.project_id is not None else existing.project_id,
+                protocol_run_id=payload.protocol_run_id if payload.protocol_run_id is not None else existing.protocol_run_id,
+                step_run_id=payload.step_run_id if payload.step_run_id is not None else existing.step_run_id,
+                queue=payload.queue if payload.queue is not None else existing.queue,
+                attempt=payload.attempt if payload.attempt is not None else existing.attempt,
+                worker_id=payload.worker_id if payload.worker_id is not None else existing.worker_id,
+                params=payload.params if payload.params is not None else existing.params,
+                prompt_version=payload.prompt_version if payload.prompt_version is not None else existing.prompt_version,
+                log_path=payload.log_path,
+                started_at=now,
+                cost_tokens=payload.cost_tokens if payload.cost_tokens is not None else existing.cost_tokens,
+                cost_cents=payload.cost_cents if payload.cost_cents is not None else existing.cost_cents,
+            )
+        return asdict(run)
+
     log_path = Path(payload.log_path) if payload.log_path else None
     run = registry.start_run(
         job_type=payload.job_type,
@@ -1141,13 +1208,29 @@ def get_codex_run(run_id: str, db: BaseDatabase = Depends(get_db)) -> dict:
 
 
 @app.get("/codex/runs/{run_id}/logs", response_class=PlainTextResponse, dependencies=[Depends(require_auth)])
-def get_codex_run_logs(run_id: str, db: BaseDatabase = Depends(get_db)) -> PlainTextResponse:
+def get_codex_run_logs(
+    run_id: str,
+    db: BaseDatabase = Depends(get_db),
+    windmill: Optional[WindmillClient] = Depends(get_windmill),
+) -> PlainTextResponse:
     try:
         run = db.get_codex_run(run_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Run not found")
     if not run.log_path:
         raise HTTPException(status_code=404, detail="Log path not recorded")
+    ref = parse_windmill_job_ref(run.log_path)
+    if ref is not None:
+        if windmill is None:
+            raise HTTPException(status_code=503, detail="Windmill not configured")
+        if ref.resource != "logs":
+            raise HTTPException(status_code=404, detail="Log path not recorded")
+        try:
+            content = windmill.get_job_logs(ref.job_id)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Windmill logs unavailable: {exc}") from exc
+        return PlainTextResponse(content=content or "")
+
     log_path = Path(run.log_path)
     if not log_path.exists():
         raise HTTPException(status_code=404, detail="Log file not found")
@@ -1158,27 +1241,45 @@ def get_codex_run_logs(run_id: str, db: BaseDatabase = Depends(get_db)) -> Plain
     return PlainTextResponse(content=content or "")
 
 
-@app.get(
-    "/codex/runs/{run_id}/logs/tail",
-    response_model=schemas.LogTailResponse,
-    dependencies=[Depends(require_auth)],
-)
-def tail_codex_run_logs(
+def _tail_codex_run_logs_impl(
+    *,
     run_id: str,
-    offset: int = Query(default=0, ge=0),
-    max_bytes: int = Query(default=65536, ge=1024, le=1_000_000),
-    db: BaseDatabase = Depends(get_db),
+    offset: int,
+    max_bytes: int,
+    db: BaseDatabase,
+    windmill: Optional[WindmillClient],
 ) -> schemas.LogTailResponse:
-    """
-    Incremental log reader for building a live console.
-    Clients can poll with an offset and append the returned chunk.
-    """
     try:
         run = db.get_codex_run(run_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Run not found")
     if not run.log_path:
         raise HTTPException(status_code=404, detail="Log path not recorded")
+
+    ref = parse_windmill_job_ref(run.log_path)
+    if ref is not None:
+        if windmill is None:
+            raise HTTPException(status_code=503, detail="Windmill not configured")
+        if ref.resource != "logs":
+            raise HTTPException(status_code=404, detail="Log path not recorded")
+        try:
+            content = windmill.get_job_logs(ref.job_id)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Windmill logs unavailable: {exc}") from exc
+        data = (content or "").encode("utf-8", errors="replace")
+        size = len(data)
+        safe_offset = min(offset, size)
+        chunk_bytes = data[safe_offset : safe_offset + max_bytes]
+        next_offset = safe_offset + len(chunk_bytes)
+        eof = next_offset >= size
+        return schemas.LogTailResponse(
+            run_id=run_id,
+            offset=safe_offset,
+            next_offset=next_offset,
+            eof=eof,
+            chunk=chunk_bytes.decode("utf-8", errors="replace"),
+        )
+
     log_path = Path(run.log_path)
     if not log_path.exists():
         raise HTTPException(status_code=404, detail="Log file not found")
@@ -1208,6 +1309,25 @@ def tail_codex_run_logs(
     )
 
 
+@app.get(
+    "/codex/runs/{run_id}/logs/tail",
+    response_model=schemas.LogTailResponse,
+    dependencies=[Depends(require_auth)],
+)
+def tail_codex_run_logs(
+    run_id: str,
+    offset: int = Query(default=0, ge=0),
+    max_bytes: int = Query(default=65536, ge=1024, le=1_000_000),
+    db: BaseDatabase = Depends(get_db),
+    windmill: Optional[WindmillClient] = Depends(get_windmill),
+) -> schemas.LogTailResponse:
+    """
+    Incremental log reader for building a live console.
+    Clients can poll with an offset and append the returned chunk.
+    """
+    return _tail_codex_run_logs_impl(run_id=run_id, offset=offset, max_bytes=max_bytes, db=db, windmill=windmill)
+
+
 @app.get("/codex/runs/{run_id}/logs/stream", dependencies=[Depends(require_auth)])
 async def stream_codex_run_logs(
     run_id: str,
@@ -1215,20 +1335,29 @@ async def stream_codex_run_logs(
     offset: int = Query(default=0, ge=0),
     poll_interval_ms: int = Query(default=1000, ge=200, le=10000),
     db: BaseDatabase = Depends(get_db),
+    windmill: Optional[WindmillClient] = Depends(get_windmill),
 ) -> StreamingResponse:
     """
     SSE log stream for operator-grade live tailing.
     Emits JSON payloads of the same shape as /logs/tail.
     """
+    # Fail fast with a regular JSON error response if the run/log source is invalid.
     try:
         run = db.get_codex_run(run_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Run not found")
     if not run.log_path:
         raise HTTPException(status_code=404, detail="Log path not recorded")
-    log_path = Path(run.log_path)
-    if not log_path.exists():
-        raise HTTPException(status_code=404, detail="Log file not found")
+    ref = parse_windmill_job_ref(run.log_path)
+    if ref is not None:
+        if windmill is None:
+            raise HTTPException(status_code=503, detail="Windmill not configured")
+        if ref.resource != "logs":
+            raise HTTPException(status_code=404, detail="Log path not recorded")
+    else:
+        log_path = Path(run.log_path)
+        if not log_path.exists():
+            raise HTTPException(status_code=404, detail="Log file not found")
 
     async def _gen():
         current = offset
@@ -1236,11 +1365,12 @@ async def stream_codex_run_logs(
             if await request.is_disconnected():
                 break
             payload = await asyncio.to_thread(
-                tail_codex_run_logs,
+                _tail_codex_run_logs_impl,
                 run_id=run_id,
                 offset=current,
                 max_bytes=65536,
                 db=db,
+                windmill=windmill,
             )
             current = payload.next_offset
             if payload.chunk:
@@ -1271,6 +1401,31 @@ def list_run_artifacts(
     return [asdict(item) for item in items]
 
 
+@app.post(
+    "/codex/runs/{run_id}/artifacts/upsert",
+    response_model=schemas.RunArtifactOut,
+    dependencies=[Depends(require_auth)],
+)
+def upsert_run_artifact(
+    run_id: str,
+    payload: schemas.RunArtifactUpsertRequest,
+    db: BaseDatabase = Depends(get_db),
+) -> dict:
+    try:
+        db.get_codex_run(run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Run not found")
+    artifact = db.upsert_run_artifact(
+        run_id,
+        payload.name,
+        kind=payload.kind,
+        path=payload.path,
+        sha256=payload.sha256,
+        bytes=payload.bytes,
+    )
+    return asdict(artifact)
+
+
 @app.get(
     "/codex/runs/{run_id}/artifacts/{artifact_id}/content",
     response_class=PlainTextResponse,
@@ -1280,6 +1435,7 @@ def get_run_artifact_content(
     run_id: str,
     artifact_id: int,
     db: BaseDatabase = Depends(get_db),
+    windmill: Optional[WindmillClient] = Depends(get_windmill),
 ) -> PlainTextResponse:
     try:
         artifact = db.get_run_artifact(artifact_id)
@@ -1287,6 +1443,29 @@ def get_run_artifact_content(
         raise HTTPException(status_code=404, detail="Artifact not found")
     if artifact.run_id != run_id:
         raise HTTPException(status_code=404, detail="Artifact not found for run")
+    ref = parse_windmill_job_ref(artifact.path)
+    if ref is not None:
+        if windmill is None:
+            raise HTTPException(status_code=503, detail="Windmill not configured")
+        try:
+            if ref.resource == "logs":
+                content = windmill.get_job_logs(ref.job_id)
+                return PlainTextResponse(content=content or "")
+            job = windmill.get_job(ref.job_id)
+            if ref.resource == "result":
+                content = json.dumps(job.get("result"), ensure_ascii=False, indent=2)
+                return PlainTextResponse(content=content or "")
+            if ref.resource == "error":
+                error = job.get("error")
+                result = job.get("result")
+                if error is None and isinstance(result, dict):
+                    error = result.get("error")
+                content = json.dumps(error, ensure_ascii=False, indent=2) if error is not None else ""
+                return PlainTextResponse(content=content)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Windmill artifact unavailable: {exc}") from exc
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
     path = Path(artifact.path)
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Artifact file not found")
