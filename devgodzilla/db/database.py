@@ -186,6 +186,10 @@ class DatabaseProtocol(Protocol):
 
     def get_run_artifact(self, run_id: str, name: str) -> RunArtifact: ...
 
+    # Queue Statistics
+    def get_queue_stats(self) -> List[Dict[str, Any]]: ...
+    def list_queue_jobs(self, status: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]: ...
+
     # Agile: Sprints
     def create_sprint(
         self,
@@ -201,6 +205,7 @@ class DatabaseProtocol(Protocol):
     def get_sprint(self, sprint_id: int) -> Sprint: ...
     def list_sprints(self, project_id: Optional[int] = None, status: Optional[str] = None) -> List[Sprint]: ...
     def update_sprint(self, sprint_id: int, **kwargs: Any) -> Sprint: ...
+    def delete_sprint(self, sprint_id: int) -> None: ...
 
     # Agile: Tasks
     def create_task(
@@ -220,6 +225,8 @@ class DatabaseProtocol(Protocol):
         labels: Optional[List[str]] = None,
         acceptance_criteria: Optional[List[str]] = None,
         due_date: Optional[str] = None,
+        blocked_by: Optional[List[int]] = None,
+        blocks: Optional[List[int]] = None,
     ) -> AgileTask: ...
 
     def get_task(self, task_id: int) -> AgileTask: ...
@@ -232,6 +239,7 @@ class DatabaseProtocol(Protocol):
         limit: int = 100,
     ) -> List[AgileTask]: ...
     def update_task(self, task_id: int, **kwargs: Any) -> AgileTask: ...
+    def delete_task(self, task_id: int) -> None: ...
 
 
 
@@ -1094,6 +1102,73 @@ class SQLiteDatabase:
             raise KeyError(f"RunArtifact {run_id}:{name} not found")
         return self._row_to_run_artifact(row)
 
+    # Queue statistics operations
+    def get_queue_stats(self) -> List[Dict[str, Any]]:
+        """
+        Get queue statistics grouped by queue name.
+        
+        Returns counts of jobs by status for each queue.
+        """
+        rows = self._fetchall(
+            """
+            SELECT 
+                COALESCE(queue, 'default') as name,
+                COUNT(CASE WHEN status = 'queued' THEN 1 END) as queued,
+                COUNT(CASE WHEN status IN ('running', 'started') THEN 1 END) as started,
+                COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed
+            FROM job_runs
+            GROUP BY COALESCE(queue, 'default')
+            ORDER BY name
+            """
+        )
+        return [dict(row) for row in rows]
+
+    def list_queue_jobs(self, status: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        List jobs in queues with optional status filter.
+        
+        Args:
+            status: Filter by job status
+            limit: Maximum number of jobs to return
+        """
+        limit = max(1, min(int(limit), 500))
+        where = []
+        params: list[Any] = []
+        
+        if status is not None:
+            where.append("status = ?")
+            params.append(status)
+        
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = self._fetchall(
+            f"""
+            SELECT 
+                run_id as job_id,
+                job_type,
+                status,
+                created_at as enqueued_at,
+                started_at,
+                params as payload
+            FROM job_runs
+            {clause}
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        )
+        
+        result = []
+        for row in rows:
+            job = dict(row)
+            # Parse JSON payload if present
+            if job.get('payload'):
+                try:
+                    job['payload'] = json.loads(job['payload'])
+                except (json.JSONDecodeError, TypeError):
+                    job['payload'] = None
+            result.append(job)
+        return result
+
     # Feedback event operations (new for DevGodzilla)
     def append_feedback_event(
         self,
@@ -1339,6 +1414,25 @@ class SQLiteDatabase:
             )
         return self.get_policy_pack(key=key, version=version)
 
+    def list_policy_packs(
+        self,
+        status: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[PolicyPack]:
+        """List policy packs, optionally filtered by status."""
+        limit = max(1, min(int(limit), 500))
+        where = []
+        params: list = []
+        if status is not None:
+            where.append("status = ?")
+            params.append(status)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = self._fetchall(
+            f"SELECT * FROM policy_packs {clause} ORDER BY key, version DESC LIMIT ?",
+            (*params, limit),
+        )
+        return [self._row_to_policy_pack(row) for row in rows]
+
     # Project policy operations
     def update_project_policy(
         self,
@@ -1532,6 +1626,8 @@ class SQLiteDatabase:
         labels: Optional[List[str]] = None,
         acceptance_criteria: Optional[List[str]] = None,
         due_date: Optional[str] = None,
+        blocked_by: Optional[List[int]] = None,
+        blocks: Optional[List[int]] = None,
     ) -> AgileTask:
         with self._transaction() as conn:
             cur = conn.execute(
@@ -1540,9 +1636,9 @@ class SQLiteDatabase:
                     project_id, title, task_type, priority, board_status,
                     sprint_id, protocol_run_id, step_run_id, description,
                     assignee, reporter, story_points, labels, acceptance_criteria,
-                    due_date
+                    due_date, blocked_by, blocks
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project_id, title, task_type, priority, board_status,
@@ -1550,7 +1646,9 @@ class SQLiteDatabase:
                     assignee, reporter, story_points,
                     json.dumps(labels or []),
                     json.dumps(acceptance_criteria or []),
-                    due_date
+                    due_date,
+                    json.dumps(blocked_by or []),
+                    json.dumps(blocks or []),
                 ),
             )
             task_id = cur.lastrowid
@@ -1593,17 +1691,53 @@ class SQLiteDatabase:
         )
         return [self._row_to_agile_task(row) for row in rows]
 
+    def _check_circular_task_dependencies(self, task_id: int, blocked_by: List[int]) -> None:
+        """Check for circular dependencies in task blocking relationships."""
+        if not blocked_by:
+            return
+
+        visited = set()
+
+        def has_cycle(current_id: int, path: set) -> bool:
+            """DFS to detect cycles in dependency graph."""
+            if current_id == task_id:
+                return True
+            if current_id in visited or current_id in path:
+                return current_id == task_id
+
+            visited.add(current_id)
+            path.add(current_id)
+
+            try:
+                task = self.get_task(current_id)
+                for blocked_id in task.blocked_by or []:
+                    if has_cycle(blocked_id, path):
+                        return True
+            except KeyError:
+                pass
+
+            path.remove(current_id)
+            return False
+
+        for blocked_id in blocked_by:
+            if has_cycle(blocked_id, set()):
+                raise ValueError(f"Circular dependency detected: task {task_id} cannot be blocked by {blocked_id}")
+
     def update_task(self, task_id: int, **kwargs: Any) -> AgileTask:
         updates = ["updated_at = CURRENT_TIMESTAMP"]
         params: List[Any] = []
-        
+
+        # Validate circular dependencies before updating
+        if "blocked_by" in kwargs and kwargs["blocked_by"] is not None:
+            self._check_circular_task_dependencies(task_id, kwargs["blocked_by"])
+
         allowed = {
             "title", "description", "task_type", "priority", "board_status",
             "sprint_id", "protocol_run_id", "step_run_id", "story_points",
             "assignee", "reporter", "labels", "acceptance_criteria",
             "started_at", "completed_at", "due_date", "blocked_by", "blocks"
         }
-        
+
         for key, value in kwargs.items():
             if key not in allowed:
                 continue
@@ -1613,10 +1747,10 @@ class SQLiteDatabase:
                 continue
             updates.append(f"{key} = ?")
             params.append(value)
-            
+
         if len(updates) == 1:
             return self.get_task(task_id)
-            
+
         params.append(task_id)
         with self._transaction() as conn:
             conn.execute(
@@ -1624,6 +1758,15 @@ class SQLiteDatabase:
                 tuple(params),
             )
         return self.get_task(task_id)
+
+    def delete_sprint(self, sprint_id: int) -> None:
+        with self._transaction() as conn:
+            conn.execute("UPDATE tasks SET sprint_id = NULL WHERE sprint_id = ?", (sprint_id,))
+            conn.execute("DELETE FROM sprints WHERE id = ?", (sprint_id,))
+
+    def delete_task(self, task_id: int) -> None:
+        with self._transaction() as conn:
+            conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
 
 
 
@@ -1959,6 +2102,8 @@ class PostgresDatabase:
         labels: Optional[List[str]] = None,
         acceptance_criteria: Optional[List[str]] = None,
         due_date: Optional[str] = None,
+        blocked_by: Optional[List[int]] = None,
+        blocks: Optional[List[int]] = None,
     ) -> AgileTask:
         with self._transaction() as conn:
             with conn.cursor() as cur:
@@ -1968,9 +2113,9 @@ class PostgresDatabase:
                         project_id, title, task_type, priority, board_status,
                         sprint_id, protocol_run_id, step_run_id, description,
                         assignee, reporter, story_points, labels, acceptance_criteria,
-                        due_date
+                        due_date, blocked_by, blocks
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -1979,7 +2124,9 @@ class PostgresDatabase:
                         assignee, reporter, story_points,
                         json.dumps(labels or []),
                         json.dumps(acceptance_criteria or []),
-                        due_date
+                        due_date,
+                        json.dumps(blocked_by or []),
+                        json.dumps(blocks or []),
                     ),
                 )
                 task_id = cur.fetchone()["id"]
@@ -2022,17 +2169,53 @@ class PostgresDatabase:
         )
         return [self._row_to_agile_task(row) for row in rows]
 
+    def _check_circular_task_dependencies(self, task_id: int, blocked_by: List[int]) -> None:
+        """Check for circular dependencies in task blocking relationships."""
+        if not blocked_by:
+            return
+
+        visited = set()
+
+        def has_cycle(current_id: int, path: set) -> bool:
+            """DFS to detect cycles in dependency graph."""
+            if current_id == task_id:
+                return True
+            if current_id in visited or current_id in path:
+                return current_id == task_id
+
+            visited.add(current_id)
+            path.add(current_id)
+
+            try:
+                task = self.get_task(current_id)
+                for blocked_id in task.blocked_by or []:
+                    if has_cycle(blocked_id, path):
+                        return True
+            except KeyError:
+                pass
+
+            path.remove(current_id)
+            return False
+
+        for blocked_id in blocked_by:
+            if has_cycle(blocked_id, set()):
+                raise ValueError(f"Circular dependency detected: task {task_id} cannot be blocked by {blocked_id}")
+
     def update_task(self, task_id: int, **kwargs: Any) -> AgileTask:
         updates = ["updated_at = CURRENT_TIMESTAMP"]
         params: List[Any] = []
-        
+
+        # Validate circular dependencies before updating
+        if "blocked_by" in kwargs and kwargs["blocked_by"] is not None:
+            self._check_circular_task_dependencies(task_id, kwargs["blocked_by"])
+
         allowed = {
             "title", "description", "task_type", "priority", "board_status",
             "sprint_id", "protocol_run_id", "step_run_id", "story_points",
             "assignee", "reporter", "labels", "acceptance_criteria",
             "started_at", "completed_at", "due_date", "blocked_by", "blocks"
         }
-        
+
         for key, value in kwargs.items():
             if key not in allowed:
                 continue
@@ -2042,7 +2225,7 @@ class PostgresDatabase:
                 continue
             updates.append(f"{key} = %s")
             params.append(value)
-            
+
         if len(updates) == 1:
             return self.get_task(task_id)
             
@@ -2054,6 +2237,235 @@ class PostgresDatabase:
                     tuple(params),
                 )
         return self.get_task(task_id)
+
+    def delete_sprint(self, sprint_id: int) -> None:
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE tasks SET sprint_id = NULL WHERE sprint_id = %s", (sprint_id,))
+                cur.execute("DELETE FROM sprints WHERE id = %s", (sprint_id,))
+
+    def delete_task(self, task_id: int) -> None:
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
+
+    # Policy pack operations (PostgreSQL uses %s instead of ?)
+    def _row_to_policy_pack(self, row: Dict[str, Any]) -> PolicyPack:
+        """Convert row to PolicyPack."""
+        pack_val = row.get("pack") or {}
+        return PolicyPack(
+            id=row["id"],
+            key=row["key"],
+            version=row["version"],
+            name=row["name"],
+            description=row.get("description"),
+            status=row.get("status", "active"),
+            pack=pack_val if isinstance(pack_val, dict) else {},
+            created_at=self._coerce_ts(row["created_at"]),
+            updated_at=self._coerce_ts(row.get("updated_at")),
+        )
+
+    def get_policy_pack(self, *, key: str, version: str) -> PolicyPack:
+        """Get a policy pack by key and version."""
+        row = self._fetchone(
+            "SELECT * FROM policy_packs WHERE key = %s AND version = %s",
+            (key, version),
+        )
+        if row is None:
+            raise KeyError(f"PolicyPack {key}:{version} not found")
+        return self._row_to_policy_pack(row)
+
+    def list_policy_packs(
+        self,
+        status: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[PolicyPack]:
+        """List policy packs, optionally filtered by status."""
+        limit = max(1, min(int(limit), 500))
+        where = []
+        params: list[Any] = []
+        if status is not None:
+            where.append("status = %s")
+            params.append(status)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = self._fetchall(
+            f"SELECT * FROM policy_packs {clause} ORDER BY key, version DESC LIMIT %s",
+            (*params, limit),
+        )
+        return [self._row_to_policy_pack(row) for row in rows]
+
+    def upsert_policy_pack(
+        self,
+        *,
+        key: str,
+        version: str,
+        name: str,
+        description: Optional[str] = None,
+        status: str = "active",
+        pack: dict,
+    ) -> PolicyPack:
+        """Insert or update a policy pack."""
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO policy_packs (key, version, name, description, status, pack, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT(key, version) DO UPDATE SET
+                        name=excluded.name,
+                        description=excluded.description,
+                        status=excluded.status,
+                        pack=excluded.pack,
+                        updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (key, version, name, description, status, json.dumps(pack)),
+                )
+        return self.get_policy_pack(key=key, version=version)
+
+    # Clarification operations (PostgreSQL uses %s instead of ?)
+    def _row_to_clarification(self, row: Dict[str, Any]) -> Clarification:
+        """Convert row to Clarification."""
+        blocking_val = row.get("blocking")
+        answered_at_val = row.get("answered_at")
+        return Clarification(
+            id=row["id"],
+            scope=row["scope"],
+            project_id=row["project_id"],
+            protocol_run_id=row.get("protocol_run_id"),
+            step_run_id=row.get("step_run_id"),
+            key=row["key"],
+            question=row["question"],
+            recommended=row.get("recommended"),
+            options=row.get("options"),
+            applies_to=row.get("applies_to"),
+            blocking=bool(blocking_val) if blocking_val is not None else False,
+            answer=row.get("answer"),
+            status=row["status"],
+            answered_at=self._coerce_ts(answered_at_val) if answered_at_val else None,
+            answered_by=row.get("answered_by"),
+            created_at=self._coerce_ts(row["created_at"]),
+            updated_at=self._coerce_ts(row.get("updated_at")),
+        )
+
+    def list_clarifications(
+        self,
+        *,
+        project_id: Optional[int] = None,
+        protocol_run_id: Optional[int] = None,
+        step_run_id: Optional[int] = None,
+        status: Optional[str] = None,
+        applies_to: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Clarification]:
+        """List clarifications with filters."""
+        limit = max(1, min(int(limit), 500))
+        query = "SELECT * FROM clarifications"
+        where: List[str] = []
+        params: List[Any] = []
+        if project_id is not None:
+            where.append("project_id = %s")
+            params.append(project_id)
+        if protocol_run_id is not None:
+            where.append("protocol_run_id = %s")
+            params.append(protocol_run_id)
+        if step_run_id is not None:
+            where.append("step_run_id = %s")
+            params.append(step_run_id)
+        if status:
+            where.append("status = %s")
+            params.append(status)
+        if applies_to:
+            where.append("applies_to = %s")
+            params.append(applies_to)
+        if where:
+            query += " WHERE " + " AND ".join(where)
+        query += " ORDER BY updated_at DESC, created_at DESC, id DESC LIMIT %s"
+        params.append(limit)
+        rows = self._fetchall(query, tuple(params))
+        return [self._row_to_clarification(r) for r in rows]
+
+    def get_clarification_by_id(self, clarification_id: int) -> Clarification:
+        """Get a clarification by numeric ID."""
+        row = self._fetchone("SELECT * FROM clarifications WHERE id = %s LIMIT 1", (clarification_id,))
+        if row is None:
+            raise KeyError(f"Clarification {clarification_id} not found")
+        return self._row_to_clarification(row)
+
+    def answer_clarification(
+        self,
+        *,
+        scope: str,
+        key: str,
+        answer: Optional[dict],
+        answered_by: Optional[str] = None,
+        status: str = "answered",
+    ) -> Clarification:
+        """Set the answer for a clarification."""
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE clarifications
+                    SET answer = %s,
+                        status = %s,
+                        answered_at = CURRENT_TIMESTAMP,
+                        answered_by = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE scope = %s AND key = %s
+                    """,
+                    (json.dumps(answer) if answer is not None else None, status, answered_by, scope, key),
+                )
+                if cur.rowcount == 0:
+                    raise KeyError(f"Clarification {scope}:{key} not found")
+        row = self._fetchone("SELECT * FROM clarifications WHERE scope = %s AND key = %s LIMIT 1", (scope, key))
+        if row is None:
+            raise KeyError("Clarification not found after answer")
+        return self._row_to_clarification(row)
+
+    def upsert_clarification(
+        self,
+        *,
+        scope: str,
+        project_id: int,
+        key: str,
+        question: str,
+        protocol_run_id: Optional[int] = None,
+        step_run_id: Optional[int] = None,
+        recommended: Optional[dict] = None,
+        options: Optional[list] = None,
+        applies_to: Optional[str] = None,
+        blocking: bool = False,
+    ) -> Clarification:
+        """Upsert a clarification record."""
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO clarifications (
+                        scope, project_id, protocol_run_id, step_run_id,
+                        key, question, recommended, options, applies_to, blocking
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT(scope, key) DO UPDATE SET
+                        question = excluded.question,
+                        recommended = excluded.recommended,
+                        options = excluded.options,
+                        applies_to = excluded.applies_to,
+                        blocking = excluded.blocking,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        scope, project_id, protocol_run_id, step_run_id,
+                        key, question,
+                        json.dumps(recommended) if recommended else None,
+                        json.dumps(options) if options else None,
+                        applies_to, blocking,
+                    ),
+                )
+        row = self._fetchone("SELECT * FROM clarifications WHERE scope = %s AND key = %s LIMIT 1", (scope, key))
+        if row is None:
+            raise KeyError("Clarification not found after upsert")
+        return self._row_to_clarification(row)
 
     # Project operations (PostgreSQL uses %s instead of ?)
     def create_project(
@@ -2631,6 +3043,73 @@ class PostgresDatabase:
         if row is None:
             raise KeyError(f"RunArtifact {run_id}:{name} not found")
         return self._row_to_run_artifact(row)
+
+    # Queue statistics operations
+    def get_queue_stats(self) -> List[Dict[str, Any]]:
+        """
+        Get queue statistics grouped by queue name.
+        
+        Returns counts of jobs by status for each queue.
+        """
+        rows = self._fetchall(
+            """
+            SELECT 
+                COALESCE(queue, 'default') as name,
+                COUNT(CASE WHEN status = 'queued' THEN 1 END) as queued,
+                COUNT(CASE WHEN status IN ('running', 'started') THEN 1 END) as started,
+                COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed
+            FROM job_runs
+            GROUP BY COALESCE(queue, 'default')
+            ORDER BY name
+            """
+        )
+        return [dict(row) for row in rows]
+
+    def list_queue_jobs(self, status: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        List jobs in queues with optional status filter.
+        
+        Args:
+            status: Filter by job status
+            limit: Maximum number of jobs to return
+        """
+        limit = max(1, min(int(limit), 500))
+        where = []
+        params: list[Any] = []
+        
+        if status is not None:
+            where.append("status = %s")
+            params.append(status)
+        
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = self._fetchall(
+            f"""
+            SELECT 
+                run_id as job_id,
+                job_type,
+                status,
+                created_at as enqueued_at,
+                started_at,
+                params as payload
+            FROM job_runs
+            {clause}
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (*params, limit),
+        )
+        
+        result = []
+        for row in rows:
+            job = dict(row)
+            # Parse JSON payload if present
+            if job.get('payload'):
+                try:
+                    job['payload'] = json.loads(job['payload']) if isinstance(job['payload'], str) else job['payload']
+                except (json.JSONDecodeError, TypeError):
+                    job['payload'] = None
+            result.append(job)
+        return result
 
 
 # Type alias for the unified database interface

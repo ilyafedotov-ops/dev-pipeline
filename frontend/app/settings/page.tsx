@@ -9,20 +9,18 @@ import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { apiClient, useHealth } from "@/lib/api"
 import { toast } from "sonner"
-import { CheckCircle2, XCircle, SettingsIcon, Globe, Bell, Shield, Database } from "lucide-react"
+import { CheckCircle2, XCircle, SettingsIcon, Globe, Bell, Shield } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 
 export default function SettingsPage() {
   const [apiBase, setApiBase] = useState("")
   const [token, setToken] = useState("")
-  const [mockMode, setMockMode] = useState(false)
   const { data: health, isError, refetch } = useHealth()
 
   useEffect(() => {
     const config = apiClient.getConfig()
     setApiBase(config.baseUrl)
     setToken(config.token || "")
-    setMockMode(apiClient.getMockMode())
   }, [])
 
   const handleSave = () => {
@@ -32,15 +30,6 @@ export default function SettingsPage() {
     })
     toast.success("Settings saved successfully")
     refetch()
-  }
-
-  const handleMockModeToggle = (enabled: boolean) => {
-    setMockMode(enabled)
-    apiClient.setMockMode(enabled)
-    toast.success(enabled ? "Mock mode enabled - using demo data" : "Mock mode disabled - connecting to API")
-    setTimeout(() => {
-      window.location.reload()
-    }, 1000)
   }
 
   return (
@@ -71,34 +60,6 @@ export default function SettingsPage() {
         </TabsList>
 
         <TabsContent value="api" className="space-y-6">
-          <Card className="border-blue-500/50 bg-blue-500/5">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5 text-blue-500" />
-                Demo Mode
-              </CardTitle>
-              <CardDescription>
-                Use realistic mock data to explore the console without connecting to a real API
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between p-4 border rounded-lg bg-background">
-                <div>
-                  <p className="font-medium">Enable Mock Data</p>
-                  <p className="text-sm text-muted-foreground">Browse with sample projects, protocols, and runs</p>
-                </div>
-                <Switch checked={mockMode} onCheckedChange={handleMockModeToggle} />
-              </div>
-              {mockMode && (
-                <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                  <p className="text-sm text-blue-600 dark:text-blue-400">
-                    Mock mode is active. You're viewing demo data including 4 projects, 5 protocols, and sample runs.
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
               <CardTitle>API Configuration</CardTitle>
@@ -112,7 +73,6 @@ export default function SettingsPage() {
                   placeholder="http://localhost:8011"
                   value={apiBase}
                   onChange={(e) => setApiBase(e.target.value)}
-                  disabled={mockMode}
                 />
                 <p className="text-xs text-muted-foreground">The base URL of your TasksGodzilla API server</p>
               </div>
@@ -124,11 +84,10 @@ export default function SettingsPage() {
                   placeholder="Enter your API token"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
-                  disabled={mockMode}
                 />
                 <p className="text-xs text-muted-foreground">Bearer token for API authentication</p>
               </div>
-              <Button onClick={handleSave} disabled={mockMode}>
+              <Button onClick={handleSave}>
                 Save Configuration
               </Button>
             </CardContent>
@@ -140,43 +99,33 @@ export default function SettingsPage() {
               <CardDescription>Current connection status to the API server.</CardDescription>
             </CardHeader>
             <CardContent>
-              {mockMode ? (
-                <div className="flex items-center gap-3 p-4 border rounded-lg bg-blue-500/5">
-                  <Database className="h-5 w-5 text-blue-500" />
-                  <div className="flex-1">
-                    <p className="font-medium text-blue-600 dark:text-blue-400">Mock Mode Active</p>
-                    <p className="text-sm text-muted-foreground">Using demo data - no API connection required</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 p-4 border rounded-lg">
-                  {health?.status === "ok" ? (
-                    <>
-                      <CheckCircle2 className="h-5 w-5 text-green-500" />
-                      <div className="flex-1">
-                        <p className="font-medium text-green-500">Connected</p>
-                        <p className="text-sm text-muted-foreground">API server is responding normally</p>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => refetch()}>
-                        Test Connection
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-5 w-5 text-destructive" />
-                      <div className="flex-1">
-                        <p className="font-medium text-destructive">Disconnected</p>
-                        <p className="text-sm text-muted-foreground">
-                          {isError ? "Unable to reach API server" : "Checking connection..."}
-                        </p>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => refetch()}>
-                        Retry
-                      </Button>
-                    </>
-                  )}
-                </div>
-              )}
+              <div className="flex items-center gap-3 p-4 border rounded-lg">
+                {health?.status === "ok" ? (
+                  <>
+                    <CheckCircle2 className="h-5 w-5 text-green-500" />
+                    <div className="flex-1">
+                      <p className="font-medium text-green-500">Connected</p>
+                      <p className="text-sm text-muted-foreground">API server is responding normally</p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => refetch()}>
+                      Test Connection
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-5 w-5 text-destructive" />
+                    <div className="flex-1">
+                      <p className="font-medium text-destructive">Disconnected</p>
+                      <p className="text-sm text-muted-foreground">
+                        {isError ? "Unable to reach API server" : "Checking connection..."}
+                      </p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => refetch()}>
+                      Retry
+                    </Button>
+                  </>
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

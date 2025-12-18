@@ -78,4 +78,30 @@ export const queryKeys = {
     byProject: (projectId: number, sprintId?: number | null) => ["tasks", "project", projectId, { sprintId }] as const,
     detail: (id: number) => ["tasks", "detail", id] as const,
   },
+
+  // Agents
+  agents: {
+    all: ["agents"] as const,
+    list: () => [...queryKeys.agents.all, "list"] as const,
+    detail: (id: string) => [...queryKeys.agents.all, "detail", id] as const,
+  },
+
+  // Specifications
+  specifications: {
+    all: ["specifications"] as const,
+    list: (projectId?: number) => [...queryKeys.specifications.all, "list", { projectId }] as const,
+    detail: (id: number) => [...queryKeys.specifications.all, "detail", id] as const,
+  },
+
+  // Quality
+  quality: {
+    all: ["quality"] as const,
+    dashboard: () => [...queryKeys.quality.all, "dashboard"] as const,
+  },
+
+  // Profile
+  profile: {
+    all: ["profile"] as const,
+    me: () => [...queryKeys.profile.all, "me"] as const,
+  },
 }

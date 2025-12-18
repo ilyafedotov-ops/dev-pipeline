@@ -503,3 +503,127 @@ def list_protocol_feedback(
             )
         )
     return schemas.FeedbackListOut(events=events)
+
+@router.get("/protocols/{protocol_id}/clarifications", response_model=List[schemas.ClarificationOut])
+def list_protocol_clarifications(
+    protocol_id: int,
+    status: Optional[str] = None,
+    limit: int = 100,
+    db: Database = Depends(get_db)
+):
+    """List clarifications scoped to a protocol."""
+    try:
+        db.get_protocol_run(protocol_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Protocol not found")
+    
+    return db.list_clarifications(
+        protocol_run_id=protocol_id,
+        status=status,
+        limit=limit
+    )
+
+@router.post("/protocols/{protocol_id}/clarifications/{key}", response_model=schemas.ClarificationOut)
+def answer_protocol_clarification(
+    protocol_id: int,
+    key: str,
+    answer: schemas.ClarificationAnswer,
+    db: Database = Depends(get_db)
+):
+    """Answer a clarification scoped to a protocol."""
+    try:
+        db.get_protocol_run(protocol_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Protocol not found")
+    
+    # Construct scope for protocol-level clarification
+    scope = f"protocol:{protocol_id}"
+    
+    # Store answer as structured JSON
+    payload = {"text": answer.answer}
+    
+    try:
+        updated = db.answer_clarification(
+            scope=scope,
+            key=key,
+            answer=payload,
+            answered_by=answer.answered_by,
+            status="answered",
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Clarification not found")
+
+    return updated
+
+
+@router.post("/protocols/{protocol_id}/feedback")
+def submit_protocol_feedback(
+    protocol_id: int,
+    feedback: schemas.FeedbackRequest,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context)
+):
+    """
+    Submit feedback for a protocol.
+
+    Supports multiple actions:
+    - "clarify": Create a clarification request
+    - "approve": Mark protocol as approved
+    - "reject": Mark protocol as rejected
+    - "retry": Retry failed protocol
+    """
+    try:
+        protocol = db.get_protocol_run(protocol_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Protocol not found")
+
+    action = feedback.action.lower()
+
+    if action == "clarify":
+        # Create a clarification
+        scope = f"protocol:{protocol_id}"
+        key = feedback.metadata.get("key", "user_feedback") if feedback.metadata else "user_feedback"
+
+        clarification = db.create_clarification(
+            scope=scope,
+            key=key,
+            question=feedback.message or "User feedback requested",
+            context=feedback.metadata or {},
+            status="open"
+        )
+
+        return {
+            "status": "clarification_created",
+            "clarification_id": clarification.id,
+            "message": "Clarification request created"
+        }
+
+    elif action == "approve":
+        # Mark protocol as approved/completed
+        db.update_protocol_run(protocol_id, status="completed", summary=feedback.message)
+        return {
+            "status": "approved",
+            "message": "Protocol marked as approved"
+        }
+
+    elif action == "reject":
+        # Mark protocol as rejected/failed
+        db.update_protocol_run(protocol_id, status="failed", summary=feedback.message)
+        return {
+            "status": "rejected",
+            "message": "Protocol marked as rejected"
+        }
+
+    elif action == "retry":
+        # Reset protocol to retry
+        db.update_protocol_run(protocol_id, status="pending")
+        return {
+            "status": "retry_scheduled",
+            "message": "Protocol reset for retry"
+        }
+
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown action: {action}. Supported actions: clarify, approve, reject, retry"
+        )

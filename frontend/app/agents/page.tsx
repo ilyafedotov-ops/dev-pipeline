@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useAgents } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -11,17 +12,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { LoadingState } from "@/components/ui/loading-state"
+import { EmptyState } from "@/components/ui/empty-state"
 import { Bot, Circle, Settings, Plus, Activity, TrendingUp, Zap } from "lucide-react"
+import type { Agent } from "@/lib/api/types"
 
-type Agent = {
-  id: string
-  name: string
-  kind: string
-  status: "available" | "busy" | "unavailable"
-  model: string
-  activeJobs: number
-  completedJobs: number
-  avgResponseTime: string
+type AgentConfig = Agent & {
+  activeJobs?: number
+  completedJobs?: number
+  avgResponseTime?: string
   maxConcurrency?: number
   temperature?: number
   maxTokens?: number
@@ -29,121 +28,21 @@ type Agent = {
 }
 
 export default function AgentsPage() {
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
+  const { data: agentsData, isLoading } = useAgents()
+  const [selectedAgent, setSelectedAgent] = useState<AgentConfig | null>(null)
   const [isConfigOpen, setIsConfigOpen] = useState(false)
 
-  const agents: Agent[] = [
-    {
-      id: "claude-code",
-      name: "Claude Code",
-      kind: "anthropic-agent",
-      status: "available",
-      model: "claude-3-5-sonnet-20241022",
-      activeJobs: 2,
-      completedJobs: 145,
-      avgResponseTime: "3.2s",
-      maxConcurrency: 5,
-      temperature: 0.7,
-      maxTokens: 4096,
-      systemPrompt: "You are an expert code generation assistant.",
-    },
-    {
-      id: "gpt-builder",
-      name: "GPT Builder",
-      kind: "openai-agent",
-      status: "available",
-      model: "gpt-4-turbo",
-      activeJobs: 1,
-      completedJobs: 98,
-      avgResponseTime: "2.8s",
-      maxConcurrency: 3,
-      temperature: 0.5,
-      maxTokens: 8192,
-      systemPrompt: "You are a software architect assistant.",
-    },
-    {
-      id: "gemini-reviewer",
-      name: "Gemini Reviewer",
-      kind: "google-agent",
-      status: "busy",
-      model: "gemini-pro",
-      activeJobs: 3,
-      completedJobs: 67,
-      avgResponseTime: "4.1s",
-      maxConcurrency: 4,
-      temperature: 0.3,
-      maxTokens: 2048,
-      systemPrompt: "You are a code review specialist.",
-    },
-    {
-      id: "local-agent",
-      name: "Local Agent",
-      kind: "local-agent",
-      status: "unavailable",
-      model: "llama-3.1-70b",
-      activeJobs: 0,
-      completedJobs: 23,
-      avgResponseTime: "6.5s",
-      maxConcurrency: 2,
-      temperature: 0.8,
-      maxTokens: 4096,
-    },
-    {
-      id: "claude-analyst",
-      name: "Claude Analyst",
-      kind: "anthropic-agent",
-      status: "available",
-      model: "claude-3-opus-20240229",
-      activeJobs: 0,
-      completedJobs: 234,
-      avgResponseTime: "4.5s",
-      maxConcurrency: 3,
-      temperature: 0.4,
-      maxTokens: 4096,
-      systemPrompt: "You are a technical analysis expert.",
-    },
-    {
-      id: "gpt-reviewer",
-      name: "GPT Reviewer",
-      kind: "openai-agent",
-      status: "available",
-      model: "gpt-4o",
-      activeJobs: 1,
-      completedJobs: 189,
-      avgResponseTime: "2.1s",
-      maxConcurrency: 5,
-      temperature: 0.2,
-      maxTokens: 16384,
-      systemPrompt: "You specialize in code quality reviews.",
-    },
-    {
-      id: "mistral-agent",
-      name: "Mistral Agent",
-      kind: "mistral-agent",
-      status: "available",
-      model: "mistral-large-latest",
-      activeJobs: 0,
-      completedJobs: 56,
-      avgResponseTime: "3.7s",
-      maxConcurrency: 4,
-      temperature: 0.6,
-      maxTokens: 8192,
-    },
-    {
-      id: "cohere-writer",
-      name: "Cohere Writer",
-      kind: "cohere-agent",
-      status: "busy",
-      model: "command-r-plus",
-      activeJobs: 2,
-      completedJobs: 112,
-      avgResponseTime: "3.9s",
-      maxConcurrency: 3,
-      temperature: 0.7,
-      maxTokens: 4096,
-      systemPrompt: "You are a documentation specialist.",
-    },
-  ]
+  // Transform API data to include display fields
+  const agents: AgentConfig[] = (agentsData || []).map((agent) => ({
+    ...agent,
+    status: agent.status || "available",
+    activeJobs: 0,
+    completedJobs: 0,
+    avgResponseTime: "-",
+    maxConcurrency: 5,
+    temperature: 0.7,
+    maxTokens: 4096,
+  }))
 
   const statusColors = {
     available: { bg: "bg-green-500", text: "Available" },
@@ -155,8 +54,34 @@ export default function AgentsPage() {
     total: agents.length,
     available: agents.filter((a) => a.status === "available").length,
     busy: agents.filter((a) => a.status === "busy").length,
-    totalActiveJobs: agents.reduce((sum, a) => sum + a.activeJobs, 0),
-    totalCompleted: agents.reduce((sum, a) => sum + a.completedJobs, 0),
+    totalActiveJobs: agents.reduce((sum, a) => sum + (a.activeJobs || 0), 0),
+    totalCompleted: agents.reduce((sum, a) => sum + (a.completedJobs || 0), 0),
+  }
+
+  if (isLoading) {
+    return <LoadingState message="Loading agents..." />
+  }
+
+  if (!agents || agents.length === 0) {
+    return (
+      <div className="flex h-full flex-col gap-6 p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">Agents</h1>
+            <p className="text-sm text-muted-foreground">Manage AI agents and their configurations</p>
+          </div>
+          <Button size="sm">
+            <Plus className="mr-2 h-4 w-4" />
+            Add Agent
+          </Button>
+        </div>
+        <EmptyState
+          icon={Bot}
+          title="No agents configured"
+          description="Configure agents in your DevGodzilla setup to see them here."
+        />
+      </div>
+    )
   }
 
   return (
@@ -255,21 +180,17 @@ export default function AgentsPage() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Model</span>
-                  <span className="font-mono text-xs truncate max-w-[140px]">{agent.model}</span>
+                  <span className="font-mono text-xs truncate max-w-[140px]">{agent.default_model || "-"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Active Jobs</span>
-                  <Badge variant={agent.activeJobs > 0 ? "default" : "secondary"} className="text-xs">
-                    {agent.activeJobs}
+                  <Badge variant={(agent.activeJobs || 0) > 0 ? "default" : "secondary"} className="text-xs">
+                    {agent.activeJobs || 0}
                   </Badge>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Completed</span>
-                  <span>{agent.completedJobs}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Avg Response</span>
-                  <span>{agent.avgResponseTime}</span>
+                  <span className="text-muted-foreground">Capabilities</span>
+                  <span className="text-xs">{agent.capabilities?.length || 0}</span>
                 </div>
               </div>
               <Button
@@ -341,7 +262,7 @@ export default function AgentsPage() {
               <TabsContent value="model" className="space-y-4 mt-4">
                 <div className="space-y-2">
                   <Label htmlFor="model">Model</Label>
-                  <Input id="model" defaultValue={selectedAgent.model} />
+                  <Input id="model" defaultValue={selectedAgent.default_model || ""} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="temperature">Temperature: {selectedAgent.temperature}</Label>
@@ -385,19 +306,19 @@ export default function AgentsPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-xs text-muted-foreground">Active Jobs</p>
-                      <p className="text-2xl font-bold">{selectedAgent.activeJobs}</p>
+                      <p className="text-2xl font-bold">{selectedAgent.activeJobs || 0}</p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Completed Jobs</p>
-                      <p className="text-2xl font-bold">{selectedAgent.completedJobs}</p>
+                      <p className="text-2xl font-bold">{selectedAgent.completedJobs || 0}</p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Avg Response Time</p>
-                      <p className="text-2xl font-bold">{selectedAgent.avgResponseTime}</p>
+                      <p className="text-2xl font-bold">{selectedAgent.avgResponseTime || "-"}</p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Success Rate</p>
-                      <p className="text-2xl font-bold">98.5%</p>
+                      <p className="text-2xl font-bold">-</p>
                     </div>
                   </div>
                 </div>

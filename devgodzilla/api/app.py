@@ -1,12 +1,21 @@
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    SLOWAPI_AVAILABLE = True
+except ImportError:
+    SLOWAPI_AVAILABLE = False
+
 from devgodzilla.api import schemas
-from devgodzilla.api.routes import projects, protocols, steps, agents, clarifications, speckit, sprints, tasks
+from devgodzilla.api.routes import projects, protocols, steps, agents, clarifications, speckit, sprints, tasks, policy_packs, specifications, quality, profile
 from devgodzilla.api.routes import metrics, webhooks, events
 from devgodzilla.api.routes import windmill as windmill_routes
 from devgodzilla.api.routes import runs as runs_routes
 from devgodzilla.api.routes import project_speckit as project_speckit_routes
+from devgodzilla.api.routes import queues
 from devgodzilla.api.dependencies import get_db, get_service_context, require_api_token, require_webhook_token
 from devgodzilla.config import get_config
 from devgodzilla.engines.bootstrap import bootstrap_default_engines
@@ -21,6 +30,16 @@ app = FastAPI(
     description="REST API for DevGodzilla AI Development Pipeline",
     version="0.1.0",
 )
+
+# Rate Limiting
+if SLOWAPI_AVAILABLE:
+    limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    logger.info("rate_limiting_enabled", extra={"default_limit": "100/minute"})
+else:
+    limiter = None
+    logger.warning("rate_limiting_disabled", extra={"reason": "slowapi not installed"})
 
 # CORS
 config = get_config()
@@ -48,6 +67,11 @@ app.include_router(runs_routes.router, dependencies=auth_deps)  # /runs (Job run
 app.include_router(project_speckit_routes.router, dependencies=auth_deps)  # /projects/{id}/speckit/*
 app.include_router(sprints.router, tags=["Sprints"], dependencies=auth_deps)
 app.include_router(tasks.router, tags=["Tasks"], dependencies=auth_deps)
+app.include_router(queues.router, dependencies=auth_deps)  # /queues
+app.include_router(policy_packs.router, dependencies=auth_deps)  # /policy_packs
+app.include_router(specifications.router, dependencies=auth_deps)  # /specifications
+app.include_router(quality.router, dependencies=auth_deps)  # /quality
+app.include_router(profile.router, dependencies=auth_deps)  # /profile
 
 
 @app.on_event("startup")

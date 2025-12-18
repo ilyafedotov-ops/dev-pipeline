@@ -20,10 +20,13 @@ def create_task(
         sprint_id=task.sprint_id,
         description=task.description,
         assignee=task.assignee,
+        reporter=task.reporter,
         story_points=task.story_points,
         labels=task.labels,
         acceptance_criteria=task.acceptance_criteria,
         due_date=task.due_date.isoformat() if task.due_date else None,
+        blocked_by=task.blocked_by,
+        blocks=task.blocks,
     )
 
 @router.get("/{task_id}", response_model=schemas.AgileTaskOut)
@@ -61,5 +64,21 @@ def update_task(
         if "due_date" in updates and updates["due_date"]:
             updates["due_date"] = updates["due_date"].isoformat()
         return db.update_task(task_id, **updates)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+@router.patch("/{task_id}", response_model=schemas.AgileTaskOut)
+def patch_task(
+    task_id: int,
+    task: schemas.AgileTaskUpdate,
+    db: Database = Depends(get_db)
+):
+    return update_task(task_id, task, db)
+
+@router.delete("/{task_id}")
+def delete_task(task_id: int, db: Database = Depends(get_db)):
+    try:
+        db.delete_task(task_id)
+        return {"status": "deleted"}
     except KeyError:
         raise HTTPException(status_code=404, detail="Task not found")

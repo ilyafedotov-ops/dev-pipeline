@@ -461,3 +461,38 @@ export interface BurndownPoint {
   ideal: number
   actual: number
 }
+
+// =============================================================================
+// Agent
+// =============================================================================
+
+export interface Agent {
+  id: string
+  name: string
+  kind: string
+  capabilities: string[]
+  status: "available" | "busy" | "unavailable"
+  default_model: string | null
+  command_dir: string | null
+}
+
+// =============================================================================
+// Specification
+// =============================================================================
+
+export interface Specification {
+  id: number
+  path: string
+  title: string
+  project_id: number
+  project_name: string
+  status: string
+  created_at: string | null
+  tasks_generated: boolean
+  protocol_id: number | null
+  sprint_id: number | null
+  sprint_name: string | null
+  linked_tasks: number
+  completed_tasks: number
+  story_points: number
+}

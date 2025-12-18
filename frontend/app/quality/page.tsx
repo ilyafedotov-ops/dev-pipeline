@@ -1,74 +1,57 @@
 "use client"
 
+import { useQualityDashboard } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
+import { LoadingState } from "@/components/ui/loading-state"
+import { EmptyState } from "@/components/ui/empty-state"
 import { CheckCircle2, AlertTriangle, XCircle, Shield, FileCheck, RefreshCw } from "lucide-react"
+import Link from "next/link"
 
 export default function QualityPage() {
-  // Mock QA data
-  const qaOverview = {
-    totalProtocols: 12,
-    passed: 8,
-    warnings: 3,
-    failed: 1,
-    averageScore: 87,
-  }
+  const { data: dashboard, isLoading, refetch } = useQualityDashboard()
 
-  const recentFindings = [
-    {
-      id: 1,
-      protocolId: 42,
-      projectName: "tasksgodzilla-web",
-      article: "III",
-      articleName: "Code Quality",
-      severity: "error",
-      message: "Test coverage below 80%",
-      timestamp: "2025-01-20 14:30",
-    },
-    {
-      id: 2,
-      protocolId: 43,
-      projectName: "api-service",
-      article: "IV",
-      articleName: "Security",
-      severity: "warning",
-      message: "Deprecated dependency detected",
-      timestamp: "2025-01-20 12:15",
-    },
-    {
-      id: 3,
-      protocolId: 44,
-      projectName: "tasksgodzilla-web",
-      article: "IX",
-      articleName: "Documentation",
-      severity: "warning",
-      message: "Missing API documentation",
-      timestamp: "2025-01-19 16:45",
-    },
-  ]
-
-  const constitutionalGates = [
-    { article: "I", name: "No Breaking Changes", status: "passed", checks: 45 },
-    { article: "II", name: "Backward Compatibility", status: "passed", checks: 38 },
-    { article: "III", name: "Code Quality", status: "failed", checks: 52 },
-    { article: "IV", name: "Security", status: "warning", checks: 41 },
-    { article: "V", name: "Scope Control", status: "passed", checks: 29 },
-    { article: "IX", name: "Documentation", status: "warning", checks: 35 },
-  ]
-
-  const statusIcons = {
+  const statusIcons: Record<string, React.ReactNode> = {
     passed: <CheckCircle2 className="h-4 w-4 text-green-500" />,
     warning: <AlertTriangle className="h-4 w-4 text-amber-500" />,
     failed: <XCircle className="h-4 w-4 text-red-500" />,
   }
 
+  if (isLoading) {
+    return <LoadingState message="Loading quality dashboard..." />
+  }
+
+  if (!dashboard) {
+    return (
+      <div className="flex h-full flex-col gap-6 p-6">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Quality Assurance</h1>
+          <p className="text-sm text-muted-foreground">Constitutional gates and quality metrics</p>
+        </div>
+        <EmptyState
+          icon={Shield}
+          title="No quality data available"
+          description="Run protocols to see quality metrics here."
+        />
+      </div>
+    )
+  }
+
+  const { overview, recent_findings, constitutional_gates } = dashboard
+
   return (
     <div className="flex h-full flex-col gap-6 p-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Quality Assurance</h1>
-        <p className="text-sm text-muted-foreground">Constitutional gates and quality metrics</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Quality Assurance</h1>
+          <p className="text-sm text-muted-foreground">Constitutional gates and quality metrics</p>
+        </div>
+        <Button variant="outline" onClick={() => refetch()}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
       </div>
 
       <div className="bg-muted/50 border rounded-lg p-4">
@@ -79,7 +62,7 @@ export default function QualityPage() {
             </div>
             <div>
               <div className="text-sm font-medium text-muted-foreground">Total Protocols</div>
-              <div className="text-2xl font-bold">{qaOverview.totalProtocols}</div>
+              <div className="text-2xl font-bold">{overview.total_protocols}</div>
             </div>
           </div>
 
@@ -91,7 +74,7 @@ export default function QualityPage() {
             </div>
             <div>
               <div className="text-sm font-medium text-muted-foreground">Passed</div>
-              <div className="text-2xl font-bold">{qaOverview.passed}</div>
+              <div className="text-2xl font-bold">{overview.passed}</div>
             </div>
           </div>
 
@@ -103,7 +86,7 @@ export default function QualityPage() {
             </div>
             <div>
               <div className="text-sm font-medium text-muted-foreground">Warnings</div>
-              <div className="text-2xl font-bold">{qaOverview.warnings}</div>
+              <div className="text-2xl font-bold">{overview.warnings}</div>
             </div>
           </div>
 
@@ -115,7 +98,7 @@ export default function QualityPage() {
             </div>
             <div>
               <div className="text-sm font-medium text-muted-foreground">Failed</div>
-              <div className="text-2xl font-bold">{qaOverview.failed}</div>
+              <div className="text-2xl font-bold">{overview.failed}</div>
             </div>
           </div>
 
@@ -127,18 +110,8 @@ export default function QualityPage() {
             </div>
             <div>
               <div className="text-sm font-medium text-muted-foreground">Avg Score</div>
-              <div className="text-2xl font-bold">{qaOverview.averageScore}%</div>
+              <div className="text-2xl font-bold">{overview.average_score}%</div>
             </div>
-          </div>
-
-          <div className="flex-1" />
-
-          <div className="text-right">
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Quick Actions</div>
-            <Button variant="outline" size="sm">
-              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-              Refresh All
-            </Button>
           </div>
         </div>
       </div>
@@ -146,73 +119,77 @@ export default function QualityPage() {
       <Tabs defaultValue="gates" className="flex-1">
         <TabsList>
           <TabsTrigger value="gates">Constitutional Gates</TabsTrigger>
-          <TabsTrigger value="findings">Recent Findings</TabsTrigger>
+          <TabsTrigger value="findings">Recent Findings ({recent_findings.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="gates" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Gate Status</CardTitle>
-              <CardDescription>Status of all constitutional quality gates</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {constitutionalGates.map((gate) => (
-                  <div key={gate.article} className="flex items-center justify-between rounded-lg border p-4">
-                    <div className="flex items-center gap-3">
-                      {statusIcons[gate.status]}
-                      <div>
-                        <div className="font-medium">
-                          Article {gate.article}: {gate.name}
-                        </div>
-                        <div className="text-sm text-muted-foreground">{gate.checks} checks performed</div>
-                      </div>
-                    </div>
-                    <Badge
-                      variant={
-                        gate.status === "passed" ? "default" : gate.status === "warning" ? "secondary" : "destructive"
-                      }
-                    >
-                      {gate.status}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {constitutional_gates.map((gate) => (
+              <Card key={gate.article}>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">Article {gate.article}</CardTitle>
+                    {statusIcons[gate.status]}
+                  </div>
+                  <CardDescription>{gate.name}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Checks</span>
+                    <Badge variant={gate.status === "passed" ? "default" : gate.status === "failed" ? "destructive" : "secondary"}>
+                      {gate.checks}
                     </Badge>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </TabsContent>
 
         <TabsContent value="findings" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Findings</CardTitle>
-              <CardDescription>Latest quality issues and warnings</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {recentFindings.map((finding) => (
-                  <div key={finding.id} className="flex items-start gap-3 rounded-lg border p-4">
-                    {finding.severity === "error" ? (
-                      <XCircle className="mt-0.5 h-5 w-5 text-red-500" />
-                    ) : (
-                      <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-500" />
-                    )}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{finding.message}</span>
-                        <Badge variant="outline" className="text-xs">
-                          Article {finding.article}
-                        </Badge>
+          {recent_findings.length === 0 ? (
+            <EmptyState
+              icon={CheckCircle2}
+              title="No findings"
+              description="No quality issues detected. Great job!"
+            />
+          ) : (
+            <div className="space-y-4">
+              {recent_findings.map((finding) => (
+                <Card key={finding.id}>
+                  <CardContent className="pt-4">
+                    <div className="flex items-start gap-4">
+                      {finding.severity === "error" ? (
+                        <XCircle className="h-5 w-5 text-red-500 mt-0.5" />
+                      ) : (
+                        <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5" />
+                      )}
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium">{finding.message}</p>
+                          <Badge variant={finding.severity === "error" ? "destructive" : "secondary"}>
+                            {finding.severity}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          <span>{finding.project_name}</span>
+                          <span>•</span>
+                          <span>Article {finding.article}: {finding.article_name}</span>
+                          <span>•</span>
+                          <span>{finding.timestamp}</span>
+                        </div>
                       </div>
-                      <div className="mt-1 text-sm text-muted-foreground">
-                        {finding.projectName} • Protocol #{finding.protocolId} • {finding.timestamp}
-                      </div>
+                      {finding.protocol_id > 0 && (
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link href={`/protocols/${finding.protocol_id}`}>View</Link>
+                        </Button>
+                      )}
                     </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

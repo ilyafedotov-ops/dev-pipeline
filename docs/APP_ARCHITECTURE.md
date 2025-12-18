@@ -59,9 +59,26 @@ graph TB
 
 ## Frontend Architecture
 
-### Active Frontend: Windmill + DevGodzilla React App
+### Primary Frontend: Next.js Console (`/console`)
 
-The main user interface is served through **Windmill**, with DevGodzilla features embedded as a React application.
+The new primary frontend is a **Next.js** application served at the `/console` path, providing the main DevGodzilla user interface.
+
+| Component | Location | Description |
+|-----------|----------|-------------|
+| **Next.js App** | `frontend/` | Next.js 16 with React 19 and Tailwind CSS |
+| **Base Path** | `/console` | All routes served under this path |
+| **Static Export** | Standalone mode | Optimized for Docker deployment |
+
+#### Features:
+- **Projects Dashboard** - View and manage projects
+- **Protocols & Steps** - Monitor workflow execution
+- **Sprint Management** - Agile board with Kanban view (`/console/sprints`)
+- **Runs & Artifacts** - View execution history and outputs
+- **Policy Management** - Configure policy packs
+
+### Secondary Frontend: Windmill + DevGodzilla React App
+
+The Windmill platform continues to serve as the workflow management interface at the root path.
 
 | Component | Location | Description |
 |-----------|----------|-------------|
@@ -72,15 +89,22 @@ The main user interface is served through **Windmill**, with DevGodzilla feature
 ### Frontend Structure
 
 ```
-windmill/
+frontend/                               # Next.js Frontend (NEW - Primary)
+├── app/                                # Next.js App Router pages
+│   ├── page.tsx                        # Dashboard
+│   ├── projects/                       # Project management
+│   ├── protocols/                      # Protocol views
+│   ├── sprints/                        # Agile sprint board
+│   └── runs/                           # Execution runs
+├── components/                         # UI components
+├── lib/api/                            # API client and hooks
+├── Dockerfile                          # Docker build
+└── next.config.mjs                     # Next.js config (basePath: /console)
+
+windmill/                               # Windmill Frontend (Secondary)
 ├── apps/
 │   ├── devgodzilla/                    # Windmill app definition (JSON)
-│   │   └── [...app configs...]
-│   └── devgodzilla-react-app/          # React application
-│       ├── .env.development            # Windmill token config
-│       ├── .env.example                # Environment template
-│       ├── app.iife.js                 # Built React bundle (IIFE)
-│       └── dist/                       # Build output
+│   └── devgodzilla-react-app/          # React application (IIFE bundle)
 ├── flows/                              # Windmill workflow definitions
 ├── scripts/                            # Windmill script definitions
 └── import_to_windmill.py               # Import script for Windmill
@@ -113,6 +137,8 @@ FastAPI-based backend providing REST endpoints for project and workflow manageme
 | `/agents` | Agent configuration |
 | `/clarifications` | User clarification requests |
 | `/speckit` | SpecKit integration |
+| `/sprints` | Sprint management (Agile) |
+| `/tasks` | Task management (Agile) |
 | `/flows` | Windmill flow proxies |
 | `/jobs` | Windmill job proxies |
 | `/runs` | Run management |
@@ -143,8 +169,9 @@ devgodzilla/
 | Service | Image/Build | Port | Purpose |
 |---------|-------------|------|---------|
 | `nginx` | nginx:alpine | 8080→80 | Reverse proxy |
+| `frontend` | ./frontend | 3000 | Next.js Console |
 | `devgodzilla-api` | ./Dockerfile | 8000 | Backend API |
-| `windmill` | ./Origins/Windmill | 8000 | Frontend + API |
+| `windmill` | ./Origins/Windmill | 8000 | Workflow Platform |
 | `windmill_worker` | ./Origins/Windmill | - | Job execution |
 | `windmill_worker_native` | ./Origins/Windmill | - | Native jobs |
 | `lsp` | windmill-lsp:latest | 3001 | Code intelligence |
@@ -156,14 +183,17 @@ devgodzilla/
 ```nginx
 # DevGodzilla API endpoints
 /health, /projects, /protocols, /steps, /agents, /clarifications,
-/speckit, /metrics, /webhooks, /events, /flows, /jobs, /runs,
-/docs, /redoc, /openapi.json
+/speckit, /sprints, /tasks, /metrics, /webhooks, /events, /flows, 
+/jobs, /runs, /docs, /redoc, /openapi.json
 → devgodzilla-api:8000
+
+# Next.js Console (primary frontend)
+/console, /_next → frontend:3000
 
 # LSP WebSocket
 /ws/ → lsp:3001
 
-# Default (everything else)
+# Default (Windmill platform)
 / → windmill:8000
 ```
 
@@ -171,7 +201,22 @@ devgodzilla/
 
 ## Development Workflow
 
-### Building the React App
+### Building the Next.js Frontend
+
+```bash
+cd frontend
+
+# Install dependencies
+pnpm install
+
+# Build production bundle
+pnpm build
+
+# Run development server (with hot reload)
+pnpm dev
+```
+
+### Building the Windmill React App (Optional)
 
 ```bash
 cd windmill/apps/devgodzilla-react-app
@@ -185,7 +230,7 @@ npm run build
 # Output: app.iife.js
 ```
 
-### Importing to Windmill
+### Importing to Windmill (Optional)
 
 After building, import scripts/flows/apps to Windmill:
 
@@ -206,8 +251,9 @@ docker compose -f docker-compose.devgodzilla.yml up -d
 # View logs
 docker compose -f docker-compose.devgodzilla.yml logs -f
 
-# Rebuild after changes
-docker compose -f docker-compose.devgodzilla.yml up -d --build
+# Rebuild frontend after changes
+docker compose -f docker-compose.devgodzilla.yml build frontend
+docker compose -f docker-compose.devgodzilla.yml up -d frontend
 ```
 
 ---

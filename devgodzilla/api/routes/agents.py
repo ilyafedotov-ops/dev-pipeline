@@ -81,3 +81,34 @@ def check_agent_health(agent_id: str, ctx: ServiceContext = Depends(get_service_
     if res.error == "Agent not found":
         raise HTTPException(status_code=404, detail="Agent not found")
     return {"status": "available" if res.available else "unavailable"}
+
+
+@router.put("/agents/{agent_id}/config", response_model=schemas.AgentInfo)
+def update_agent_config(
+    agent_id: str,
+    config: schemas.AgentConfigUpdate,
+    ctx: ServiceContext = Depends(get_service_context)
+):
+    """Update agent configuration."""
+    cfg = AgentConfigService(ctx)
+    try:
+        updated_agent = cfg.update_config(
+            agent_id=agent_id,
+            enabled=config.enabled,
+            default_model=config.default_model,
+            capabilities=config.capabilities,
+            command_dir=config.command_dir,
+        )
+        return schemas.AgentInfo(
+            id=updated_agent.id,
+            name=updated_agent.name,
+            kind=updated_agent.kind,
+            capabilities=updated_agent.capabilities,
+            status="available" if updated_agent.enabled else "unavailable",
+            default_model=updated_agent.default_model,
+            command_dir=updated_agent.command_dir,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update agent config: {str(e)}")

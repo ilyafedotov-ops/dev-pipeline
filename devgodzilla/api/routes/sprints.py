@@ -58,3 +58,36 @@ def list_sprint_tasks(
     db: Database = Depends(get_db)
 ):
     return db.list_tasks(sprint_id=sprint_id)
+
+@router.get("/{sprint_id}/metrics", response_model=schemas.SprintMetrics)
+def get_sprint_metrics(
+    sprint_id: int,
+    db: Database = Depends(get_db)
+):
+    try:
+        db.get_sprint(sprint_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Sprint not found")
+
+    tasks = db.list_tasks(sprint_id=sprint_id)
+    total_tasks = len(tasks)
+    completed_tasks = sum(1 for t in tasks if t.board_status == "done")
+    total_points = sum(t.story_points or 0 for t in tasks)
+    completed_points = sum(t.story_points or 0 for t in tasks if t.board_status == "done")
+
+    return schemas.SprintMetrics(
+        total_tasks=total_tasks,
+        completed_tasks=completed_tasks,
+        total_points=total_points,
+        completed_points=completed_points,
+        burndown=[],
+        velocity=completed_points
+    )
+
+@router.delete("/{sprint_id}")
+def delete_sprint(sprint_id: int, db: Database = Depends(get_db)):
+    try:
+        db.delete_sprint(sprint_id)
+        return {"status": "deleted"}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Sprint not found")

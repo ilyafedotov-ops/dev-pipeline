@@ -263,3 +263,236 @@ def list_project_tasks(
         assignee=assignee,
         limit=limit
     )
+
+@router.get("/projects/{project_id}/policy", response_model=schemas.PolicyConfigOut)
+def get_project_policy(
+    project_id: int,
+    db: Database = Depends(get_db)
+):
+    """Get policy configuration for a project."""
+    try:
+        project = db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    return schemas.PolicyConfigOut(
+        policy_pack_key=project.policy_pack_key,
+        policy_pack_version=project.policy_pack_version,
+        policy_overrides=project.policy_overrides,
+        policy_repo_local_enabled=bool(project.policy_repo_local_enabled) if project.policy_repo_local_enabled is not None else False,
+        policy_enforcement_mode=project.policy_enforcement_mode or "warn",
+    )
+
+@router.put("/projects/{project_id}/policy", response_model=schemas.ProjectOut)
+def update_project_policy(
+    project_id: int,
+    policy: schemas.PolicyConfigUpdate,
+    db: Database = Depends(get_db)
+):
+    """Update policy configuration for a project."""
+    try:
+        db.get_project(project_id)  # Check exists
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Build update kwargs
+    kwargs = {}
+    if policy.policy_pack_key is not None:
+        kwargs["policy_pack_key"] = policy.policy_pack_key
+    if policy.policy_pack_version is not None:
+        kwargs["policy_pack_version"] = policy.policy_pack_version
+    if policy.policy_overrides is not None:
+        kwargs["policy_overrides"] = policy.policy_overrides
+    if policy.policy_repo_local_enabled is not None:
+        kwargs["policy_repo_local_enabled"] = policy.policy_repo_local_enabled
+    if policy.policy_enforcement_mode is not None:
+        kwargs["policy_enforcement_mode"] = policy.policy_enforcement_mode
+    
+    return db.update_project_policy(project_id, **kwargs)
+
+@router.get("/projects/{project_id}/policy/effective", response_model=schemas.EffectivePolicyOut)
+def get_effective_policy(
+    project_id: int,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """Get computed effective policy with hash."""
+    try:
+        project = db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    from devgodzilla.services.policy import PolicyService
+    from pathlib import Path
+    
+    policy_service = PolicyService(ctx, db)
+    
+    # Determine repo root
+    repo_root = None
+    if project.local_path:
+        try:
+            repo_root = Path(project.local_path).expanduser()
+        except Exception:
+            pass
+    
+    effective = policy_service.resolve_effective_policy(
+        project_id,
+        repo_root=repo_root,
+        include_repo_local=True,
+    )
+    
+    return schemas.EffectivePolicyOut(
+        hash=effective.effective_hash,
+        policy=effective.policy,
+        pack_key=effective.pack_key,
+        pack_version=effective.pack_version,
+    )
+
+@router.get("/projects/{project_id}/policy/findings", response_model=List[schemas.PolicyFindingOut])
+def get_policy_findings(
+    project_id: int,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """Get policy violation findings for a project."""
+    try:
+        db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    from devgodzilla.services.policy import PolicyService
+    
+    policy_service = PolicyService(ctx, db)
+    findings = policy_service.evaluate_project(project_id)
+    
+    return [
+        schemas.PolicyFindingOut(
+            code=f.code,
+            severity=f.severity,
+            message=f.message,
+            scope=f.scope,
+            suggested_fix=f.suggested_fix,
+            metadata=f.metadata,
+        )
+        for f in findings
+    ]
+
+@router.get("/projects/{project_id}/branches", response_model=List[schemas.BranchOut])
+def list_project_branches(
+    project_id: int,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """List git branches for a project repository."""
+    try:
+        project = db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if not project.local_path:
+        raise HTTPException(status_code=400, detail="Project has no local repository path")
+    
+    from pathlib import Path
+    from devgodzilla.services.git import GitService, run_process
+    
+    repo_path = Path(project.local_path).expanduser()
+    if not repo_path.exists():
+        raise HTTPException(status_code=400, detail="Project repository path does not exist")
+    
+    if not (repo_path / ".git").exists():
+        raise HTTPException(status_code=400, detail="Project path is not a git repository")
+    
+    git_service = GitService(ctx)
+    branches = []
+    
+    # Get local branches with their SHAs
+    try:
+        result = run_process(
+            ["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/"],
+            cwd=repo_path,
+        )
+        for line in result.stdout.strip().splitlines():
+            if line:
+                parts = line.split()
+                if len(parts) >= 2:
+                    branches.append(schemas.BranchOut(
+                        name=parts[0],
+                        sha=parts[1],
+                        is_remote=False,
+                    ))
+    except Exception:
+        pass
+    
+    # Get remote branches with their SHAs
+    try:
+        result = run_process(
+            ["git", "ls-remote", "--heads", "origin"],
+            cwd=repo_path,
+        )
+        for line in result.stdout.strip().splitlines():
+            if line:
+                parts = line.split()
+                if len(parts) >= 2 and parts[1].startswith("refs/heads/"):
+                    branch_name = parts[1].replace("refs/heads/", "")
+                    # Only add if not already in local branches
+                    if not any(b.name == branch_name and not b.is_remote for b in branches):
+                        branches.append(schemas.BranchOut(
+                            name=branch_name,
+                            sha=parts[0],
+                            is_remote=True,
+                        ))
+    except Exception:
+        pass
+    
+    return branches
+
+@router.get("/projects/{project_id}/clarifications", response_model=List[schemas.ClarificationOut])
+def list_project_clarifications(
+    project_id: int,
+    status: Optional[str] = None,
+    limit: int = 100,
+    db: Database = Depends(get_db)
+):
+    """List clarifications scoped to a project."""
+    try:
+        db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    return db.list_clarifications(
+        project_id=project_id,
+        status=status,
+        limit=limit
+    )
+
+@router.post("/projects/{project_id}/clarifications/{key}", response_model=schemas.ClarificationOut)
+def answer_project_clarification(
+    project_id: int,
+    key: str,
+    answer: schemas.ClarificationAnswer,
+    db: Database = Depends(get_db)
+):
+    """Answer a clarification scoped to a project."""
+    try:
+        db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Construct scope for project-level clarification
+    scope = f"project:{project_id}"
+    
+    # Store answer as structured JSON
+    payload = {"text": answer.answer}
+    
+    try:
+        updated = db.answer_clarification(
+            scope=scope,
+            key=key,
+            answer=payload,
+            answered_by=answer.answered_by,
+            status="answered",
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Clarification not found")
+    
+    return updated

@@ -297,3 +297,73 @@ class AgentConfigService(Service):
         for agent in self.list_agents(enabled_only=True):
             results.append(self.check_health(agent.id))
         return results
+
+    def update_config(
+        self,
+        agent_id: str,
+        enabled: Optional[bool] = None,
+        default_model: Optional[str] = None,
+        capabilities: Optional[List[str]] = None,
+        command_dir: Optional[str] = None,
+    ) -> AgentConfig:
+        """Update agent configuration and save to YAML."""
+        self.load_config()
+
+        agent = self._agents.get(agent_id)
+        if not agent:
+            raise ValueError(f"Agent {agent_id} not found")
+
+        if yaml is None:
+            raise RuntimeError("PyYAML is required to update agent configuration")
+
+        # Update in-memory config
+        if enabled is not None:
+            agent.enabled = enabled
+        if default_model is not None:
+            agent.default_model = default_model
+        if capabilities is not None:
+            agent.capabilities = capabilities
+        if command_dir is not None:
+            agent.command_dir = command_dir
+
+        # Update YAML file
+        config_path = self._resolve_config_path()
+        try:
+            with open(config_path, "r") as f:
+                data = yaml.safe_load(f) or {}
+
+            # Ensure agents section exists
+            if "agents" not in data:
+                data["agents"] = {}
+
+            # Update agent data
+            if agent_id not in data["agents"]:
+                data["agents"][agent_id] = {}
+
+            agent_data = data["agents"][agent_id]
+            if enabled is not None:
+                agent_data["enabled"] = enabled
+            if default_model is not None:
+                agent_data["default_model"] = default_model
+            if capabilities is not None:
+                agent_data["capabilities"] = capabilities
+            if command_dir is not None:
+                agent_data["command_dir"] = command_dir
+
+            # Write back to file
+            with open(config_path, "w") as f:
+                yaml.dump(data, f, default_flow_style=False)
+
+            self.logger.info("agent_config_updated", extra={
+                "agent_id": agent_id,
+                "path": str(config_path),
+            })
+
+            return agent
+
+        except Exception as e:
+            self.logger.error("agent_config_update_failed", extra={
+                "agent_id": agent_id,
+                "error": str(e),
+            })
+            raise

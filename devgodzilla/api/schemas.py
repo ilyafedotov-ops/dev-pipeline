@@ -71,6 +71,13 @@ class ProjectOut(APIModel):
     created_at: Any
     updated_at: Any
     constitution_version: Optional[str] = None
+    # Policy fields
+    policy_pack_key: Optional[str] = None
+    policy_pack_version: Optional[str] = None
+    policy_overrides: Optional[Dict[str, Any]] = None
+    policy_repo_local_enabled: Optional[bool] = None
+    policy_effective_hash: Optional[str] = None
+    policy_enforcement_mode: Optional[str] = None
 
 # =============================================================================
 # Protocol Models
@@ -106,6 +113,11 @@ class ProtocolOut(APIModel):
     speckit_metadata: Optional[Dict[str, Any]]
     created_at: Any
     updated_at: Any
+
+class FeedbackRequest(BaseModel):
+    action: str
+    message: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 # =============================================================================
 # Step Models
@@ -150,6 +162,12 @@ class AgentInfo(BaseModel):
     capabilities: List[str]
     status: str = "available"
     default_model: Optional[str] = None
+    command_dir: Optional[str] = None
+
+class AgentConfigUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    default_model: Optional[str] = None
+    capabilities: Optional[List[str]] = None
     command_dir: Optional[str] = None
 
 # =============================================================================
@@ -269,6 +287,61 @@ class RunArtifactOut(ArtifactOut):
     run_id: str
 
 # =============================================================================
+# Queue Models
+# =============================================================================
+
+class QueueStatsOut(BaseModel):
+    name: str
+    queued: int
+    started: int
+    failed: int
+
+class QueueJobOut(BaseModel):
+    job_id: str
+    job_type: str
+    status: str
+    enqueued_at: Any
+    started_at: Optional[Any] = None
+    payload: Optional[Dict[str, Any]] = None
+
+# =============================================================================
+# Policy Models
+# =============================================================================
+
+class PolicyConfigOut(BaseModel):
+    policy_pack_key: Optional[str] = None
+    policy_pack_version: Optional[str] = None
+    policy_overrides: Optional[Dict[str, Any]] = None
+    policy_repo_local_enabled: bool = False
+    policy_enforcement_mode: str = "warn"
+
+class PolicyConfigUpdate(BaseModel):
+    policy_pack_key: Optional[str] = None
+    policy_pack_version: Optional[str] = None
+    policy_overrides: Optional[Dict[str, Any]] = None
+    policy_repo_local_enabled: Optional[bool] = None
+    policy_enforcement_mode: Optional[str] = None
+
+class EffectivePolicyOut(BaseModel):
+    hash: str
+    policy: Dict[str, Any]
+    pack_key: str
+    pack_version: str
+
+class PolicyFindingOut(BaseModel):
+    code: str
+    severity: str
+    message: str
+    scope: str
+    suggested_fix: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+class BranchOut(BaseModel):
+    name: str
+    sha: str
+    is_remote: bool
+
+# =============================================================================
 # Workflow / UI Convenience Models (Windmill React app)
 # =============================================================================
 
@@ -334,7 +407,7 @@ class SprintCreate(BaseModel):
     project_id: int
     name: str
     goal: Optional[str] = None
-    status: str = "planned"
+    status: str = "planning"
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     velocity_planned: Optional[int] = None
@@ -361,6 +434,14 @@ class SprintOut(APIModel):
     created_at: Any
     updated_at: Any
 
+class SprintMetrics(BaseModel):
+    total_tasks: int
+    completed_tasks: int
+    total_points: int
+    completed_points: int
+    burndown: List[Dict[str, Any]] = Field(default_factory=list)
+    velocity: int
+
 class AgileTaskCreate(BaseModel):
     project_id: int
     title: str
@@ -370,10 +451,13 @@ class AgileTaskCreate(BaseModel):
     sprint_id: Optional[int] = None
     description: Optional[str] = None
     assignee: Optional[str] = None
+    reporter: Optional[str] = None
     story_points: Optional[int] = None
     due_date: Optional[datetime] = None
     labels: List[str] = Field(default_factory=list)
     acceptance_criteria: List[str] = Field(default_factory=list)
+    blocked_by: List[int] = Field(default_factory=list)
+    blocks: List[int] = Field(default_factory=list)
 
 class AgileTaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -383,11 +467,13 @@ class AgileTaskUpdate(BaseModel):
     sprint_id: Optional[int] = None
     description: Optional[str] = None
     assignee: Optional[str] = None
+    reporter: Optional[str] = None
     story_points: Optional[int] = None
     due_date: Optional[datetime] = None
     labels: Optional[List[str]] = None
     acceptance_criteria: Optional[List[str]] = None
     blocked_by: Optional[List[int]] = None
+    blocks: Optional[List[int]] = None
 
 class AgileTaskOut(APIModel):
     id: int
@@ -412,3 +498,33 @@ class AgileTaskOut(APIModel):
     completed_at: Optional[Any] = None
     created_at: Any
     updated_at: Any
+
+# =============================================================================
+# Policy Pack Models
+# =============================================================================
+
+class PolicyPackContent(BaseModel):
+    meta: Optional[Dict[str, Any]] = None
+    defaults: Optional[Dict[str, Any]] = None
+    requirements: Optional[Dict[str, Any]] = None
+    clarifications: Optional[Dict[str, Any]] = None
+    enforcement: Optional[Dict[str, Any]] = None
+
+class PolicyPackCreate(BaseModel):
+    key: str
+    version: str
+    name: str
+    description: Optional[str] = None
+    status: str = "active"
+    pack: Dict[str, Any] = Field(default_factory=dict)
+
+class PolicyPackOut(APIModel):
+    id: int
+    key: str
+    version: str
+    name: str
+    description: Optional[str] = None
+    status: str
+    pack: Dict[str, Any]
+    created_at: Any
+    updated_at: Optional[Any] = None
