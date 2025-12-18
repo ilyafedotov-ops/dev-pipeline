@@ -128,7 +128,7 @@ class CLIEngine(Engine):
     def __init__(
         self,
         *,
-        default_timeout: int = 300,
+        default_timeout: int = 600,  # Increased for real agent operations
         default_model: Optional[str] = None,
     ) -> None:
         self._default_timeout = default_timeout

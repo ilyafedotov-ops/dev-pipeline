@@ -464,7 +464,7 @@ class OrchestratorService(Service):
 
     def retry_step(self, step_run_id: int) -> OrchestratorResult:
         """
-        Retry a failed or blocked step.
+        Retry a failed, blocked, or timed out step.
         
         Args:
             step_run_id: Step run ID
@@ -474,7 +474,7 @@ class OrchestratorService(Service):
         """
         step = self.db.get_step_run(step_run_id)
         
-        if step.status not in (StepStatus.FAILED, StepStatus.BLOCKED):
+        if step.status not in (StepStatus.FAILED, StepStatus.BLOCKED, StepStatus.TIMEOUT):
             return OrchestratorResult(
                 success=False,
                 error=f"Cannot retry step in status {step.status}",
@@ -573,7 +573,7 @@ class OrchestratorService(Service):
         if not steps:
             return False
         
-        terminal = {StepStatus.COMPLETED, StepStatus.CANCELLED, StepStatus.SKIPPED}
+        terminal = {StepStatus.COMPLETED, StepStatus.CANCELLED, StepStatus.SKIPPED, StepStatus.FAILED, StepStatus.TIMEOUT}
         all_terminal = all(s.status in terminal for s in steps)
         
         if not all_terminal:

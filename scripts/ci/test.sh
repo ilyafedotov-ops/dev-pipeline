@@ -25,7 +25,14 @@ if ! command -v opencode >/dev/null 2>&1; then
   exit 1
 fi
 
-"${PYTEST_BIN}" -q --disable-warnings --maxfail=1 tests/test_devgodzilla_*.py
+# Run unit tests (fast, deterministic - uses stub opencode)
+ci_info "running unit tests" "scope=unit"
+"${PYTEST_BIN}" -q --disable-warnings --maxfail=1 tests/test_devgodzilla_*.py -k "not integration"
 
-ci_info "tests completed" "result=pass"
+# Run real E2E tests with actual opencode CLI
+ci_info "running real agent E2E tests" "scope=e2e engine=opencode"
+export DEVGODZILLA_RUN_E2E_REAL_AGENT=1
+"${PYTEST_BIN}" -q --disable-warnings --maxfail=1 tests/e2e/test_devgodzilla_cli_real_agent.py
+
+ci_info "all tests completed" "result=pass unit=pass e2e=pass"
 report_status success

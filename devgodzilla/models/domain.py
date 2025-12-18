@@ -34,6 +34,7 @@ class StepStatus:
     SKIPPED = "skipped"
     COMPLETED = "completed"
     FAILED = "failed"
+    TIMEOUT = "timeout"  # Step execution timed out
     CANCELLED = "cancelled"
     BLOCKED = "blocked"
 

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 
-def _run_cli(*args: str, cwd: Path, env: dict[str, str]) -> dict:
+def _run_cli(*args: str, cwd: Path, env: dict[str, str], timeout: int = 60) -> dict:
     cmd = [sys.executable, "-m", "devgodzilla.cli.main", *args]
     proc = subprocess.run(  # noqa: S603
         cmd,
@@ -18,6 +18,7 @@ def _run_cli(*args: str, cwd: Path, env: dict[str, str]) -> dict:
         env=env,
         text=True,
         capture_output=True,
+        timeout=timeout,
     )
     if proc.returncode != 0:
         raise AssertionError(
@@ -98,6 +99,7 @@ def test_cli_real_agent_discovery_and_protocol_generation(tmp_path: Path) -> Non
         "zai-coding-plan/glm-4.6",
         cwd=tmp_path,
         env=env,
+        timeout=600,  # Real agent discovery takes ~2-5 min
     )
     assert discovery["success"] is True
     assert discovery["engine_id"] == "opencode"
@@ -142,6 +144,7 @@ def test_cli_real_agent_discovery_and_protocol_generation(tmp_path: Path) -> Non
         "zai-coding-plan/glm-4.6",
         cwd=tmp_path,
         env=env,
+        timeout=300,  # Real agent protocol generation takes ~1-3 min
     )
     assert generated["success"] is True
     assert generated["engine_id"] == "opencode"

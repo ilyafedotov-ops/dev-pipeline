@@ -110,7 +110,7 @@ class ExecutionService(Service):
         *,
         git_service=None,
         quality_service=None,
-        default_timeout: int = 300,
+        default_timeout: int = 600,  # Increased for real agent operations
     ) -> None:
         super().__init__(context)
         self.db = db
@@ -416,12 +416,25 @@ class ExecutionService(Service):
                 ),
             )
         else:
-            # Mark as failed
-            self.db.update_step_status(
-                step.id,
-                StepStatus.FAILED,
-                summary=engine_result.error or "Execution failed",
+            # Determine if this was a timeout
+            is_timeout = (
+                engine_result.metadata.get("timeout") is True
+                or (engine_result.error and "timed out" in engine_result.error.lower())
             )
+            
+            if is_timeout:
+                self.db.update_step_status(
+                    step.id,
+                    StepStatus.TIMEOUT,
+                    summary=engine_result.error or "Step execution timed out",
+                )
+            else:
+                # Mark as failed
+                self.db.update_step_status(
+                    step.id,
+                    StepStatus.FAILED,
+                    summary=engine_result.error or "Execution failed",
+                )
             self.db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
             get_event_bus().publish(
                 StepFailed(

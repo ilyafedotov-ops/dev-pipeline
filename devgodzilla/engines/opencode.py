@@ -101,7 +101,11 @@ class OpenCodeEngine(CLIEngine):
         prompt_file = extra.get("_devgodzilla_prompt_file")
         if isinstance(prompt_file, str) and prompt_file.strip():
             cmd.extend(["--file", prompt_file])
-        cmd.append("Follow the attached prompt file exactly.")
+            # Use -- to separate file args from message (prevents message being treated as file)
+            cmd.extend(["--", "Execute the task described in the attached prompt file."])
+        else:
+            # Fallback: if no prompt file, use inline prompt
+            cmd.append(req.prompt_text or "Complete the coding task.")
 
         return cmd
 
