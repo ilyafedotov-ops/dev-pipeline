@@ -23,11 +23,14 @@ pip install -e ".[dev]"
 ### 2. Run Tests
 
 ```bash
-# All tests
-pytest tests/
+# All tests (unit + real agent E2E)
+./scripts/ci/test.sh
 
-# DevGodzilla tests only
-pytest tests/test_devgodzilla_*.py -v
+# Unit tests only (fast, ~5 seconds)
+pytest tests/test_devgodzilla_*.py -k "not integration" -v
+
+# Real agent E2E tests (requires opencode, ~10 minutes)
+DEVGODZILLA_RUN_E2E_REAL_AGENT=1 scripts/ci/test_e2e_real_agent.sh
 
 # With coverage
 pytest tests/test_devgodzilla_*.py --cov=devgodzilla --cov-report=html
@@ -84,9 +87,13 @@ devgodzilla/
 ### Testing
 
 - Write tests for all new features
+- Unit tests should use stubbed engines for deterministic results
+- Add real agent tests for integration critical paths
 - Maintain test coverage above 80%
 - Use pytest fixtures for shared setup
 - Mock external dependencies
+- Handle timeouts properly (default 600s for step execution)
+- Test both success and failure/timeout scenarios
 
 ### Commits
 
