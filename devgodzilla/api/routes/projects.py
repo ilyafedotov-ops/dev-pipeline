@@ -130,10 +130,67 @@ def delete_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
 
+@router.get("/projects/{project_id}/onboarding", response_model=schemas.OnboardingSummary)
+def get_project_onboarding(
+    project_id: int,
+    db: Database = Depends(get_db)
+):
+    """Get onboarding status summary."""
+    try:
+        project = db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Compute stages
+    stages = []
+    
+    # Stage 1: Repository Setup
+    repo_status = "completed" if project.local_path else "pending"
+    stages.append(schemas.OnboardingStage(
+        name="Repository Setup",
+        status=repo_status,
+        completed_at=project.created_at if repo_status == "completed" else None
+    ))
+
+    # Stage 2: SpecKit Init
+    spec_status = "completed" if project.constitution_hash else "pending"
+    if repo_status == "pending":
+        spec_status = "pending"
+    
+    stages.append(schemas.OnboardingStage(
+        name="SpecKit Initialization",
+        status=spec_status
+    ))
+
+    # Stage 3: Discovery
+    stages.append(schemas.OnboardingStage(
+        name="Discovery",
+        status="skipped"
+    ))
+
+    # Calculate blocking clarifications
+    try:
+        clarifications = db.list_clarifications(project_id=project_id, status="open")
+        blocking_count = sum(1 for c in clarifications if getattr(c, "blocking", False))
+    except (KeyError, AttributeError):
+        blocking_count = 0
+
+    overall_status = "completed" if (repo_status == "completed" and spec_status == "completed") else "pending"
+
+    return schemas.OnboardingSummary(
+        project_id=project_id,
+        status=overall_status,
+        stages=stages,
+        events=[], 
+        blocking_clarifications=blocking_count
+    )
+
+
 @router.post("/projects/{project_id}/actions/onboard", response_model=ProjectOnboardResponse)
+@router.post("/projects/{project_id}/onboarding/actions/start", response_model=ProjectOnboardResponse)
 def onboard_project(
     project_id: int,
-    request: ProjectOnboardRequest,
+    request: ProjectOnboardRequest = ProjectOnboardRequest(), # Allow empty body
     db: Database = Depends(get_db),
     ctx: ServiceContext = Depends(get_service_context),
 ):

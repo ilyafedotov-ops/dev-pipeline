@@ -79,6 +79,24 @@ class ProjectOut(APIModel):
     policy_effective_hash: Optional[str] = None
     policy_enforcement_mode: Optional[str] = None
 
+class OnboardingStage(BaseModel):
+    name: str
+    status: str  # pending, running, completed, failed, skipped
+    started_at: Optional[Any] = None
+    completed_at: Optional[Any] = None
+
+class OnboardingEvent(BaseModel):
+    event_type: str
+    message: str
+    created_at: Any
+
+class OnboardingSummary(BaseModel):
+    project_id: int
+    status: str
+    stages: List[OnboardingStage]
+    events: List[OnboardingEvent]
+    blocking_clarifications: int
+
 # =============================================================================
 # Protocol Models
 # =============================================================================

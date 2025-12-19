@@ -36,15 +36,16 @@ export function useQueueJobs(status?: string) {
 export function useRecentEvents(filters: EventFilters = {}) {
   return useQuery({
     queryKey: queryKeys.ops.recentEvents(filters),
-    queryFn: () => {
+    queryFn: async () => {
       const params = new URLSearchParams()
       if (filters.project_id) params.set("project_id", String(filters.project_id))
-      if (filters.protocol_run_id) params.set("protocol_run_id", String(filters.protocol_run_id))
+      if (filters.protocol_run_id) params.set("protocol_id", String(filters.protocol_run_id))
       if (filters.kind) params.set("kind", filters.kind)
       if (filters.spec_hash) params.set("spec_hash", filters.spec_hash)
       if (filters.limit) params.set("limit", String(filters.limit))
       const queryString = params.toString()
-      return apiClient.get<Event[]>(`/events${queryString ? `?${queryString}` : ""}`)
+      const response = await apiClient.get<{ events: Event[] }>(`/events/recent${queryString ? `?${queryString}` : ""}`)
+      return response.events
     },
     refetchInterval: 10000,
   })

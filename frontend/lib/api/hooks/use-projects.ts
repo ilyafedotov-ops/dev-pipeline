@@ -51,14 +51,9 @@ export function useOnboarding(projectId: number | undefined, enabled = true) {
     queryKey: queryKeys.projects.onboarding(projectId!),
     queryFn: () => apiClient.get<OnboardingSummary>(`/projects/${projectId}/onboarding`),
     enabled: !!projectId && enabled,
-    refetchInterval: (query) => {
-      // Poll every 3s if onboarding is in progress
-      const data = query.state.data
-      if (data && data.status !== "completed" && data.status !== "failed") {
-        return 3000
-      }
-      return false
-    },
+    retry: false, // Don't retry - endpoint may not exist
+    refetchOnWindowFocus: false,
+    refetchInterval: false, // Disable polling until data successfully loads
   })
 }
 

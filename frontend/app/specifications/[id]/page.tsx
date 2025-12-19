@@ -1,4 +1,5 @@
 "use client"
+import { use } from "react"
 
 import { useSpecification } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -15,7 +16,8 @@ export default function SpecificationDetailPage({
 }: {
   params: { id: string }
 }) {
-  const id = Number.parseInt(params.id)
+  const { id: idParam } = use(params)
+  const id = Number.parseInt(idParam)
   const { data: spec, isLoading } = useSpecification(id)
 
   if (isLoading) {

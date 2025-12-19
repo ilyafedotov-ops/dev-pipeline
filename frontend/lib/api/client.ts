@@ -1,3 +1,20 @@
+/**
+ * Generate a unique request ID for tracing.
+ * Falls back to timestamp+random if crypto.randomUUID() is unsupported.
+ * Note: crypto.randomUUID() requires HTTPS in most browsers (Safari/iOS).
+ */
+function generateRequestId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID()
+    }
+  } catch {
+    // crypto.randomUUID() may throw in insecure contexts
+  }
+  // Fallback: timestamp + random string
+  return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -112,7 +129,7 @@ class ApiClient {
       headers.set("X-Project-Token", this.config.projectTokens[options.projectId])
     }
 
-    headers.set("X-Request-ID", crypto.randomUUID())
+    headers.set("X-Request-ID", generateRequestId())
 
     try {
       const response = await fetch(`${this.config.baseUrl}${path}`, {

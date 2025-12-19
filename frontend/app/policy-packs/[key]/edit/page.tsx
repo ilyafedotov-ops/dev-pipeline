@@ -1,4 +1,5 @@
 "use client"
+import { use } from "react"
 
 import type React from "react"
 
@@ -15,8 +16,8 @@ import { LoadingState } from "@/components/ui/loading-state"
 import { ArrowLeft, Save } from "lucide-react"
 import { toast } from "sonner"
 
-export default function EditPolicyPackPage({ params }: { params: { key: string } }) {
-  const { key } = params
+export default function EditPolicyPackPage({ params }: { params: Promise<{ key: string }> }) {
+  const { key } = use(params)
   const router = useRouter()
   const { data: packs, isLoading } = usePolicyPacks()
 

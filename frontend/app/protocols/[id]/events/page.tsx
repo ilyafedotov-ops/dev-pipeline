@@ -1,4 +1,5 @@
 "use client"
+import { use } from "react"
 
 import { useProtocolDetail } from "@/lib/api"
 import { LoadingState } from "@/components/ui/loading-state"
@@ -8,7 +9,7 @@ import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { EventsTab } from "../components/events-tab"
 
-export default function ProtocolEventsPage({ params }: { params: { id: string } }) {
+export default function ProtocolEventsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = params
   const protocolId = Number.parseInt(id)
   const { data: protocol, isLoading } = useProtocolDetail(protocolId)

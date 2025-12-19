@@ -1,4 +1,5 @@
 "use client"
+import { use } from "react"
 
 import Link from "next/link"
 import { useProtocolSteps, useStepRuns, useStepPolicyFindings, useStepAction, useProtocol } from "@/lib/api"
@@ -16,8 +17,9 @@ import { formatRelativeTime, truncateHash } from "@/lib/format"
 import type { ColumnDef } from "@tanstack/react-table"
 import type { CodexRun, StepRun, PolicyFinding } from "@/lib/api/types"
 
-export default function StepDetailPage({ params }: { params: { id: string } }) {
-  const stepId = Number.parseInt(params.id, 10)
+export default function StepDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
+  const stepId = Number.parseInt(id, 10)
 
   // We need to find the step within protocol steps
   // First, get the step runs to find the protocol_run_id

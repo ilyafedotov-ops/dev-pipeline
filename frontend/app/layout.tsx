@@ -1,7 +1,7 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
 
-import { Analytics } from "@vercel/analytics/next"
+
 import { Providers } from "@/components/providers"
 import { AppShell } from "@/components/layout/app-shell"
 import "./globals.css"
@@ -9,7 +9,7 @@ import "./globals.css"
 import { Geist_Mono as V0_Font_Geist_Mono } from 'next/font/google'
 
 // Initialize fonts
-const _geistMono = V0_Font_Geist_Mono({ subsets: ['latin'], weight: ["100","200","300","400","500","600","700","800","900"] })
+const _geistMono = V0_Font_Geist_Mono({ subsets: ['latin'], weight: ["100", "200", "300", "400", "500", "600", "700", "800", "900"] })
 
 export const metadata: Metadata = {
   title: "TasksGodzilla Console",
@@ -35,7 +35,7 @@ export default function RootLayout({
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>
-        <Analytics />
+
       </body>
     </html>
   )

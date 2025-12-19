@@ -1,4 +1,5 @@
 "use client"
+import { use } from "react"
 
 import Link from "next/link"
 import { usePolicyPacks } from "@/lib/api"
@@ -10,8 +11,8 @@ import { StatusPill } from "@/components/ui/status-pill"
 import { ArrowLeft, Edit } from "lucide-react"
 import { formatDateTime } from "@/lib/format"
 
-export default function PolicyPackDetailPage({ params }: { params: { key: string } }) {
-  const { key } = params
+export default function PolicyPackDetailPage({ params }: { params: Promise<{ key: string }> }) {
+  const { key } = use(params)
   const { data: packs, isLoading } = usePolicyPacks()
 
   if (isLoading) return <LoadingState message="Loading policy pack..." />

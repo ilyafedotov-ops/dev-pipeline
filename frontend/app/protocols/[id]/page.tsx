@@ -1,4 +1,5 @@
 "use client"
+import { use } from "react"
 
 import Link from "next/link"
 import { useProtocol, useProject, useProtocolAction } from "@/lib/api"
@@ -17,8 +18,9 @@ import { SpecTab } from "./components/spec-tab"
 import { PolicyTab } from "./components/policy-tab"
 import { ClarificationsTab } from "./components/clarifications-tab"
 
-export default function ProtocolDetailPage({ params }: { params: { id: string } }) {
-  const protocolId = Number.parseInt(params.id, 10)
+export default function ProtocolDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
+  const protocolId = Number.parseInt(id, 10)
   const { data: protocol, isLoading: protocolLoading } = useProtocol(protocolId)
   const { data: project } = useProject(protocol?.project_id)
   const protocolAction = useProtocolAction()
