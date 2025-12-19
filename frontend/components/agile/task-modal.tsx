@@ -168,7 +168,6 @@ export function TaskModal({ open, onOpenChange, task, sprints, onSave, mode }: T
 
   const isReadOnly = mode === "view"
   const TypeIcon = taskTypeConfig[formData.task_type || "task"].icon
-  const PriorityIcon = priorityConfig[formData.priority || "medium"].icon
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

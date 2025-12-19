@@ -198,7 +198,10 @@ class ClarificationAnswer(BaseModel):
 
 class ClarificationOut(APIModel):
     id: int
+    scope: Optional[str] = None
+    project_id: Optional[int] = None
     protocol_run_id: Optional[int]
+    step_run_id: Optional[int] = None
     key: Optional[str] = None
     question: str
     status: str
@@ -351,6 +354,7 @@ class PolicyFindingOut(BaseModel):
     severity: str
     message: str
     scope: str
+    location: Optional[str] = None
     suggested_fix: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
@@ -539,7 +543,7 @@ class PolicyPackContent(BaseModel):
     meta: Optional[Dict[str, Any]] = None
     defaults: Optional[Dict[str, Any]] = None
     requirements: Optional[Dict[str, Any]] = None
-    clarifications: Optional[Dict[str, Any]] = None
+    clarifications: Optional[List[Dict[str, Any]] | Dict[str, Any]] = None
     enforcement: Optional[Dict[str, Any]] = None
 
 class PolicyPackCreate(BaseModel):

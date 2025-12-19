@@ -255,7 +255,7 @@ graph LR
 │   ├── plan-template.md
 │   └── tasks-template.md
 └── specs/<feature-branch>/
-    ├── feature-spec.md          # Requirements
+    ├── spec.md          # Requirements
     ├── plan.md                  # Architecture
     ├── tasks.md                 # Task breakdown
     └── _runtime/                # Execution artifacts
@@ -268,7 +268,7 @@ graph LR
 **Gitignore Entry:**
 ```gitignore
 # DevGodzilla runtime artifacts (ephemeral)
-.specify/specs/*/_runtime/runs/
+specs/*/_runtime/runs/
 ```
 
 ---
@@ -796,7 +796,7 @@ graph TB
 
 | Extension | Purpose | Integrates With |
 |-----------|---------|----------------|
-| **Specification Editor** | Edit feature-spec.md, plan.md, tasks.md | Script Editor |
+| **Specification Editor** | Edit spec.md, plan.md, tasks.md | Script Editor |
 | **Constitution Editor** | Manage project governance rules | Settings |
 | **Agent Selector** | Assign AI agents per step | Flow Editor |
 | **Task DAG Viewer** | Visualize step dependencies | Flow Editor |
@@ -886,7 +886,7 @@ sequenceDiagram
         Note over User,Git: Phase 2: Specification
         User->>CLI/Console: /speckit.specify "Add auth feature"
         CLI/Console->>SpecEngine: Generate specification
-        SpecEngine->>SpecEngine: Create feature-spec.md
+        SpecEngine->>SpecEngine: Create spec.md
         User->>CLI/Console: /speckit.plan "Use FastAPI + PostgreSQL"
         CLI/Console->>SpecEngine: Generate plan
         SpecEngine->>SpecEngine: Create plan.md

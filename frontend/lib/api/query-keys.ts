@@ -86,6 +86,12 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.agents.all, "detail", id] as const,
   },
 
+  // Clarifications
+  clarifications: {
+    all: ["clarifications"] as const,
+    list: (status?: string) => [...queryKeys.clarifications.all, "list", status ?? "all"] as const,
+  },
+
   // Specifications
   specifications: {
     all: ["specifications"] as const,
@@ -99,6 +105,9 @@ export const queryKeys = {
     status: (projectId: number) => ["speckit", "status", projectId] as const,
     constitution: (projectId: number) => ["speckit", "constitution", projectId] as const,
     specs: (projectId: number) => ["speckit", "specs", projectId] as const,
+    checklist: (projectId: number, specPath?: string) => ["speckit", "checklist", projectId, specPath] as const,
+    analysis: (projectId: number, specPath?: string) => ["speckit", "analysis", projectId, specPath] as const,
+    implement: (projectId: number, specPath?: string) => ["speckit", "implement", projectId, specPath] as const,
   },
 
   // Quality

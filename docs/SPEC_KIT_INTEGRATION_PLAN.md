@@ -49,8 +49,8 @@ PlanningService:
 `.protocols/` is **REMOVED**. All artifacts move to `.specify/`:
 
 ```
-.specify/specs/<feature-branch>/
-├── feature-spec.md          # Spec-kit: Requirements
+specs/<feature-branch>/
+├── spec.md          # Spec-kit: Requirements
 ├── plan.md                  # Spec-kit: Architecture
 ├── tasks.md                 # Spec-kit: Task breakdown
 └── _runtime/                # TasksGodzilla: Execution artifacts
@@ -104,7 +104,7 @@ PlanningService:
 │   └── constitution.md
 ├── specs/
 │   └── <branch-name>/
-│       ├── feature-spec.md
+│       ├── spec.md
 │       ├── plan.md
 │       └── tasks.md
 └── templates/
@@ -128,7 +128,7 @@ PlanningService:
 └── specs/
     └── <feature-branch>/                    # Per-feature directory
         │
-        │── feature-spec.md                  # FROM SPEC-KIT: Requirements
+        │── spec.md                  # FROM SPEC-KIT: Requirements
         │── plan.md                          # FROM SPEC-KIT: Architecture
         │── tasks.md                         # FROM SPEC-KIT: Task breakdown
         │
@@ -163,12 +163,12 @@ PlanningService:
 
 | Old Path | New Path |
 |----------|----------|
-| `.protocols/<name>/plan.md` | `.specify/specs/<branch>/plan.md` |
-| `.protocols/<name>/context.md` | `.specify/specs/<branch>/_runtime/context.md` |
-| `.protocols/<name>/log.md` | `.specify/specs/<branch>/_runtime/log.md` |
-| `.protocols/<name>/01-step.md` | `.specify/specs/<branch>/tasks.md` (consolidated) |
-| `.protocols/<name>/quality-report.md` | `.specify/specs/<branch>/_runtime/quality-report.md` |
-| N/A (new) | `.specify/specs/<branch>/feature-spec.md` |
+| `.protocols/<name>/plan.md` | `specs/<branch>/plan.md` |
+| `.protocols/<name>/context.md` | `specs/<branch>/_runtime/context.md` |
+| `.protocols/<name>/log.md` | `specs/<branch>/_runtime/log.md` |
+| `.protocols/<name>/01-step.md` | `specs/<branch>/tasks.md` (consolidated) |
+| `.protocols/<name>/quality-report.md` | `specs/<branch>/_runtime/quality-report.md` |
+| N/A (new) | `specs/<branch>/spec.md` |
 
 ### 1.4 Alignment Matrix
 
@@ -233,7 +233,7 @@ def _finalize_setup(self, project_id, protocol_run_id, repo_path, base_branch):
     self.db.update_protocol_paths(
         protocol_run_id,
         worktree_path=str(worktree_path),
-        protocol_root=str(feature_dir),  # Now points to .specify/specs/<branch>
+        protocol_root=str(feature_dir),  # Now points to specs/<branch>
     )
 
 def _init_speckit(self, repo_path: Path, protocol_run_id: int):
@@ -265,7 +265,7 @@ PROTOCOLS_DIR = ".protocols"
 
 # NEW
 SPECIFY_DIR = ".specify"
-SPECS_DIR = ".specify/specs"
+SPECS_DIR = "specs"
 RUNTIME_DIR = "_runtime"
 RUNS_DIR = "_runtime/runs"
 
@@ -413,7 +413,7 @@ If spec-kit is not importable as a Python library, require JSON output mode:
 
 ```bash
 # Instead of parsing markdown stdout:
-specify plan --output-format json --spec-path .specify/specs/auth/feature-spec.md
+specify plan --output-format json --spec-path specs/auth/spec.md
 
 # Returns structured JSON:
 {
@@ -754,7 +754,7 @@ class PlanningService:
 
         # Call clarify with error context
         clarification = self._clarifier.clarify(
-            spec_path=feature_dir / "feature-spec.md",
+            spec_path=feature_dir / "spec.md",
             issue=error.message,
             context=error.context,
         )
@@ -1512,10 +1512,10 @@ tasksgodzilla speckit init <project-id>
 tasksgodzilla speckit specify <project-id> --description "Add authentication"
 
 # Generate implementation plan
-tasksgodzilla speckit plan <project-id> --spec-path .specify/specs/auth/feature-spec.md
+tasksgodzilla speckit plan <project-id> --spec-path specs/auth/spec.md
 
 # Generate tasks
-tasksgodzilla speckit tasks <project-id> --plan-path .specify/specs/auth/plan.md
+tasksgodzilla speckit tasks <project-id> --plan-path specs/auth/plan.md
 
 # Run full workflow
 tasksgodzilla speckit workflow <project-id> \
@@ -1532,7 +1532,7 @@ Create TasksGodzilla-specific slash commands in `.claude/commands/`:
 <!-- .claude/commands/tg-specify.md -->
 Run the TasksGodzilla specify workflow:
 1. Call /speckit.specify with: $ARGUMENTS
-2. Parse the generated feature-spec.md
+2. Parse the generated spec.md
 3. Create a ProtocolRun via API
 4. Return the protocol URL
 ```
@@ -1571,7 +1571,7 @@ class ConstitutionAdapter:
             ),
             requirements={
                 "step_sections": self._extract_required_sections(constitution),
-                "protocol_files": ["feature-spec.md", "plan.md", "tasks.md"],
+                "protocol_files": ["spec.md", "plan.md", "tasks.md"],
             },
             enforcement={
                 "mode": "block",
@@ -1767,7 +1767,7 @@ class ExecutionService:
 **Success Criteria:**
 - Tasks with dependencies execute in correct order
 - Parallel tasks can run concurrently
-- All paths point to `.specify/specs/<branch>/_runtime/`
+- All paths point to `specs/<branch>/_runtime/`
 - Circular dependencies detected BEFORE execution (fail fast)
 - `SpecificationError` triggers re-planning, not hard failure
 - Feedback loops have attempt limits (no infinite loops)
@@ -1910,7 +1910,7 @@ TASKSGODZILLA_QA_GATE_MODE=strict  # strict | warn
 
 class TestPlanningService:
     def test_plan_protocol_creates_specify_structure(self):
-        """plan_protocol() creates .specify/specs/<branch>/ structure"""
+        """plan_protocol() creates specs/<branch>/ structure"""
         pass
 
     def test_plan_protocol_runs_speckit_commands(self):
@@ -1960,7 +1960,7 @@ tasksgodzilla speckit workflow test-project \
   --dry-run
 
 # Verify artifacts created
-ls .specify/specs/*/
+ls specs/*/
 ```
 
 ---
@@ -1986,8 +1986,8 @@ tasksgodzilla migrate-to-speckit <project-id> [--dry-run]
 # What it does:
 # 1. Creates .specify/ structure if not exists
 # 2. For each .protocols/<name>/:
-#    - Creates .specify/specs/<name>/
-#    - Moves plan.md → .specify/specs/<name>/plan.md
+#    - Creates specs/<name>/
+#    - Moves plan.md → specs/<name>/plan.md
 #    - Moves context.md, log.md, quality-report.md → _runtime/
 #    - Consolidates NN-step.md files → tasks.md (or preserves as _runtime/legacy/)
 # 3. Updates DB protocol_root paths
@@ -2195,7 +2195,7 @@ for project_id in $(tasksgodzilla projects list --ids); do
 done
 
 # Step 5: Update database paths (automatic during migration)
-# All protocol_root paths now point to .specify/specs/<branch>/
+# All protocol_root paths now point to specs/<branch>/
 ```
 
 ### 12.4 No Backward Compatibility
@@ -2357,11 +2357,11 @@ After migration, the system has a single, clean architecture with no redundant s
 
 | Before (DELETED) | After (ONLY) |
 |------------------|--------------|
-| `.protocols/<name>/` | `.specify/specs/<branch>/` |
-| `.protocols/<name>/plan.md` | `.specify/specs/<branch>/plan.md` |
-| `.protocols/<name>/context.md` | `.specify/specs/<branch>/_runtime/context.md` |
-| `.protocols/<name>/NN-step.md` | `.specify/specs/<branch>/tasks.md` |
-| N/A | `.specify/specs/<branch>/feature-spec.md` (new) |
+| `.protocols/<name>/` | `specs/<branch>/` |
+| `.protocols/<name>/plan.md` | `specs/<branch>/plan.md` |
+| `.protocols/<name>/context.md` | `specs/<branch>/_runtime/context.md` |
+| `.protocols/<name>/NN-step.md` | `specs/<branch>/tasks.md` |
+| N/A | `specs/<branch>/spec.md` (new) |
 
 ### 16.3 Code Paths: Before → After
 
@@ -2380,7 +2380,7 @@ BEFORE (multiple paths):                 AFTER (single path):
 │ ExecutionService    │                 │ ExecutionService    │
 │   if .protocols:    │                 │   (rewritten)       │
 │     legacy paths    │        →        │   always uses       │
-│   else:             │                 │   .specify/specs/   │
+│   else:             │                 │   specs/   │
 │     .specify paths  │                 │   └── _runtime/     │
 └─────────────────────┘                 └─────────────────────┘
 ```
@@ -2455,7 +2455,7 @@ tasksgodzilla validate-migration --all-projects
 |---------|---------|--------|
 | `specify init <name>` | Bootstrap project | `.specify/` directory |
 | `/speckit.constitution` | Create governance | `memory/constitution.md` |
-| `/speckit.specify` | Feature specification | `specs/<branch>/feature-spec.md` |
+| `/speckit.specify` | Feature specification | `specs/<branch>/spec.md` |
 | `/speckit.plan` | Implementation plan | `specs/<branch>/plan.md` |
 | `/speckit.tasks` | Task breakdown | `specs/<branch>/tasks.md` |
 | `/speckit.implement` | Execute tasks | Code changes |
@@ -2506,7 +2506,7 @@ project-root/
 │   └── specs/                                   # Per-feature specifications
 │       │
 │       ├── 0001-user-auth/                      # Feature branch: 0001-user-auth
-│       │   ├── feature-spec.md                  # SPEC-KIT: What to build
+│       │   ├── spec.md                  # SPEC-KIT: What to build
 │       │   ├── plan.md                          # SPEC-KIT: How to build
 │       │   ├── tasks.md                         # SPEC-KIT: Task breakdown
 │       │   │
@@ -2534,7 +2534,7 @@ project-root/
 │       │           └── 02-step.md
 │       │
 │       ├── 0002-payment-flow/                   # Another feature
-│       │   ├── feature-spec.md
+│       │   ├── spec.md
 │       │   ├── plan.md
 │       │   ├── tasks.md
 │       │   └── _runtime/
@@ -2545,7 +2545,7 @@ project-root/
 │           └── _runtime/
 │               └── ...
 │
-├── .gitignore                                   # Should include: .specify/specs/*/_runtime/runs/
+├── .gitignore                                   # Should include: specs/*/_runtime/runs/
 │
 └── ... (rest of project)
 ```
@@ -2594,7 +2594,7 @@ class SpecifyPaths:
         return self.specs_dir / branch_name
 
     def feature_spec_path(self, branch_name: str) -> Path:
-        return self.feature_dir(branch_name) / "feature-spec.md"
+        return self.feature_dir(branch_name) / "spec.md"
 
     def plan_path(self, branch_name: str) -> Path:
         return self.feature_dir(branch_name) / "plan.md"
@@ -2668,8 +2668,8 @@ class SpecifyPaths:
         # Extract repo root from protocol_root
         protocol_root = Path(protocol_run.protocol_root)
 
-        # protocol_root is .specify/specs/<branch>, so repo_root is 3 levels up
-        if ".specify/specs" in str(protocol_root):
+        # protocol_root is specs/<branch>, so repo_root is 3 levels up
+        if "specs" in str(protocol_root):
             repo_root = protocol_root.parent.parent.parent
         else:
             # Legacy .protocols/ structure - use worktree path
@@ -2682,10 +2682,10 @@ class SpecifyPaths:
 
 ```gitignore
 # Spec-kit runtime artifacts (execution-specific, stored in DB)
-.specify/specs/*/_runtime/runs/
+specs/*/_runtime/runs/
 
 # Keep these tracked:
-# .specify/specs/*/_runtime/context.md   (useful for debugging)
-# .specify/specs/*/_runtime/log.md       (useful for history)
-# .specify/specs/*/_runtime/quality-report.md (useful for review)
+# specs/*/_runtime/context.md   (useful for debugging)
+# specs/*/_runtime/log.md       (useful for history)
+# specs/*/_runtime/quality-report.md (useful for review)
 ```

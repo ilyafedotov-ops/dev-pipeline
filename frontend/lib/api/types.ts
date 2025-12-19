@@ -127,6 +127,23 @@ export interface ProtocolSpec {
   spec: Record<string, unknown>
 }
 
+export interface ProtocolFromSpecRequest {
+  project_id: number
+  spec_path?: string | null
+  tasks_path?: string | null
+  protocol_name?: string | null
+  overwrite?: boolean
+}
+
+export interface ProtocolFromSpecResponse {
+  success: boolean
+  protocol: ProtocolRun | null
+  protocol_root: string | null
+  step_count: number
+  warnings: string[]
+  error?: string | null
+}
+
 // =============================================================================
 // Step
 // =============================================================================
@@ -260,7 +277,7 @@ export interface EventFilters {
 
 export interface PolicyPack {
   id: number
-  key: string
+  key: string | null
   version: string
   name: string
   description: string | null
@@ -304,17 +321,17 @@ export interface EffectivePolicy {
 
 export interface Clarification {
   id: number
-  scope: "project" | "protocol" | "step"
+  scope: string | null
   project_id: number | null
   protocol_run_id: number | null
   step_run_id: number | null
   key: string
   question: string
-  recommended: string | null
+  recommended: Record<string, unknown> | string | null
   options: string[] | null
   applies_to: string | null
   blocking: boolean
-  answer: string | null
+  answer: Record<string, unknown> | string | null
   status: ClarificationStatus
   answered_at: string | null
   answered_by: string | null
@@ -490,12 +507,17 @@ export interface Agent {
 export interface Specification {
   id: number
   path: string
+  spec_path?: string | null
+  plan_path?: string | null
+  tasks_path?: string | null
   title: string
   project_id: number
   project_name: string
   status: string
   created_at: string | null
   tasks_generated: boolean
+  has_plan?: boolean
+  has_tasks?: boolean
   protocol_id: number | null
   sprint_id: number | null
   sprint_name: string | null

@@ -172,7 +172,7 @@ Generate a feature specification.
 ```json
 {
   "success": true,
-  "spec_path": ".specify/specs/001-auth-oauth2/spec.md",
+  "spec_path": "specs/001-auth-oauth2/spec.md",
   "spec_number": 1,
   "feature_name": "auth-oauth2"
 }
@@ -186,7 +186,7 @@ Generate an implementation plan.
 ```json
 {
   "project_id": 1,
-  "spec_path": ".specify/specs/001-auth/spec.md"
+  "spec_path": "specs/001-auth/spec.md"
 }
 ```
 
@@ -194,9 +194,9 @@ Generate an implementation plan.
 ```json
 {
   "success": true,
-  "plan_path": ".specify/specs/001-auth/plan.md",
-  "data_model_path": ".specify/specs/001-auth/data-model.md",
-  "contracts_path": ".specify/specs/001-auth/contracts"
+  "plan_path": "specs/001-auth/plan.md",
+  "data_model_path": "specs/001-auth/data-model.md",
+  "contracts_path": "specs/001-auth/contracts"
 }
 ```
 
@@ -208,7 +208,7 @@ Generate a task list.
 ```json
 {
   "project_id": 1,
-  "plan_path": ".specify/specs/001-auth/plan.md"
+  "plan_path": "specs/001-auth/plan.md"
 }
 ```
 
@@ -216,7 +216,7 @@ Generate a task list.
 ```json
 {
   "success": true,
-  "tasks_path": ".specify/specs/001-auth/tasks.md",
+  "tasks_path": "specs/001-auth/tasks.md",
   "task_count": 12,
   "parallelizable_count": 5
 }

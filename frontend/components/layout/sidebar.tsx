@@ -13,19 +13,18 @@ import {
   ChevronDown,
   ChevronRight,
   Layers,
-  FileText,
   BarChart3,
   Bot,
   Kanban,
   Sparkles,
-  Lightbulb,
-  Wand2,
+  MessageCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import { SpecKitLaunchDialog, type SpecKitWizardAction } from "@/components/wizards/speckit-launch-dialog"
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -37,12 +36,13 @@ const navigation = [
     icon: Sparkles,
     children: [
       { name: "All Specifications", href: "/specifications" },
-      { name: "Generate Spec", href: "/projects?action=generate-spec" },
-      { name: "Design Solution", href: "/projects?action=design-solution" },
-      { name: "Generate Tasks", href: "/projects?action=implement" },
+      { name: "Generate Spec", action: "generate-specs" },
+      { name: "Design Solution", action: "design-solution" },
+      { name: "Generate Tasks", action: "implement-feature" },
     ],
   },
   { name: "Runs", href: "/runs", icon: PlayCircle },
+  { name: "Clarifications", href: "/clarifications", icon: MessageCircle },
   { name: "Quality", href: "/quality", icon: BarChart3 },
   { name: "Agents", href: "/agents", icon: Bot },
   {
@@ -64,6 +64,7 @@ export function Sidebar() {
   const pathname = usePathname()
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [expandedSections, setExpandedSections] = useState<string[]>(["Operations"])
+  const [specKitAction, setSpecKitAction] = useState<SpecKitWizardAction | null>(null)
 
   const toggleSection = (name: string) => {
     setExpandedSections((prev) => (prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]))
@@ -118,6 +119,19 @@ export function Sidebar() {
                     {!isCollapsed && (
                       <CollapsibleContent className="ml-8 mt-1 space-y-1">
                         {item.children.map((child) => {
+                          if ("action" in child && child.action) {
+                            return (
+                              <Button
+                                key={child.name}
+                                variant="ghost"
+                                className="w-full justify-start text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                                onClick={() => setSpecKitAction(child.action as SpecKitWizardAction)}
+                              >
+                                {child.name}
+                              </Button>
+                            )
+                          }
+
                           const isChildActive = pathname === child.href
                           return (
                             <Link key={child.href} href={child.href}>
@@ -201,6 +215,16 @@ export function Sidebar() {
           </Button>
         </div>
       </div>
+
+      {specKitAction && (
+        <SpecKitLaunchDialog
+          open
+          action={specKitAction}
+          onOpenChange={(open) => {
+            if (!open) setSpecKitAction(null)
+          }}
+        />
+      )}
     </aside>
   )
 }

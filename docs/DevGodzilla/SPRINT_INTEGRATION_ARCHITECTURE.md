@@ -17,7 +17,7 @@ This document defines the architecture for integrating Sprint Management with De
 
 ### Current State Gaps
 
-1. **Disconnected Task Generation**: Windmill flows generate `.specify/tasks.md` files but don't create `AgileTask` database records
+1. **Disconnected Task Generation**: Windmill flows generate `specs/<spec>/tasks.md` files but don't create `AgileTask` database records
 2. **No Sprint-Workflow Linkage**: Protocol execution and sprint management operate independently
 3. **Missing Windmill Integration**: No flows for sprint lifecycle (create, sync, complete)
 4. **No Bidirectional Sync**: Frontend task changes don't affect protocol execution
@@ -217,7 +217,7 @@ class SprintIntegrationService:
 **Purpose**: Synchronizes SpecKit markdown task files with database AgileTask records.
 
 **Responsibilities**:
-- Parse `.specify/tasks.md` → database tasks
+- Parse `specs/<spec>/tasks.md` → database tasks
 - Export database tasks → markdown format
 - Handle task dependencies from markdown
 - Preserve task metadata during sync
@@ -500,7 +500,7 @@ CREATE INDEX idx_step_runs_task ON step_runs(linked_task_id);
 
 1. User creates specification via SpecKit (`/speckit/specify`)
 2. User generates plan (`/speckit/plan`)
-3. User generates tasks (`/speckit/tasks`) → creates `.specify/tasks.md`
+3. User generates tasks (`/speckit/tasks`) → creates `specs/<spec>/tasks.md`
 4. Windmill flow triggers `sync_tasks_to_sprint` → creates database tasks
 5. User creates protocol run from specification
 6. System auto-creates sprint via `sprint_from_protocol` flow

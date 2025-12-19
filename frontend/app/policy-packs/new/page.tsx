@@ -62,8 +62,8 @@ export default function NewPolicyPackPage() {
         pack,
       })
       router.push("/policy-packs")
-    } catch (err: any) {
-      setError(err.message || "Failed to create policy pack")
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to create policy pack")
     }
   }
 

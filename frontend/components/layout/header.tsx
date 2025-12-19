@@ -19,7 +19,6 @@ import { KeyboardShortcuts } from "@/components/features/keyboard-shortcuts"
 
 export function Header() {
   const { data: health, isError } = useHealth()
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   const handleCommandPalette = () => {

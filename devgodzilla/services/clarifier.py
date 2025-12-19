@@ -88,6 +88,20 @@ class ClarifierService(Service):
             List of created/updated Clarification objects
         """
         clarifications = policy.get("clarifications") if isinstance(policy, dict) else None
+        if isinstance(clarifications, dict):
+            items = clarifications.get("items")
+            questions = clarifications.get("questions")
+            if isinstance(items, list):
+                clarifications = items
+            elif isinstance(questions, list):
+                clarifications = questions
+            else:
+                values = list(clarifications.values())
+                if values and all(isinstance(v, dict) for v in values):
+                    clarifications = values
+                else:
+                    clarifications = None
+
         if not isinstance(clarifications, list) or not clarifications:
             return []
 

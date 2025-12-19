@@ -80,6 +80,62 @@ export interface TasksResponse {
     error: string | null
 }
 
+export interface ClarificationEntry {
+    question: string
+    answer: string
+}
+
+export interface ClarifyRequest {
+    project_id: number
+    spec_path: string
+    entries?: ClarificationEntry[]
+    notes?: string
+}
+
+export interface ClarifyResponse {
+    success: boolean
+    spec_path: string | null
+    clarifications_added: number
+    error: string | null
+}
+
+export interface ChecklistRequest {
+    project_id: number
+    spec_path: string
+}
+
+export interface ChecklistResponse {
+    success: boolean
+    checklist_path: string | null
+    item_count: number
+    error: string | null
+}
+
+export interface AnalyzeRequest {
+    project_id: number
+    spec_path: string
+    plan_path?: string
+    tasks_path?: string
+}
+
+export interface AnalyzeResponse {
+    success: boolean
+    report_path: string | null
+    error: string | null
+}
+
+export interface ImplementRequest {
+    project_id: number
+    spec_path: string
+}
+
+export interface ImplementResponse {
+    success: boolean
+    run_path: string | null
+    metadata_path: string | null
+    error: string | null
+}
+
 export interface ConstitutionResponse {
     content: string
 }
@@ -185,6 +241,74 @@ export function useGenerateTasks() {
             apiClient.post<TasksResponse>("/speckit/tasks", request),
         onSuccess: (_, variables) => {
             queryClient.invalidateQueries({ queryKey: ["speckit", "status", variables.project_id] })
+            queryClient.invalidateQueries({ queryKey: queryKeys.specifications.all })
+        },
+    })
+}
+
+/**
+ * Append clarifications to a spec
+ */
+export function useClarifySpec() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (request: ClarifyRequest) =>
+            apiClient.post<ClarifyResponse>("/speckit/clarify", request),
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["speckit", "status", variables.project_id] })
+            queryClient.invalidateQueries({ queryKey: ["speckit", "specs", variables.project_id] })
+            queryClient.invalidateQueries({ queryKey: queryKeys.specifications.all })
+        },
+    })
+}
+
+/**
+ * Generate a checklist for a spec
+ */
+export function useGenerateChecklist() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (request: ChecklistRequest) =>
+            apiClient.post<ChecklistResponse>("/speckit/checklist", request),
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["speckit", "status", variables.project_id] })
+            queryClient.invalidateQueries({ queryKey: ["speckit", "specs", variables.project_id] })
+            queryClient.invalidateQueries({ queryKey: queryKeys.specifications.all })
+        },
+    })
+}
+
+/**
+ * Run analysis for a spec
+ */
+export function useAnalyzeSpec() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (request: AnalyzeRequest) =>
+            apiClient.post<AnalyzeResponse>("/speckit/analyze", request),
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["speckit", "status", variables.project_id] })
+            queryClient.invalidateQueries({ queryKey: ["speckit", "specs", variables.project_id] })
+            queryClient.invalidateQueries({ queryKey: queryKeys.specifications.all })
+        },
+    })
+}
+
+/**
+ * Initialize an implementation run for a spec
+ */
+export function useRunImplement() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (request: ImplementRequest) =>
+            apiClient.post<ImplementResponse>("/speckit/implement", request),
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["speckit", "status", variables.project_id] })
+            queryClient.invalidateQueries({ queryKey: ["speckit", "specs", variables.project_id] })
             queryClient.invalidateQueries({ queryKey: queryKeys.specifications.all })
         },
     })

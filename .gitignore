@@ -44,6 +44,6 @@ GEMINI.md
 windmill/apps/devgodzilla-react-app/.env.development
 
 # DevGodzilla SpecKit runtime artifacts (ephemeral)
-.specify/specs/*/_runtime/runs/
+specs/*/_runtime/runs/
 AGENTS.md
 CLAUDE.md

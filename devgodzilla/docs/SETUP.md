@@ -177,10 +177,10 @@ python -m devgodzilla.cli.main spec init /path/to/repo --project-id 1
 python -m devgodzilla.cli.main spec specify "Add feature X" --directory /path/to/repo --name feature-x
 
 # Generate plan
-python -m devgodzilla.cli.main spec plan /path/to/repo/.specify/specs/001-feature-x/feature-spec.md
+python -m devgodzilla.cli.main spec plan /path/to/repo/specs/001-feature-x/spec.md
 
 # Generate tasks
-python -m devgodzilla.cli.main spec tasks /path/to/repo/.specify/specs/001-feature-x/plan.md
+python -m devgodzilla.cli.main spec tasks /path/to/repo/specs/001-feature-x/plan.md
 
 # Check status
 python -m devgodzilla.cli.main spec status /path/to/repo

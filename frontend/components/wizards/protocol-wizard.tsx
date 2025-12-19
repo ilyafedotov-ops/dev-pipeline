@@ -8,19 +8,18 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { CheckCircle2, FileCode, Settings, PlayCircle } from "lucide-react"
+import { CheckCircle2, FileCode, Settings, PlayCircle, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
 interface ProtocolWizardProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  projectId?: string
 }
 
 type WizardStep = "template" | "configuration" | "review"
 
-const steps: { id: WizardStep; label: string; icon: any }[] = [
+const steps: { id: WizardStep; label: string; icon: LucideIcon }[] = [
   { id: "template", label: "Template Selection", icon: FileCode },
   { id: "configuration", label: "Configuration", icon: Settings },
   { id: "review", label: "Review & Launch", icon: PlayCircle },
@@ -34,7 +33,7 @@ const templates = [
   { id: "custom", name: "Custom Protocol", description: "Define your own protocol steps" },
 ]
 
-export function ProtocolWizard({ open, onOpenChange, projectId }: ProtocolWizardProps) {
+export function ProtocolWizard({ open, onOpenChange }: ProtocolWizardProps) {
   const [currentStep, setCurrentStep] = useState<WizardStep>("template")
   const [formData, setFormData] = useState({
     template: "",
@@ -164,7 +163,7 @@ export function ProtocolWizard({ open, onOpenChange, projectId }: ProtocolWizard
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="false" id="autostart-no" />
                     <Label htmlFor="autostart-no" className="cursor-pointer font-normal">
-                      No, I'll start it manually
+                      No, I&apos;ll start it manually
                     </Label>
                   </div>
                 </RadioGroup>

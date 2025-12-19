@@ -16,9 +16,21 @@ import {
     ArrowRight,
     Loader2,
     Play,
+    MessageSquare,
+    ClipboardCheck,
+    FileSearch,
+    PlayCircle,
 } from "lucide-react"
 
-export type WorkflowStep = "spec" | "plan" | "tasks" | "sprint"
+export type WorkflowStep =
+    | "spec"
+    | "clarify"
+    | "plan"
+    | "checklist"
+    | "tasks"
+    | "analyze"
+    | "implement"
+    | "sprint"
 export type StepStatus = "pending" | "in-progress" | "completed"
 
 interface SpecWorkflowProps {
@@ -27,16 +39,18 @@ interface SpecWorkflowProps {
     /** Status for each step */
     stepStatus?: {
         spec?: StepStatus
+        clarify?: StepStatus
         plan?: StepStatus
+        checklist?: StepStatus
         tasks?: StepStatus
+        analyze?: StepStatus
+        implement?: StepStatus
         sprint?: StepStatus
     }
     /** Show action buttons for next steps */
     showActions?: boolean
     /** Compact mode for inline display */
     compact?: boolean
-    /** Optional spec path for linking */
-    specPath?: string
     className?: string
 }
 
@@ -48,16 +62,40 @@ const steps: { key: WorkflowStep; label: string; icon: React.ElementType; descri
         description: "Define feature requirements",
     },
     {
+        key: "clarify",
+        label: "Clarify",
+        icon: MessageSquare,
+        description: "Resolve ambiguity",
+    },
+    {
         key: "plan",
         label: "Implementation Plan",
         icon: ClipboardList,
         description: "Design architecture & approach",
     },
     {
+        key: "checklist",
+        label: "Checklist",
+        icon: ClipboardCheck,
+        description: "Validate requirements",
+    },
+    {
         key: "tasks",
         label: "Task List",
         icon: ListTodo,
         description: "Break down into tasks",
+    },
+    {
+        key: "analyze",
+        label: "Analyze",
+        icon: FileSearch,
+        description: "Consistency report",
+    },
+    {
+        key: "implement",
+        label: "Implement",
+        icon: PlayCircle,
+        description: "Initialize execution",
     },
     {
         key: "sprint",
@@ -70,11 +108,19 @@ const steps: { key: WorkflowStep; label: string; icon: React.ElementType; descri
 function getStepHref(step: WorkflowStep, projectId: number): string {
     switch (step) {
         case "spec":
-            return `/projects/${projectId}/generate-specs`
+            return `/projects/${projectId}?wizard=generate-specs`
+        case "clarify":
+            return `/projects/${projectId}?tab=spec`
         case "plan":
-            return `/projects/${projectId}/design-solution`
+            return `/projects/${projectId}?wizard=design-solution`
+        case "checklist":
+            return `/projects/${projectId}?tab=spec`
         case "tasks":
-            return `/projects/${projectId}/implement-feature`
+            return `/projects/${projectId}?wizard=implement-feature`
+        case "analyze":
+            return `/projects/${projectId}?tab=spec`
+        case "implement":
+            return `/projects/${projectId}?tab=spec`
         case "sprint":
             return `/projects/${projectId}/sprint-board`
         default:
@@ -109,7 +155,7 @@ function getStatusColor(status: StepStatus | undefined, isActive: boolean): stri
 /**
  * SpecWorkflow - Visual stepper component showing the SpecKit workflow pipeline
  * 
- * Shows the 4-step workflow: Specification → Plan → Tasks → Sprint
+ * Shows the SpecKit workflow: Specification → Clarify → Plan → Checklist → Tasks → Analyze → Implement → Sprint
  * Each step shows its status and provides navigation to the relevant page.
  */
 export function SpecWorkflow({
@@ -118,7 +164,6 @@ export function SpecWorkflow({
     stepStatus = {},
     showActions = true,
     compact = false,
-    specPath,
     className,
 }: SpecWorkflowProps) {
     if (compact) {
@@ -168,15 +213,14 @@ export function SpecWorkflow({
             <CardHeader className="pb-4">
                 <CardTitle className="text-lg">SpecKit Workflow</CardTitle>
                 <CardDescription>
-                    Generate specifications, plans, and tasks for your features
+                    Guide specs through clarify, plan, checklist, tasks, analysis, and implementation
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                <div className="grid gap-4 md:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
                     {steps.map((step, index) => {
                         const status = stepStatus[step.key]
                         const isActive = currentStep === step.key
-                        const Icon = step.icon
                         const isNextStep =
                             !currentStep &&
                             index === 0 &&

@@ -17,41 +17,45 @@ interface Notification {
   link?: string
 }
 
+const NOW = Date.now()
+
+const DEFAULT_NOTIFICATIONS: Notification[] = [
+  {
+    id: "1",
+    type: "protocol",
+    title: "Protocol Completed",
+    message: "Web App Onboarding completed successfully",
+    timestamp: new Date(NOW - 5 * 60000).toISOString(),
+    read: false,
+  },
+  {
+    id: "2",
+    type: "clarification",
+    title: "Clarification Requested",
+    message: "Need input on database migration strategy",
+    timestamp: new Date(NOW - 15 * 60000).toISOString(),
+    read: false,
+  },
+  {
+    id: "3",
+    type: "job",
+    title: "Job Failed",
+    message: "Code execution run failed with exit code 1",
+    timestamp: new Date(NOW - 30 * 60000).toISOString(),
+    read: true,
+  },
+  {
+    id: "4",
+    type: "pr",
+    title: "PR Opened",
+    message: "New pull request created: feat/user-auth",
+    timestamp: new Date(NOW - 60 * 60000).toISOString(),
+    read: true,
+  },
+]
+
 export function ActivityInbox() {
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: "1",
-      type: "protocol",
-      title: "Protocol Completed",
-      message: "Web App Onboarding completed successfully",
-      timestamp: new Date(Date.now() - 5 * 60000).toISOString(),
-      read: false,
-    },
-    {
-      id: "2",
-      type: "clarification",
-      title: "Clarification Requested",
-      message: "Need input on database migration strategy",
-      timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
-      read: false,
-    },
-    {
-      id: "3",
-      type: "job",
-      title: "Job Failed",
-      message: "Code execution run failed with exit code 1",
-      timestamp: new Date(Date.now() - 30 * 60000).toISOString(),
-      read: true,
-    },
-    {
-      id: "4",
-      type: "pr",
-      title: "PR Opened",
-      message: "New pull request created: feat/user-auth",
-      timestamp: new Date(Date.now() - 60 * 60000).toISOString(),
-      read: true,
-    },
-  ])
+  const [notifications, setNotifications] = useState<Notification[]>(DEFAULT_NOTIFICATIONS)
 
   const unreadCount = notifications.filter((n) => !n.read).length
 

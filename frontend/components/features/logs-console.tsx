@@ -16,7 +16,7 @@ interface LogEntry {
   level: "info" | "warn" | "error" | "debug"
   source: string
   message: string
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 }
 
 interface LogsConsoleProps {
@@ -80,7 +80,7 @@ const levelColors = {
 }
 
 export function LogsConsole({ runId, protocolId, className }: LogsConsoleProps) {
-  const [logs, setLogs] = useState<LogEntry[]>(mockLogs)
+  const [logs] = useState<LogEntry[]>(mockLogs)
   const [searchQuery, setSearchQuery] = useState("")
   const [levelFilter, setLevelFilter] = useState<string>("all")
   const [isPaused, setIsPaused] = useState(false)

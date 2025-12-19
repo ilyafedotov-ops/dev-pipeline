@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge"
 import { GitBranch, GitCommit, GitPullRequest, ExternalLink, CheckCircle2, XCircle, Clock } from "lucide-react"
 
 interface GitPanelProps {
-  projectId: string
   className?: string
 }
 
@@ -51,7 +50,7 @@ const mockPRs: PullRequest[] = [
   },
 ]
 
-export function GitPanel({ projectId, className }: GitPanelProps) {
+export function GitPanel({ className }: GitPanelProps) {
   return (
     <div className={className}>
       <Card>

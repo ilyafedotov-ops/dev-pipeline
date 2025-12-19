@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from devgodzilla.api.dependencies import get_service_context
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.execution import ExecutionService
+from devgodzilla.services.policy import PolicyService
 from devgodzilla.services.quality import QualityService
 from devgodzilla.qa.gates import LintGate, TypeGate, TestGate
 
@@ -38,13 +39,13 @@ def _workspace_root(run, project) -> Path:
 def _protocol_root(run, workspace_root: Path) -> Path:
     if run.protocol_root:
         return Path(run.protocol_root).expanduser()
+    specs = workspace_root / "specs" / run.protocol_name
     protocols = workspace_root / ".protocols" / run.protocol_name
-    specify = workspace_root / ".specify" / "specs" / run.protocol_name
+    if specs.exists():
+        return specs
     if protocols.exists():
         return protocols
-    if specify.exists():
-        return specify
-    return protocols
+    return specs
 
 
 def _step_artifacts_dir(db: Database, step_id: int) -> Path:
@@ -82,6 +83,22 @@ def _safe_child(base: Path, name: str) -> Path:
     return candidate
 
 
+def _policy_location(metadata: Optional[dict]) -> Optional[str]:
+    if not metadata:
+        return None
+    if isinstance(metadata.get("location"), str):
+        return metadata["location"]
+    file_name = metadata.get("file") or metadata.get("path")
+    section = metadata.get("section") or metadata.get("heading")
+    if file_name and section:
+        return f"{file_name}#{section}"
+    if file_name:
+        return str(file_name)
+    if section:
+        return str(section)
+    return None
+
+
 @router.get("/steps", response_model=List[schemas.StepOut])
 def list_steps(
     protocol_run_id: int,
@@ -100,6 +117,38 @@ def get_step(
         return db.get_step_run(step_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Step not found")
+
+
+@router.get("/steps/{step_id}/policy/findings", response_model=List[schemas.PolicyFindingOut])
+def get_step_policy_findings(
+    step_id: int,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """Get policy violation findings for a step."""
+    try:
+        step = db.get_step_run(step_id)
+        run = db.get_protocol_run(step.protocol_run_id)
+        project = db.get_project(run.project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Step not found")
+
+    repo_root = _workspace_root(run, project)
+    policy_service = PolicyService(ctx, db)
+    findings = policy_service.evaluate_step(step_id, repo_root=repo_root)
+
+    return [
+        schemas.PolicyFindingOut(
+            code=f.code,
+            severity=f.severity,
+            message=f.message,
+            scope=f.scope,
+            location=_policy_location(f.metadata),
+            suggested_fix=f.suggested_fix,
+            metadata=f.metadata,
+        )
+        for f in findings
+    ]
 
 
 @router.post("/steps/{step_id}/actions/assign_agent", response_model=schemas.StepOut)

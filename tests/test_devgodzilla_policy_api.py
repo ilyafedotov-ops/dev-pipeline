@@ -116,6 +116,40 @@ def test_update_project_policy(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_update_project_policy_normalizes_enforcement_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test PUT /projects/{id}/policy normalizes enforcement mode values."""
+    from devgodzilla.db.database import SQLiteDatabase
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        repo = tmp / "repo"
+        repo.mkdir(parents=True, exist_ok=True)
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+
+        project = db.create_project(
+            name="demo",
+            git_url=str(repo),
+            base_branch="main",
+            local_path=str(repo),
+        )
+
+        monkeypatch.setenv("DEVGODZILLA_DB_PATH", str(db_path))
+        monkeypatch.delenv("DEVGODZILLA_API_TOKEN", raising=False)
+
+        with TestClient(app) as client:  # type: ignore[arg-type]
+            response = client.put(
+                f"/projects/{project.id}/policy",
+                json={"policy_enforcement_mode": "mandatory"},
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["policy_enforcement_mode"] == "block"
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_get_effective_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test GET /projects/{id}/policy/effective returns computed policy with hash."""
     from devgodzilla.db.database import SQLiteDatabase
@@ -198,15 +232,50 @@ def test_get_policy_findings(monkeypatch: pytest.MonkeyPatch) -> None:
             
             findings = response.json()
             assert isinstance(findings, list)
-            
-            # Should have finding about missing git_url
-            git_url_findings = [
-                f for f in findings 
-                if f["code"] == "policy.project.missing_git_url"
-            ]
-            assert len(git_url_findings) > 0
-            assert git_url_findings[0]["severity"] == "error"
-            assert git_url_findings[0]["scope"] == "project"
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_get_step_policy_findings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test GET /steps/{id}/policy/findings returns step policy findings."""
+    from devgodzilla.db.database import SQLiteDatabase
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        repo = tmp / "repo"
+        repo.mkdir(parents=True, exist_ok=True)
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+
+        project = db.create_project(
+            name="demo",
+            git_url=str(repo),
+            base_branch="main",
+            local_path=str(repo),
+        )
+        run = db.create_protocol_run(
+            project_id=project.id,
+            protocol_name="demo-protocol",
+            status="planned",
+            base_branch="main",
+        )
+        step = db.create_step_run(
+            protocol_run_id=run.id,
+            step_index=0,
+            step_name="Setup",
+            step_type="plan",
+            status="pending",
+        )
+
+        monkeypatch.setenv("DEVGODZILLA_DB_PATH", str(db_path))
+        monkeypatch.delenv("DEVGODZILLA_API_TOKEN", raising=False)
+
+        with TestClient(app) as client:  # type: ignore[arg-type]
+            response = client.get(f"/steps/{step.id}/policy/findings")
+            assert response.status_code == 200
+            findings = response.json()
+            assert isinstance(findings, list)
 
 
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")

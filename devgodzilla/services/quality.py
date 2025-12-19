@@ -26,11 +26,46 @@ from devgodzilla.qa.gates import (
     TestGate,
     LintGate,
     TypeGate,
+    ChecklistGate,
+    SpecKitChecklistGate,
 )
 from devgodzilla.services.base import Service, ServiceContext
 from devgodzilla.services.events import get_event_bus
+from devgodzilla.services.policy import PolicyService
 
 logger = get_logger(__name__)
+
+
+def _normalize_qa_policy(value: Optional[str]) -> str:
+    if not value:
+        return "full"
+    return str(value).strip().lower()
+
+
+def _policy_required_checks(policy: Dict[str, Any]) -> List[str]:
+    defaults = policy.get("defaults", {})
+    ci_config = defaults.get("ci", {})
+    if isinstance(ci_config.get("required_checks"), list):
+        return [str(c) for c in ci_config["required_checks"]]
+    requirements = policy.get("requirements", {})
+    if isinstance(requirements.get("required_checks"), list):
+        return [str(c) for c in requirements["required_checks"]]
+    return []
+
+
+def _gate_ids_from_required_checks(checks: List[str]) -> List[str]:
+    gate_ids = []
+    for check in checks:
+        text = str(check).lower()
+        if "lint" in text:
+            gate_ids.append("lint")
+        elif "type" in text or "mypy" in text or "pyright" in text:
+            gate_ids.append("type")
+        elif "test" in text or "pytest" in text or "unit" in text:
+            gate_ids.append("test")
+        elif "checklist" in text:
+            gate_ids.append("checklist")
+    return list(dict.fromkeys(gate_ids))
 
 
 class QAVerdict(str, Enum):
@@ -147,14 +182,14 @@ class QualityService(Service):
             configured = Path(run.protocol_root)
             protocol_root_path = configured if configured.is_absolute() else (workspace_root / configured)
         else:
+            specs = workspace_root / "specs" / run.protocol_name
             protocols = workspace_root / ".protocols" / run.protocol_name
-            specify = workspace_root / ".specify" / "specs" / run.protocol_name
-            if protocols.exists():
+            if specs.exists():
+                protocol_root_path = specs
+            elif protocols.exists():
                 protocol_root_path = protocols
-            elif specify.exists():
-                protocol_root_path = specify
             else:
-                protocol_root_path = protocols
+                protocol_root_path = specs
         protocol_root = str(protocol_root_path)
         
         context = GateContext(
@@ -165,9 +200,52 @@ class QualityService(Service):
             protocol_run_id=run.id,
             project_id=project.id,
         )
-        
+
+        policy_service = PolicyService(self.context, self.db)
+        qa_policy = "full"
+        required_checks: List[str] = []
+        try:
+            effective = policy_service.resolve_effective_policy(
+                project.id,
+                repo_root=workspace_root,
+                include_repo_local=True,
+            )
+            defaults = effective.policy.get("defaults", {}) if isinstance(effective.policy, dict) else {}
+            qa_defaults = defaults.get("qa", {}) if isinstance(defaults, dict) else {}
+            qa_policy = _normalize_qa_policy(qa_defaults.get("policy"))
+            required_checks = _policy_required_checks(effective.policy)
+        except Exception:
+            qa_policy = "full"
+
+        if qa_policy == "skip":
+            qa_result = QAResult(
+                step_run_id=step_run_id,
+                verdict=QAVerdict.SKIP,
+                gate_results=[],
+                duration_seconds=0.0,
+            )
+            self._update_step_status(step, run, qa_result)
+            return qa_result
+
         # Run gates
         gates_to_run = gates or self.default_gates
+        if gates is None:
+            gate_ids = _gate_ids_from_required_checks(required_checks)
+            if gate_ids:
+                gate_map = {
+                    "lint": LintGate(),
+                    "type": TypeGate(),
+                    "test": TestGate(),
+                    "checklist": ChecklistGate(),
+                }
+                gates_to_run = [gate_map[g] for g in gate_ids if g in gate_map]
+            elif qa_policy == "light":
+                gates_to_run = [LintGate()]
+
+            # Add SpecKit checklist gate when a checklist exists.
+            speckit_gate = SpecKitChecklistGate()
+            if speckit_gate.has_checklist(context):
+                gates_to_run = [*gates_to_run, speckit_gate]
         skip_ids = set(skip_gates or [])
         
         gate_results = []

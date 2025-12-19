@@ -10,8 +10,39 @@ from devgodzilla.api import schemas
 from devgodzilla.api.dependencies import get_db, get_service_context
 from devgodzilla.db.database import Database, _UNSET
 from devgodzilla.services.base import ServiceContext
+from devgodzilla.services.policy import PolicyService
+from devgodzilla.services.clarifier import ClarifierService
+from devgodzilla.services.specification import SpecificationService
+from pathlib import Path
 
 router = APIRouter()
+
+def _policy_location(metadata: Optional[dict]) -> Optional[str]:
+    if not metadata:
+        return None
+    if isinstance(metadata.get("location"), str):
+        return metadata["location"]
+    file_name = metadata.get("file") or metadata.get("path")
+    section = metadata.get("section") or metadata.get("heading")
+    if file_name and section:
+        return f"{file_name}#{section}"
+    if file_name:
+        return str(file_name)
+    if section:
+        return str(section)
+    return None
+
+def _normalize_policy_enforcement_mode(mode: Optional[str]) -> Optional[str]:
+    if mode is None:
+        return None
+    value = str(mode).strip().lower()
+    mapping = {
+        "advisory": "warn",
+        "mandatory": "block",
+        "enforce": "block",
+        "blocking": "block",
+    }
+    return mapping.get(value, value)
 
 
 class ProjectOnboardRequest(BaseModel):
@@ -175,7 +206,19 @@ def get_project_onboarding(
     except (KeyError, AttributeError):
         blocking_count = 0
 
-    overall_status = "completed" if (repo_status == "completed" and spec_status == "completed") else "pending"
+    clarifications_status = "blocked" if blocking_count > 0 else "completed"
+    if repo_status == "pending" or spec_status == "pending":
+        clarifications_status = "pending"
+
+    stages.append(schemas.OnboardingStage(
+        name="Clarifications",
+        status=clarifications_status,
+    ))
+
+    if blocking_count > 0:
+        overall_status = "blocked"
+    else:
+        overall_status = "completed" if (repo_status == "completed" and spec_status == "completed") else "pending"
 
     return schemas.OnboardingSummary(
         project_id=project_id,
@@ -245,12 +288,38 @@ def onboard_project(
         except Exception:
             pass
 
+    constitution_content = request.constitution_content
+    effective_policy = None
+    if constitution_content is None:
+        try:
+            policy_service = PolicyService(ctx, db)
+            effective_policy = policy_service.resolve_effective_policy(
+                project_id,
+                repo_root=repo_path,
+                include_repo_local=True,
+            )
+            constitution_content = policy_service.render_constitution(effective_policy)
+        except Exception:
+            constitution_content = None
+            effective_policy = None
+
     spec_service = SpecificationService(ctx, db)
     init_result = spec_service.init_project(
         str(repo_path),
-        constitution_content=request.constitution_content,
+        constitution_content=constitution_content,
         project_id=project_id,
     )
+
+    if effective_policy is not None:
+        try:
+            clarifier = ClarifierService(ctx, db)
+            clarifier.ensure_from_policy(
+                project_id=project_id,
+                policy=effective_policy.policy,
+                applies_to="onboarding",
+            )
+        except Exception:
+            pass
 
     discovery_success = False
     discovery_log_path: Optional[str] = None
@@ -337,14 +406,15 @@ def get_project_policy(
         policy_pack_version=project.policy_pack_version,
         policy_overrides=project.policy_overrides,
         policy_repo_local_enabled=bool(project.policy_repo_local_enabled) if project.policy_repo_local_enabled is not None else False,
-        policy_enforcement_mode=project.policy_enforcement_mode or "warn",
+        policy_enforcement_mode=_normalize_policy_enforcement_mode(project.policy_enforcement_mode) or "warn",
     )
 
 @router.put("/projects/{project_id}/policy", response_model=schemas.ProjectOut)
 def update_project_policy(
     project_id: int,
     policy: schemas.PolicyConfigUpdate,
-    db: Database = Depends(get_db)
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
 ):
     """Update policy configuration for a project."""
     try:
@@ -363,9 +433,26 @@ def update_project_policy(
     if policy.policy_repo_local_enabled is not None:
         kwargs["policy_repo_local_enabled"] = policy.policy_repo_local_enabled
     if policy.policy_enforcement_mode is not None:
-        kwargs["policy_enforcement_mode"] = policy.policy_enforcement_mode
-    
-    return db.update_project_policy(project_id, **kwargs)
+        kwargs["policy_enforcement_mode"] = _normalize_policy_enforcement_mode(policy.policy_enforcement_mode)
+
+    updated = db.update_project_policy(project_id, **kwargs)
+    try:
+        if updated.local_path:
+            constitution_path = Path(updated.local_path).expanduser() / ".specify" / "memory" / "constitution.md"
+            if constitution_path.exists():
+                policy_service = PolicyService(ctx, db)
+                effective = policy_service.resolve_effective_policy(
+                    project_id,
+                    repo_root=Path(updated.local_path).expanduser(),
+                    include_repo_local=True,
+                )
+                constitution_content = policy_service.render_constitution(effective)
+                spec_service = SpecificationService(ctx, db)
+                spec_service.save_constitution(updated.local_path, constitution_content, project_id=project_id)
+    except Exception:
+        pass
+
+    return updated
 
 @router.get("/projects/{project_id}/policy/effective", response_model=schemas.EffectivePolicyOut)
 def get_effective_policy(
@@ -428,6 +515,7 @@ def get_policy_findings(
             severity=f.severity,
             message=f.message,
             scope=f.scope,
+            location=_policy_location(f.metadata),
             suggested_fix=f.suggested_fix,
             metadata=f.metadata,
         )

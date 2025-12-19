@@ -25,6 +25,8 @@ from devgodzilla.qa.gates.interface import (
 )
 from devgodzilla.qa.gates.common import TestGate, LintGate
 from devgodzilla.services.base import ServiceContext
+from devgodzilla.services.policy import EffectivePolicy
+from devgodzilla.models.domain import StepStatus
 
 
 # =============================================================================
@@ -479,6 +481,69 @@ class TestRunQA:
         # Should only have one gate result (the passing one)
         gate_ids = [g.gate_id for g in result.gate_results]
         assert "failing" not in gate_ids
+
+    def test_run_qa_skips_when_policy_skip(self, service_context, mock_db, workspace, monkeypatch):
+        """Test run_qa short-circuits when policy QA is skip."""
+        mock_db.get_project.return_value.local_path = str(workspace)
+
+        effective = EffectivePolicy(
+            policy={"defaults": {"qa": {"policy": "skip"}}},
+            effective_hash="hash",
+            pack_key="default",
+            pack_version="1.0",
+        )
+        monkeypatch.setattr(
+            "devgodzilla.services.quality.PolicyService.resolve_effective_policy",
+            lambda *args, **kwargs: effective,
+        )
+
+        service = QualityService(
+            context=service_context,
+            db=mock_db,
+        )
+
+        result = service.run_qa(step_run_id=1000)
+
+        assert result.verdict == QAVerdict.SKIP
+        mock_db.update_step_status.assert_called_with(
+            1000,
+            StepStatus.COMPLETED,
+            summary="QA skipped",
+        )
+
+    def test_run_qa_uses_required_checks(self, service_context, mock_db, workspace, monkeypatch):
+        """Test run_qa selects gates based on required checks."""
+        mock_db.get_project.return_value.local_path = str(workspace)
+
+        effective = EffectivePolicy(
+            policy={"defaults": {"ci": {"required_checks": ["lint"]}}},
+            effective_hash="hash",
+            pack_key="default",
+            pack_version="1.0",
+        )
+        monkeypatch.setattr(
+            "devgodzilla.services.quality.PolicyService.resolve_effective_policy",
+            lambda *args, **kwargs: effective,
+        )
+
+        def fake_run(self, context: GateContext) -> GateResult:
+            return GateResult(
+                gate_id="lint",
+                gate_name="Lint Gate",
+                verdict=GateVerdict.PASS,
+            )
+
+        monkeypatch.setattr("devgodzilla.services.quality.LintGate.run", fake_run)
+
+        service = QualityService(
+            context=service_context,
+            db=mock_db,
+        )
+
+        result = service.run_qa(step_run_id=1000)
+
+        gate_ids = [g.gate_id for g in result.gate_results]
+        assert gate_ids == ["lint"]
 
 
 # =============================================================================

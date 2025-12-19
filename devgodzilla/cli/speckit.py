@@ -182,7 +182,7 @@ def plan(ctx, spec_path, directory, project_id):
     Creates plan.md, data-model.md, and contracts/ directory.
 
     Example:
-        devgodzilla spec plan .specify/specs/001-auth/spec.md
+        devgodzilla spec plan specs/001-auth/spec.md
     """
     db = get_db() if project_id else None
     service = get_specification_service(db)
@@ -224,7 +224,7 @@ def tasks(ctx, plan_path, directory, project_id):
     Creates tasks.md with parallelizable task markers.
 
     Example:
-        devgodzilla spec tasks .specify/specs/001-auth/plan.md
+        devgodzilla spec tasks specs/001-auth/plan.md
     """
     db = get_db() if project_id else None
     service = get_specification_service(db)
@@ -346,7 +346,7 @@ def show_spec(ctx, spec_name, directory, file):
     Example:
         devgodzilla spec show 001-auth --file plan
     """
-    spec_dir = Path(directory) / ".specify" / "specs" / spec_name
+    spec_dir = Path(directory) / "specs" / spec_name
 
     if not spec_dir.exists():
         console.print(f"[red]✗ Spec '{spec_name}' not found[/red]")

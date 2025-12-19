@@ -54,7 +54,7 @@ def test_protocol_artifacts_aggregate(monkeypatch: pytest.MonkeyPatch) -> None:
             local_path=str(repo),
         )
 
-        protocol_root = repo / ".specify" / "specs" / "demo-proto"
+        protocol_root = repo / "specs" / "demo-proto"
         protocol_root.mkdir(parents=True, exist_ok=True)
 
         run = db.create_protocol_run(

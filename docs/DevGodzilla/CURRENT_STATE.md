@@ -43,7 +43,7 @@ The current planning path is **protocol-file driven**:
 1. A protocol run exists in DB (`ProtocolRun`).
 2. Planning reads step markdown files under:
    - `.protocols/<protocol_name>/step-*.md` (preferred), or
-   - `.specify/specs/<protocol_name>/...` (fallback in some places)
+   - `specs/<protocol_name>/...` (SpecKit-backed runs)
 3. Planning materializes `StepRun` rows from those step files.
 
 Implementation references:
@@ -61,10 +61,10 @@ Implementation reference:
 
 ## SpecKit Artifacts (.specify/)
 
-The SpecKit-style workflow in DevGodzilla is currently **template-based**:
+The SpecKit-style workflow in DevGodzilla is **agent-assisted**:
 
-- `SpecificationService` creates `.specify/` structure, default templates, and writes:
-  - `feature-spec.md`
+- `SpecificationService` creates `.specify/` structure, seeds templates, and invokes SWE agents (prompt-driven) to write:
+  - `spec.md`
   - `plan.md`
   - `tasks.md`
 
@@ -115,7 +115,7 @@ Implementation references:
 
 DevGodzilla supports bidirectional synchronization between SpecKit task definitions (markdown) and database-backed agile sprints.
 
-- **Task Import**: `.specify/tasks.md` can be imported into a sprint via `POST /sprints/{id}/actions/import-tasks` (or Windmill `sync_tasks_to_sprint` flow).
+- **Task Import**: `specs/<spec>/tasks.md` can be imported into a sprint via `POST /sprints/{id}/actions/import-tasks` (or Windmill `sync_tasks_to_sprint` flow).
 - **Protocol Linkage**: Protocols are linked to sprints via `linked_sprint_id`.
 - **Status Updates**: Step execution events (`StepCompleted`, `StepFailed`) automatically update corresponding sprint tasks and recalculate velocity.
 

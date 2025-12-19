@@ -24,44 +24,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { CodeBlock } from "@/components/ui/code-block"
 import { Plus, Shield, ChevronRight } from "lucide-react"
 import { toast } from "sonner"
-import { formatRelativeTime } from "@/lib/format"
-import type { ColumnDef } from "@tanstack/react-table"
 import type { PolicyPack } from "@/lib/api/types"
-
-const columns: ColumnDef<PolicyPack>[] = [
-  {
-    accessorKey: "key",
-    header: "Key",
-    cell: ({ row }) => <span className="font-mono font-medium">{row.original.key}</span>,
-  },
-  {
-    accessorKey: "name",
-    header: "Name",
-    cell: ({ row }) => row.original.name,
-  },
-  {
-    accessorKey: "version",
-    header: "Version",
-    cell: ({ row }) => <span className="font-mono text-sm">{row.original.version}</span>,
-  },
-  {
-    accessorKey: "status",
-    header: "Status",
-    cell: ({ row }) => <StatusPill status={row.original.status === "active" ? "completed" : "pending"} size="sm" />,
-  },
-  {
-    accessorKey: "description",
-    header: "Description",
-    cell: ({ row }) => (
-      <span className="text-muted-foreground text-sm truncate max-w-xs block">{row.original.description || "-"}</span>
-    ),
-  },
-  {
-    accessorKey: "created_at",
-    header: "Created",
-    cell: ({ row }) => <span className="text-muted-foreground">{formatRelativeTime(row.original.created_at)}</span>,
-  },
-]
 
 export default function PolicyPacksPage() {
   const { data: packs, isLoading } = usePolicyPacks()

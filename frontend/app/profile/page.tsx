@@ -6,11 +6,10 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { LoadingState } from "@/components/ui/loading-state"
-import { Shield, Clock, CheckCircle2, GitBranch, PlayCircle, Activity } from "lucide-react"
+import { Shield, Clock, Activity, type LucideIcon } from "lucide-react"
 
 export default function ProfilePage() {
   const { data: user, isLoading } = useProfile()
@@ -19,7 +18,7 @@ export default function ProfilePage() {
     return <LoadingState message="Loading profile..." />
   }
 
-  const iconMap: Record<string, any> = {
+  const iconMap: Record<string, LucideIcon> = {
     activity: Activity,
   }
 

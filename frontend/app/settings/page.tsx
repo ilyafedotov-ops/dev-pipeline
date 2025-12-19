@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,15 +13,9 @@ import { CheckCircle2, XCircle, SettingsIcon, Globe, Bell, Shield } from "lucide
 import { Switch } from "@/components/ui/switch"
 
 export default function SettingsPage() {
-  const [apiBase, setApiBase] = useState("")
-  const [token, setToken] = useState("")
+  const [apiBase, setApiBase] = useState(() => apiClient.getConfig().baseUrl)
+  const [token, setToken] = useState(() => apiClient.getConfig().token || "")
   const { data: health, isError, refetch } = useHealth()
-
-  useEffect(() => {
-    const config = apiClient.getConfig()
-    setApiBase(config.baseUrl)
-    setToken(config.token || "")
-  }, [])
 
   const handleSave = () => {
     apiClient.configure({

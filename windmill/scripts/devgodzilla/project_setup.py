@@ -161,6 +161,7 @@ def _initialize_speckit(project_path: Path, project_name: str, constitution: str
     """Initialize .specify/ directory."""
     
     specify_dir = project_path / ".specify"
+    specs_dir = project_path / "specs"
     paths_created = []
     
     DEFAULT_CONSTITUTION = """# Project Constitution
@@ -179,9 +180,12 @@ Prefer simple solutions over clever ones.
 """
     
     try:
-        for subdir in ["memory", "templates", "specs"]:
+        for subdir in ["memory", "templates"]:
             (specify_dir / subdir).mkdir(parents=True, exist_ok=True)
-            paths_created.append(subdir)
+            paths_created.append(f".specify/{subdir}")
+
+        specs_dir.mkdir(parents=True, exist_ok=True)
+        paths_created.append("specs")
         
         constitution_path = specify_dir / "memory" / "constitution.md"
         if not constitution_path.exists():

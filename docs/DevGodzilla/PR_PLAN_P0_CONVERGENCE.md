@@ -9,7 +9,7 @@ This plan turns the P0 items from `docs/DevGodzilla/ARCHITECTURE_REVIEW.md` into
    - Standardize on **API-wrapper Windmill scripts** (`*_api.py`) as the supported execution model.
 3. **Documentation matches reality**:
    - Clear “what runs today” documentation.
-   - Fix SpecKit integration wording (it is template-based today, not an external `specify` dependency).
+  - Fix SpecKit integration wording (it is agent-assisted today, not an external `specify` dependency).
 
 ## Non-goals (for this PR)
 
@@ -33,8 +33,8 @@ This plan turns the P0 items from `docs/DevGodzilla/ARCHITECTURE_REVIEW.md` into
 ### B) SpecKit wording convergence
 
 - Update `devgodzilla/services/specification.py` docstrings to match behavior:
-  - Spec/plan/tasks generation is template-based today (no external CLI requirement).
-- Add/extend `.gitignore` to ignore `.specify/specs/*/_runtime/runs/` (code creates it).
+  - Spec/plan/tasks generation is agent-assisted today (no external CLI requirement).
+- Add/extend `.gitignore` to ignore `specs/*/_runtime/runs/` (code creates it).
 
 ### C) Windmill convergence (supported execution model)
 

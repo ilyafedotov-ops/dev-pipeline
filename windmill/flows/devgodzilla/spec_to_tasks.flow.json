@@ -25,10 +25,52 @@
         }
       },
       {
+        "id": "speckit_clarify",
+        "value": {
+          "type": "script",
+          "path": "u/devgodzilla/speckit_clarify_api"
+        },
+        "input_transforms": {
+          "project_id": {
+            "type": "javascript",
+            "expr": "flow_input.project_id"
+          },
+          "spec_path": {
+            "type": "javascript",
+            "expr": "results.speckit_specify.spec_path"
+          },
+          "entries": {
+            "type": "javascript",
+            "expr": "flow_input.clarification_entries || []"
+          },
+          "notes": {
+            "type": "javascript",
+            "expr": "flow_input.clarification_notes || ''"
+          }
+        }
+      },
+      {
         "id": "speckit_plan",
         "value": {
           "type": "script",
           "path": "u/devgodzilla/speckit_plan_api"
+        },
+        "input_transforms": {
+          "project_id": {
+            "type": "javascript",
+            "expr": "flow_input.project_id"
+          },
+          "spec_path": {
+            "type": "javascript",
+            "expr": "results.speckit_specify.spec_path"
+          }
+        }
+      },
+      {
+        "id": "speckit_checklist",
+        "value": {
+          "type": "script",
+          "path": "u/devgodzilla/speckit_checklist_api"
         },
         "input_transforms": {
           "project_id": {
@@ -55,6 +97,48 @@
           "plan_path": {
             "type": "javascript",
             "expr": "results.speckit_plan.plan_path"
+          }
+        }
+      },
+      {
+        "id": "speckit_analyze",
+        "value": {
+          "type": "script",
+          "path": "u/devgodzilla/speckit_analyze_api"
+        },
+        "input_transforms": {
+          "project_id": {
+            "type": "javascript",
+            "expr": "flow_input.project_id"
+          },
+          "spec_path": {
+            "type": "javascript",
+            "expr": "results.speckit_specify.spec_path"
+          },
+          "plan_path": {
+            "type": "javascript",
+            "expr": "results.speckit_plan.plan_path"
+          },
+          "tasks_path": {
+            "type": "javascript",
+            "expr": "results.speckit_tasks.tasks_path"
+          }
+        }
+      },
+      {
+        "id": "speckit_implement",
+        "value": {
+          "type": "script",
+          "path": "u/devgodzilla/speckit_implement_api"
+        },
+        "input_transforms": {
+          "project_id": {
+            "type": "javascript",
+            "expr": "flow_input.project_id"
+          },
+          "spec_path": {
+            "type": "javascript",
+            "expr": "results.speckit_specify.spec_path"
           }
         }
       },
@@ -95,6 +179,24 @@
       "feature_name": {
         "type": "string",
         "description": "Optional feature slug/name",
+        "default": ""
+      },
+      "clarification_entries": {
+        "type": "array",
+        "description": "Optional clarification Q/A entries to append",
+        "default": [],
+        "items": {
+          "type": "object",
+          "properties": {
+            "question": { "type": "string" },
+            "answer": { "type": "string" }
+          },
+          "required": ["question", "answer"]
+        }
+      },
+      "clarification_notes": {
+        "type": "string",
+        "description": "Optional clarification notes",
         "default": ""
       },
       "sprint_id": {

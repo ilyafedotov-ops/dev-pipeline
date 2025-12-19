@@ -1,14 +1,14 @@
 "use client"
 import { use } from "react"
 
-import { useSpecification } from "@/lib/api"
+import { useSpecification, useSpecificationContent } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { LoadingState } from "@/components/ui/loading-state"
 import { EmptyState } from "@/components/ui/empty-state"
-import { ArrowLeft, FileText, Play, ListTodo, Target, TrendingUp, ExternalLink } from "lucide-react"
+import { ArrowLeft, FileText, Play, ListTodo, Target, TrendingUp, ExternalLink, ClipboardCheck } from "lucide-react"
 import Link from "next/link"
 
 export default function SpecificationDetailPage({
@@ -19,6 +19,7 @@ export default function SpecificationDetailPage({
   const { id: idParam } = use(params)
   const id = Number.parseInt(idParam)
   const { data: spec, isLoading } = useSpecification(id)
+  const { data: specContent } = useSpecificationContent(id)
 
   if (isLoading) {
     return <LoadingState message="Loading specification..." />
@@ -120,6 +121,7 @@ export default function SpecificationDetailPage({
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({spec.linked_tasks})</TabsTrigger>
+          <TabsTrigger value="checklist">Checklist</TabsTrigger>
           <TabsTrigger value="protocol">Protocol</TabsTrigger>
         </TabsList>
 
@@ -187,6 +189,29 @@ export default function SpecificationDetailPage({
                       </Button>
                     </div>
                   )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="checklist" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardCheck className="h-4 w-4 text-emerald-500" />
+                Checklist
+              </CardTitle>
+              <CardDescription>SpecKit checklist for this specification</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {specContent?.checklist_content ? (
+                <pre className="whitespace-pre-wrap text-sm bg-muted/60 rounded-lg p-4">
+                  {specContent.checklist_content}
+                </pre>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  No checklist generated yet. Run the checklist action from the SpecKit workspace.
                 </div>
               )}
             </CardContent>

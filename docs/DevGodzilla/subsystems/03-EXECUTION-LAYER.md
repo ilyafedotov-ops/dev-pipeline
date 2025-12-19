@@ -552,8 +552,8 @@ class ExecutionService:
         """Gather context for agent execution."""
         return {
             "project_root": project.local_path,
-            "spec_path": f".specify/specs/{step.branch_name}/feature-spec.md",
-            "plan_path": f".specify/specs/{step.branch_name}/plan.md",
+            "spec_path": f"specs/{step.branch_name}/spec.md",
+            "plan_path": f"specs/{step.branch_name}/plan.md",
             "constitution_path": ".specify/memory/constitution.md",
             "dependencies": step.depends_on
         }

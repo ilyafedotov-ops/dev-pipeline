@@ -37,7 +37,6 @@ const availableAgents = [
 ]
 
 export function PipelineVisualizer({ protocol, steps, onStepClick, onAssignAgent }: PipelineVisualizerProps) {
-  const [fullscreen, setFullscreen] = useState(false)
 
   const getStepIcon = (status: string) => {
     switch (status) {
@@ -70,30 +69,28 @@ export function PipelineVisualizer({ protocol, steps, onStepClick, onAssignAgent
             <Download className="h-4 w-4 mr-2" />
             Export
           </Button>
-          {!fullscreen && (
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Maximize2 className="h-4 w-4 mr-2" />
-                  Fullscreen
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-7xl h-[90vh]">
-                <DialogHeader>
-                  <DialogTitle>Pipeline Workflow - {protocol.protocol_name}</DialogTitle>
-                  <DialogDescription>Full workflow visualization with agent assignments</DialogDescription>
-                </DialogHeader>
-                <div className="overflow-auto h-full">
-                  <PipelineVisualizer
-                    protocol={protocol}
-                    steps={steps}
-                    onStepClick={onStepClick}
-                    onAssignAgent={onAssignAgent}
-                  />
-                </div>
-              </DialogContent>
-            </Dialog>
-          )}
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Maximize2 className="h-4 w-4 mr-2" />
+                Fullscreen
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-7xl h-[90vh]">
+              <DialogHeader>
+                <DialogTitle>Pipeline Workflow - {protocol.protocol_name}</DialogTitle>
+                <DialogDescription>Full workflow visualization with agent assignments</DialogDescription>
+              </DialogHeader>
+              <div className="overflow-auto h-full">
+                <PipelineVisualizer
+                  protocol={protocol}
+                  steps={steps}
+                  onStepClick={onStepClick}
+                  onAssignAgent={onAssignAgent}
+                />
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 

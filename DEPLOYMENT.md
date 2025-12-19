@@ -60,7 +60,7 @@ In Windmill UI (`http://localhost:8080`), run flow `f/devgodzilla/onboard_to_tas
 - `branch`: `master` (or `main`)
 - `feature_request`: a short feature request (used to generate spec/plan/tasks)
 
-On success, generated files appear under `projects/<project_id>/<repo>/.specify/specs/<spec_id>/`.
+On success, generated files appear under `projects/<project_id>/<repo>/specs/<spec_id>/`.
 
 ## Development
 

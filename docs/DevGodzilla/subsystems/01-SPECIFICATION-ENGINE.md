@@ -40,7 +40,7 @@ graph TB
         end
 
         subgraph Storage["Artifact Storage"]
-            SpecDir[".specify/specs/<branch>/"]
+            SpecDir["specs/<branch>/"]
             MemoryDir[".specify/memory/"]
             TemplatesDir[".specify/templates/"]
         end
@@ -508,7 +508,7 @@ class Task(BaseModel):
 │   └── checklist-template.md        # QA checklist template
 │
 └── specs/<feature-branch>/
-    ├── feature-spec.md              # Generated specification
+    ├── spec.md              # Generated specification
     ├── plan.md                      # Generated plan
     ├── tasks.md                     # Generated tasks
     │

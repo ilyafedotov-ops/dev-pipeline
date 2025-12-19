@@ -51,10 +51,10 @@ devgodzilla spec init .
 devgodzilla spec specify "Add user authentication with OAuth2"
 
 # Generate implementation plan
-devgodzilla spec plan .specify/specs/001-add-user-authentication/spec.md
+devgodzilla spec plan specs/001-add-user-authentication/spec.md
 
 # Generate tasks
-devgodzilla spec tasks .specify/specs/001-add-user-authentication/plan.md
+devgodzilla spec tasks specs/001-add-user-authentication/plan.md
 ```
 
 ### Create and Run a Protocol (agent-driven, git/worktree-first)

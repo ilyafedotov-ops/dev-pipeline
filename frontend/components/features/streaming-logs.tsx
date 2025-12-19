@@ -35,26 +35,27 @@ export function StreamingLogs({ runId, initialLogs = [] }: StreamingLogsProps) {
 
     // In production, connect to SSE endpoint
     // eventSourceRef.current = new EventSource(`/api/codex/runs/${runId}/logs/stream`)
+    const eventSource = eventSourceRef.current
 
     // Mock: simulate streaming logs
     const interval = setInterval(() => {
-      const mockLog: LogEntry = {
-        timestamp: new Date().toISOString(),
-        level: ["info", "warn", "error", "debug"][Math.floor(Math.random() * 4)] as LogEntry["level"],
-        source: ["api", "worker", "scheduler"][Math.floor(Math.random() * 3)],
-        message: `Log entry ${logs.length + 1}: Processing task...`,
-        requestId: `req-${Math.random().toString(36).substr(2, 9)}`,
-      }
-      setLogs((prev) => [...prev, mockLog])
+      setLogs((prev) => {
+        const mockLog: LogEntry = {
+          timestamp: new Date().toISOString(),
+          level: ["info", "warn", "error", "debug"][Math.floor(Math.random() * 4)] as LogEntry["level"],
+          source: ["api", "worker", "scheduler"][Math.floor(Math.random() * 3)],
+          message: `Log entry ${prev.length + 1}: Processing task...`,
+          requestId: `req-${Math.random().toString(36).substr(2, 9)}`,
+        }
+        return [...prev, mockLog]
+      })
     }, 2000)
 
     return () => {
       clearInterval(interval)
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close()
-      }
+      eventSource?.close()
     }
-  }, [runId, isPaused, isStreaming, logs.length])
+  }, [runId, isPaused, isStreaming])
   // </CHANGE>
 
   // Auto-scroll to bottom when new logs arrive

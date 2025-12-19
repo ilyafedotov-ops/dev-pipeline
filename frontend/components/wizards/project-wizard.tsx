@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import { CheckCircle2, GitBranch, Settings, Shield, HelpCircle } from "lucide-react"
+import { CheckCircle2, GitBranch, Settings, Shield, HelpCircle, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -20,7 +20,7 @@ interface ProjectWizardProps {
 
 type WizardStep = "git" | "classification" | "policy" | "clarifications" | "onboarding"
 
-const steps: { id: WizardStep; label: string; icon: any }[] = [
+const steps: { id: WizardStep; label: string; icon: LucideIcon }[] = [
   { id: "git", label: "Git Repository", icon: GitBranch },
   { id: "classification", label: "Classification", icon: Settings },
   { id: "policy", label: "Policy Pack", icon: Shield },

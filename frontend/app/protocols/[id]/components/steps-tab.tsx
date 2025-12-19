@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useProtocolSteps, useStepAction, useProtocol } from "@/lib/api"
+import { useProtocolSteps, useStepAction } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { DataTable } from "@/components/ui/data-table"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -18,7 +18,6 @@ interface StepsTabProps {
 
 export function StepsTab({ protocolId }: StepsTabProps) {
   const { data: steps, isLoading } = useProtocolSteps(protocolId)
-  const { data: protocol } = useProtocol(protocolId)
   const stepAction = useStepAction()
 
   const handleAction = async (stepId: number, action: "run" | "run_qa" | "approve") => {

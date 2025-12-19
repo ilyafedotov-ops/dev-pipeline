@@ -24,7 +24,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import type { TaskBoardStatus, Sprint } from "@/lib/api/types"
+import type { AgileTask, AgileTaskCreate, AgileTaskUpdate, TaskBoardStatus, Sprint } from "@/lib/api/types"
 
 export default function SprintsPage() {
   const { data: sprints, isLoading: sprintsLoading } = useAllSprints()
@@ -32,7 +32,6 @@ export default function SprintsPage() {
   const { data: projects } = useProjects()
   const updateTask = useUpdateTask()
   const createTask = useCreateTask()
-  const [viewMode, setViewMode] = useState<"board" | "list">("board")
   const [filterProject, setFilterProject] = useState<string>("all")
   const [filterSprint, setFilterSprint] = useState<string>("active")
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -64,14 +63,14 @@ export default function SprintsPage() {
     mutateTasks()
   }
 
-  const handleTaskCreate = async (data: any) => {
+  const handleTaskCreate = async (data: AgileTaskCreate) => {
     const projectId = filterProject !== "all" ? Number.parseInt(filterProject) : 1
     await createTask.mutateAsync(projectId, data)
     mutateTasks()
     toast.success("Task created")
   }
 
-  const handleTaskEdit = async (taskId: number, data: any) => {
+  const handleTaskEdit = async (taskId: number, data: AgileTaskUpdate) => {
     await updateTask.mutateAsync(taskId, data)
     mutateTasks()
     toast.success("Task updated")
@@ -226,7 +225,6 @@ export default function SprintsPage() {
               onTaskCreate={handleTaskCreate}
               onTaskEdit={handleTaskEdit}
               showBacklog={filterSprint === "backlog" || filterSprint === "all"}
-              projectId={filterProject !== "all" ? Number.parseInt(filterProject) : 1}
             />
           </TabsContent>
 
@@ -302,7 +300,7 @@ export default function SprintsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="h-[200px] flex items-end justify-between gap-2">
-                    {completedSprints.slice(-5).map((sprint, index) => (
+                    {completedSprints.slice(-5).map((sprint) => (
                       <div key={sprint.id} className="flex-1 flex flex-col items-center gap-2">
                         <div className="w-full flex flex-col items-center">
                           <div
@@ -357,7 +355,7 @@ function SprintCard({
   projectName,
 }: {
   sprint: Sprint
-  tasks: any[]
+  tasks: AgileTask[]
   projectName?: string
 }) {
   const sprintTasks = tasks.filter((t) => t.sprint_id === sprint.id)

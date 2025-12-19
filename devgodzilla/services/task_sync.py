@@ -31,7 +31,7 @@ class TaskSyncService:
         overwrite_existing: bool = False,
     ) -> List[AgileTask]:
         """
-        Parse .specify/tasks.md and create database tasks.
+        Parse a SpecKit tasks.md file and create database tasks.
 
         Args:
             project_id: Project ID

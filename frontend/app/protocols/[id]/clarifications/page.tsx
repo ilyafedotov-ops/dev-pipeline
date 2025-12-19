@@ -1,5 +1,4 @@
 "use client"
-import { use } from "react"
 import { useProtocolDetail } from "@/lib/api"
 import { LoadingState } from "@/components/ui/loading-state"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -8,7 +7,7 @@ import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { ClarificationsTab } from "../components/clarifications-tab"
 
-export default function ProtocolClarificationsPage({ params }: { params: Promise<{ id: string }> }) {
+export default function ProtocolClarificationsPage({ params }: { params: { id: string } }) {
   const { id } = params
   const protocolId = Number.parseInt(id)
   const { data: protocol, isLoading } = useProtocolDetail(protocolId)

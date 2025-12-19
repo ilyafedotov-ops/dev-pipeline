@@ -28,8 +28,22 @@ from devgodzilla.engines.artifacts import ArtifactWriter
 from devgodzilla.spec import get_step_spec as get_step_spec_from_template
 from devgodzilla.services.base import Service, ServiceContext
 from devgodzilla.services.events import get_event_bus, StepStarted, StepCompleted, StepFailed
+from devgodzilla.services.clarifier import ClarifierService
+from devgodzilla.services.policy import PolicyService
 
 logger = get_logger(__name__)
+
+def _normalize_policy_enforcement_mode(mode: Optional[str]) -> str:
+    if mode is None:
+        return "warn"
+    value = str(mode).strip().lower()
+    mapping = {
+        "advisory": "warn",
+        "mandatory": "block",
+        "enforce": "block",
+        "blocking": "block",
+    }
+    return mapping.get(value, value)
 
 
 @dataclass
@@ -150,7 +164,59 @@ class ExecutionService(Service):
                 protocol_run_id=run.id,
             ),
         )
-        
+
+        enforcement_mode = _normalize_policy_enforcement_mode(project.policy_enforcement_mode)
+        if enforcement_mode == "block":
+            clarifier = ClarifierService(self.context, self.db)
+            blocked = any(
+                clarifier.has_blocking_open(**params)
+                for params in (
+                    {"project_id": project.id},
+                    {"protocol_run_id": run.id},
+                    {"step_run_id": step.id},
+                )
+            )
+            if blocked:
+                self.db.update_step_status(step_run_id, StepStatus.BLOCKED, summary="Blocked on clarifications")
+                self.db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+                return ExecutionResult(
+                    success=False,
+                    step_run_id=step_run_id,
+                    engine_id=engine_id or step.engine_id or "unknown",
+                    error="Blocked on clarifications",
+                )
+
+            policy_service = PolicyService(self.context, self.db)
+            workspace_root = (
+                Path(run.worktree_path).expanduser()
+                if run.worktree_path
+                else (Path(project.local_path).expanduser() if project.local_path else Path.cwd())
+            )
+            effective = policy_service.resolve_effective_policy(
+                project.id,
+                repo_root=workspace_root,
+                include_repo_local=True,
+            )
+            findings = policy_service.evaluate_step(step_run_id, repo_root=workspace_root)
+            enforced = PolicyService.apply_enforcement_mode(findings, enforcement_mode, policy=effective.policy)
+            if PolicyService.has_blocking_findings(enforced):
+                for finding in enforced:
+                    self.db.append_event(
+                        protocol_run_id=run.id,
+                        event_type="policy_finding",
+                        message=f"{finding.code}: {finding.message}",
+                        metadata=finding.asdict(),
+                        step_run_id=step_run_id,
+                    )
+                self.db.update_step_status(step_run_id, StepStatus.BLOCKED, summary="Blocked by policy findings")
+                self.db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+                return ExecutionResult(
+                    success=False,
+                    step_run_id=step_run_id,
+                    engine_id=engine_id or step.engine_id or "unknown",
+                    error="Blocked by policy findings",
+                )
+
         # Mark as running
         self.db.update_step_status(step_run_id, StepStatus.RUNNING)
         self.db.update_protocol_status(run.id, ProtocolStatus.RUNNING)
@@ -272,15 +338,17 @@ class ExecutionService(Service):
         
         if run.protocol_root:
             protocol_root = Path(run.protocol_root)
+            if not protocol_root.is_absolute():
+                protocol_root = workspace_root / protocol_root
         else:
+            specs = workspace_root / "specs" / run.protocol_name
             protocols = workspace_root / ".protocols" / run.protocol_name
-            specify = workspace_root / ".specify" / "specs" / run.protocol_name
-            if protocols.exists():
+            if specs.exists():
+                protocol_root = specs
+            elif protocols.exists():
                 protocol_root = protocols
-            elif specify.exists():
-                protocol_root = specify
             else:
-                protocol_root = protocols
+                protocol_root = specs
         
         # Get step spec from template config
         step_spec = get_step_spec_from_template(run.template_config, step.step_name)

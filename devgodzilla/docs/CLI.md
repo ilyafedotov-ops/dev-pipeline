@@ -69,7 +69,7 @@ Options:
 
 **Example:**
 ```bash
-devgodzilla spec plan .specify/specs/001-auth/spec.md
+devgodzilla spec plan specs/001-auth/spec.md
 ```
 
 ### `spec tasks`
@@ -86,7 +86,7 @@ Options:
 
 **Example:**
 ```bash
-devgodzilla spec tasks .specify/specs/001-auth/plan.md
+devgodzilla spec tasks specs/001-auth/plan.md
 ```
 
 ### `spec list`

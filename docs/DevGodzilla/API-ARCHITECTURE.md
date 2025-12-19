@@ -323,7 +323,7 @@ Content-Type: application/json
   "spec_id": "spec-123",
   "feature_name": "User Authentication",
   "branch_name": "feature/auth",
-  "spec_path": ".specify/specs/feature-auth/feature-spec.md",
+  "spec_path": "specs/feature-auth/spec.md",
   "user_stories": [
     {
       "id": "US1",
@@ -358,7 +358,7 @@ Content-Type: application/json
 ```json
 {
   "tasks_id": "tasks-789",
-  "tasks_path": ".specify/specs/feature-auth/tasks.md",
+  "tasks_path": "specs/feature-auth/tasks.md",
   "phases": [
     {
       "phase": 1,
@@ -500,7 +500,7 @@ POST /protocols/{id}/flow
 Content-Type: application/json
 
 {
-  "tasks_path": ".specify/specs/feature-auth/tasks.md"
+  "tasks_path": "specs/feature-auth/tasks.md"
 }
 ```
 

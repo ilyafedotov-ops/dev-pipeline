@@ -198,9 +198,12 @@ class PlanningService(Service):
                 error="Could not resolve workspace path",
             )
 
-        # Ensure worktree for reproducible, isolated execution.
-        # Uses the project repo root (local_path) as the base; updates run.worktree_path.
-        if not run.worktree_path:
+        # Resolve protocol root early (used to decide whether to create a worktree)
+        protocol_root = self._resolve_protocol_root(run, workspace)
+        has_runtime_steps = protocol_root.exists() and any(protocol_root.glob("step-*.md"))
+
+        # Ensure worktree for reproducible, isolated execution unless runtime steps already exist.
+        if not run.worktree_path and not has_runtime_steps:
             git_service = self.git_service
             if git_service is None:
                 try:
@@ -222,14 +225,12 @@ class PlanningService(Service):
                     )
                     run = self.db.update_protocol_paths(protocol_run_id, worktree_path=str(worktree))
                     workspace = worktree
+                    protocol_root = self._resolve_protocol_root(run, workspace)
                 except Exception as e:
                     self.logger.warning(
                         "worktree_setup_failed",
                         extra={**log_extra, "error": str(e), "repo_root": project.local_path},
                     )
-        
-        # Resolve protocol root
-        protocol_root = self._resolve_protocol_root(run, workspace)
 
         # If protocol files are missing, optionally generate them via agent (headless SWE mode).
         auto_generate = os.environ.get("DEVGODZILLA_AUTO_GENERATE_PROTOCOL", "true").lower() in (

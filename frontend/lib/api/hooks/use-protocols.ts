@@ -7,6 +7,8 @@ import type {
   ProtocolRun,
   ProtocolCreate,
   ProtocolSpec,
+  ProtocolFromSpecRequest,
+  ProtocolFromSpecResponse,
   StepRun,
   Event,
   CodexRun,
@@ -66,6 +68,29 @@ export function useCreateProtocol() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.projects.protocols(projectId),
       })
+    },
+  })
+}
+
+export function useCreateProtocolFromSpec() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: ProtocolFromSpecRequest) =>
+      apiClient.post<ProtocolFromSpecResponse>("/protocols/from-spec", request),
+    onSuccess: (response, variables) => {
+      if (response.protocol?.project_id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.projects.protocols(response.protocol.project_id),
+        })
+      }
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.specifications.all,
+      })
+      if (variables.project_id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.projects.detail(variables.project_id),
+        })
+      }
     },
   })
 }

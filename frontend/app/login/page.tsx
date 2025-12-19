@@ -29,7 +29,7 @@ export default function LoginPage() {
       await login(email, password)
       toast.success("Successfully logged in")
       router.push(redirect)
-    } catch (error) {
+    } catch {
       toast.error("Login failed. Please try again.")
     } finally {
       setIsLoading(false)
@@ -40,7 +40,7 @@ export default function LoginPage() {
     setIsLoading(true)
     try {
       await loginWithSSO()
-    } catch (error) {
+    } catch {
       toast.error("SSO login failed")
       setIsLoading(false)
     }

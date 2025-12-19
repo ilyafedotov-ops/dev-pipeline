@@ -124,6 +124,7 @@ def main(
         return {"success": False, "error": f"Project path does not exist: {project_path}"}
     
     specify_dir = path / ".specify"
+    specs_dir = path / "specs"
     paths_created = []
     
     try:
@@ -132,7 +133,7 @@ def main(
             specify_dir,
             specify_dir / "memory",
             specify_dir / "templates",
-            specify_dir / "specs",
+            specs_dir,
         ]
         
         for dir_path in dirs_to_create:
@@ -162,7 +163,7 @@ def main(
         
         # Add .specify to .gitignore runtime section
         gitignore_path = path / ".gitignore"
-        gitignore_entry = "\n# DevGodzilla runtime artifacts\n.specify/specs/*/_runtime/runs/\n"
+        gitignore_entry = "\n# DevGodzilla runtime artifacts\nspecs/*/_runtime/runs/\n"
         
         if gitignore_path.exists():
             content = gitignore_path.read_text()

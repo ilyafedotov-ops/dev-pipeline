@@ -7,6 +7,7 @@ Policies define governance rules for projects, protocols, and steps.
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -93,29 +94,34 @@ def _load_repo_local_policy(repo_root: Path) -> Optional[Dict[str, Any]]:
     Best-effort loader for repo-local override policy.
     
     Supports JSON always; YAML only if PyYAML is available.
-    Looks for: .devgodzilla/policy.json, .devgodzilla/policy.yaml
+    Looks for: .devgodzilla/policy.(json|yaml|yml), .tasksgodzilla/policy.(json|yaml|yml)
     """
-    policy_dir = repo_root / ".devgodzilla"
-    
-    # Try JSON first
-    json_path = policy_dir / "policy.json"
-    if json_path.exists():
-        try:
-            return json.loads(json_path.read_text())
-        except Exception:
-            pass
-    
-    # Try YAML if available
-    yaml_path = policy_dir / "policy.yaml"
-    if yaml_path.exists():
-        try:
-            import yaml
-            return yaml.safe_load(yaml_path.read_text())
-        except ImportError:
-            pass
-        except Exception:
-            pass
-    
+    policy_dirs = [repo_root / ".devgodzilla", repo_root / ".tasksgodzilla"]
+    json_names = ["policy.json"]
+    yaml_names = ["policy.yaml", "policy.yml"]
+
+    for policy_dir in policy_dirs:
+        # Try JSON first
+        for name in json_names:
+            json_path = policy_dir / name
+            if json_path.exists():
+                try:
+                    return json.loads(json_path.read_text())
+                except Exception:
+                    pass
+
+        # Try YAML if available
+        for name in yaml_names:
+            yaml_path = policy_dir / name
+            if yaml_path.exists():
+                try:
+                    import yaml
+                    return yaml.safe_load(yaml_path.read_text())
+                except ImportError:
+                    pass
+                except Exception:
+                    pass
+
     return None
 
 
@@ -489,3 +495,57 @@ class PolicyService(Service):
             policy_effective_hash=effective_hash,
             policy_effective_json=policy,
         )
+
+    def render_constitution(self, effective: EffectivePolicy) -> str:
+        """Render a SpecKit constitution document from an effective policy."""
+        policy = dict(effective.policy)
+        meta = policy.get("meta")
+        if not isinstance(meta, dict):
+            meta = {}
+        meta.setdefault("key", effective.pack_key)
+        meta.setdefault("version", effective.pack_version)
+        policy["meta"] = meta
+
+        policy_json = json.dumps(policy, indent=2, sort_keys=True)
+
+        lines = [
+            "# Project Constitution",
+            "",
+            "## Policy Pack",
+            f"- key: {meta.get('key', effective.pack_key)}",
+            f"- version: {meta.get('version', effective.pack_version)}",
+            "",
+            "## Policy JSON",
+            "```json",
+            policy_json,
+            "```",
+            "",
+        ]
+        return "\n".join(lines)
+
+    def parse_constitution_policy(self, content: str) -> Optional[Dict[str, Any]]:
+        """Extract policy JSON from a constitution document."""
+        match = re.search(r"```json\\s*(\\{.*?\\})\\s*```", content, re.DOTALL)
+        if not match:
+            return None
+        try:
+            payload = json.loads(match.group(1))
+        except Exception:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def policy_override_from_constitution(
+        self,
+        content: str,
+    ) -> tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Extract a policy override payload + meta from constitution content.
+        
+        Returns (override, meta).
+        """
+        payload = self.parse_constitution_policy(content)
+        if not payload:
+            return None, {}
+        meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+        override = _sanitize_policy_override(payload)
+        return override or None, meta

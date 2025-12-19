@@ -12,9 +12,25 @@ from devgodzilla.services.orchestrator import OrchestratorMode, OrchestratorServ
 from devgodzilla.services.planning import PlanningService
 from devgodzilla.services.policy import PolicyService
 from devgodzilla.services.sprint_integration import SprintIntegrationService
+from devgodzilla.services.spec_to_protocol import SpecToProtocolService
 from devgodzilla.windmill.client import WindmillClient
 
 router = APIRouter()
+
+def _policy_location(metadata: Optional[dict]) -> Optional[str]:
+    if not metadata:
+        return None
+    if isinstance(metadata.get("location"), str):
+        return metadata["location"]
+    file_name = metadata.get("file") or metadata.get("path")
+    section = metadata.get("section") or metadata.get("heading")
+    if file_name and section:
+        return f"{file_name}#{section}"
+    if file_name:
+        return str(file_name)
+    if section:
+        return str(section)
+    return None
 
 
 def get_sprint_integration(db: Database = Depends(get_db)) -> SprintIntegrationService:
@@ -38,14 +54,17 @@ def _workspace_root(run, project) -> Path:
 
 def _protocol_root(run, workspace_root: Path) -> Path:
     if run.protocol_root:
-        return Path(run.protocol_root).expanduser()
+        candidate = Path(run.protocol_root).expanduser()
+        if candidate.is_absolute():
+            return candidate
+        return workspace_root / candidate
+    specs = workspace_root / "specs" / run.protocol_name
     protocols = workspace_root / ".protocols" / run.protocol_name
-    specify = workspace_root / ".specify" / "specs" / run.protocol_name
+    if specs.exists():
+        return specs
     if protocols.exists():
         return protocols
-    if specify.exists():
-        return specify
-    return protocols
+    return specs
 
 
 def _artifact_type_from_name(name: str) -> str:
@@ -72,6 +91,23 @@ class ProjectProtocolCreate(BaseModel):
 
 class CreateFlowRequest(BaseModel):
     tasks_path: Optional[str] = None
+
+
+class ProtocolFromSpecRequest(BaseModel):
+    project_id: int
+    spec_path: Optional[str] = None
+    tasks_path: Optional[str] = None
+    protocol_name: Optional[str] = None
+    overwrite: bool = False
+
+
+class ProtocolFromSpecResponse(BaseModel):
+    success: bool
+    protocol: Optional[schemas.ProtocolOut] = None
+    protocol_root: Optional[str] = None
+    step_count: int = 0
+    warnings: List[str] = Field(default_factory=list)
+    error: Optional[str] = None
 
 
 @router.get("/projects/{project_id}/protocols", response_model=List[schemas.ProtocolOut])
@@ -138,6 +174,43 @@ def create_protocol(
     # We could add an option 'plan: bool = False' to trigger it.
     
     return run
+
+
+@router.post("/protocols/from-spec", response_model=ProtocolFromSpecResponse)
+def create_protocol_from_spec(
+    request: ProtocolFromSpecRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
+    """Create a protocol run from SpecKit tasks/spec artifacts."""
+    try:
+        db.get_project(request.project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    service = SpecToProtocolService(ctx, db)
+    result = service.create_protocol_from_spec(
+        project_id=request.project_id,
+        spec_path=request.spec_path,
+        tasks_path=request.tasks_path,
+        protocol_name=request.protocol_name,
+        overwrite=request.overwrite,
+    )
+    if not result.success:
+        return ProtocolFromSpecResponse(
+            success=False,
+            error=result.error or "Protocol creation failed",
+            warnings=result.warnings,
+        )
+
+    protocol = db.get_protocol_run(result.protocol_run_id) if result.protocol_run_id else None
+    return ProtocolFromSpecResponse(
+        success=True,
+        protocol=schemas.ProtocolOut.model_validate(protocol) if protocol else None,
+        protocol_root=result.protocol_root,
+        step_count=result.step_count,
+        warnings=result.warnings,
+    )
 
 @router.get("/protocols", response_model=List[schemas.ProtocolOut])
 def list_protocols(
@@ -659,6 +732,7 @@ def get_protocol_policy_findings(
             severity=f.severity,
             message=f.message,
             scope=f.scope,
+            location=_policy_location(f.metadata),
             suggested_fix=f.suggested_fix,
             metadata=f.metadata,
         )

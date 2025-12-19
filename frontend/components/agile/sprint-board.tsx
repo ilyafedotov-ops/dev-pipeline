@@ -27,7 +27,7 @@ import {
   Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { AgileTask, TaskType, TaskPriority, TaskBoardStatus, Sprint } from "@/lib/api/types"
+import type { AgileTask, AgileTaskCreate, AgileTaskUpdate, TaskType, TaskPriority, TaskBoardStatus, Sprint } from "@/lib/api/types"
 import { TaskModal } from "./task-modal"
 import { toast } from "sonner"
 
@@ -59,10 +59,9 @@ interface SprintBoardProps {
   tasks: AgileTask[]
   sprints: Sprint[]
   onTaskUpdate: (taskId: number, data: { board_status: TaskBoardStatus }) => Promise<void>
-  onTaskCreate: (data: any) => Promise<void>
-  onTaskEdit: (taskId: number, data: any) => Promise<void>
+  onTaskCreate: (data: AgileTaskCreate) => Promise<void>
+  onTaskEdit: (taskId: number, data: AgileTaskUpdate) => Promise<void>
   showBacklog?: boolean
-  projectId: number
 }
 
 export function SprintBoard({
@@ -72,7 +71,6 @@ export function SprintBoard({
   onTaskCreate,
   onTaskEdit,
   showBacklog = true,
-  projectId,
 }: SprintBoardProps) {
   const [draggedTask, setDraggedTask] = useState<AgileTask | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<TaskBoardStatus | null>(null)
@@ -113,7 +111,7 @@ export function SprintBoard({
       try {
         await onTaskUpdate(draggedTask.id, { board_status: status })
         toast.success(`Task moved to ${columns.find((c) => c.id === status)?.title}`)
-      } catch (error) {
+      } catch {
         toast.error("Failed to move task")
       }
     }
@@ -125,7 +123,7 @@ export function SprintBoard({
     setDragOverColumn(null)
   }
 
-  const openCreateModal = (status?: TaskBoardStatus) => {
+  const openCreateModal = () => {
     setSelectedTask(null)
     setModalMode("create")
     setModalOpen(true)
@@ -143,11 +141,11 @@ export function SprintBoard({
     setModalOpen(true)
   }
 
-  const handleModalSave = async (data: any) => {
+  const handleModalSave = async (data: AgileTaskCreate | AgileTaskUpdate) => {
     if (modalMode === "create") {
-      await onTaskCreate({ ...data, project_id: projectId })
+      await onTaskCreate(data as AgileTaskCreate)
     } else if (modalMode === "edit" && selectedTask) {
-      await onTaskEdit(selectedTask.id, data)
+      await onTaskEdit(selectedTask.id, data as AgileTaskUpdate)
     }
   }
 

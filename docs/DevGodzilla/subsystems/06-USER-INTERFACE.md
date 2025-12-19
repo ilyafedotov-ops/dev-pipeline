@@ -894,7 +894,7 @@ devgodzilla speckit plan                    # Generate plan
 devgodzilla speckit tasks                   # Generate tasks
 
 # Protocol execution
-devgodzilla protocol create <project-id> --tasks-path .specify/specs/.../tasks.md
+devgodzilla protocol create <project-id> --tasks-path specs/.../tasks.md
 devgodzilla protocol start <protocol-id>
 devgodzilla protocol status <protocol-id>
 devgodzilla protocol watch <protocol-id>    # Stream logs

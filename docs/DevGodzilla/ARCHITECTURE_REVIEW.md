@@ -10,7 +10,7 @@ This document captures an end-to-end architecture review of the **DevGodzilla** 
 
 ## Implementation Status (As of 2025-12-18)
 
-- SpecKit: **template-based** and does **not** require an external `specify` binary (`devgodzilla/services/specification.py`).
+- SpecKit: **agent-assisted** (prompt-driven) and does **not** require an external `specify` binary (`devgodzilla/services/specification.py`).
 - Windmill execution model: **standardized on API-wrapper scripts** for supported flows (see `docs/DevGodzilla/CURRENT_STATE.md`).
 - Events/SSE: **DB-backed events table + SSE stream** (EventBus events are persisted; `/events` streams from DB).
 - Auth/CORS: **configurable** via env (`DEVGODZILLA_API_TOKEN`, `DEVGODZILLA_CORS_ORIGINS`).
@@ -73,7 +73,7 @@ See: `docker-compose.yml`, `DEPLOYMENT.md`, `README.md`.
 
 ### 1) SpecKit integration: documentation vs implementation mismatch
 
-Resolved: current SpecKit implementation is template-based and does not call an external `specify` CLI.
+Resolved: current SpecKit implementation is agent-assisted (prompt-driven) and does not call an external `specify` CLI.
 
 **Why it matters**
 - Deployment and reproducibility: the stack behavior differs depending on whether `specify` is installed in the runtime.

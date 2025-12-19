@@ -19,11 +19,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
+  const basePath =
+    process.env.NEXT_PUBLIC_BASE_PATH ||
+    (typeof window !== "undefined" && window.location.pathname.startsWith("/console") ? "/console" : "")
 
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const response = await fetch("/api/auth/me")
+        const response = await fetch(`${basePath}/api/auth/me`)
         if (response.ok) {
           const userData = await response.json()
           setUser(userData)
@@ -42,9 +45,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     checkAuth()
     // </CHANGE>
-  }, [])
+  }, [basePath])
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, _password: string) => {
     setIsLoading(true)
     try {
       // Mock email/password login
@@ -64,13 +67,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithSSO = async () => {
     const currentPath = window.location.pathname
-    window.location.href = `/api/auth/login?redirect=${encodeURIComponent(currentPath)}`
+    window.location.href = `${basePath}/api/auth/login?redirect=${encodeURIComponent(currentPath)}`
   }
   // </CHANGE>
 
   const logout = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST" })
+      await fetch(`${basePath}/api/auth/logout`, { method: "POST" })
     } catch (error) {
       console.error("[v0] Logout failed:", error)
     }

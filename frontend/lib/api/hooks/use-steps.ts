@@ -29,7 +29,6 @@ export function useStepAction() {
   return useMutation({
     mutationFn: ({
       stepId,
-      protocolId,
       action,
     }: {
       stepId: number

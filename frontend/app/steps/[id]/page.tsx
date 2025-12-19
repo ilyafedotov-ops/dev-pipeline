@@ -181,7 +181,7 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
         </TabsList>
 
         <TabsContent value="runs">
-          <StepRunsTab stepId={stepId} runs={runs} isLoading={runsLoading} />
+          <StepRunsTab runs={runs} isLoading={runsLoading} />
         </TabsContent>
         <TabsContent value="policy">
           <StepPolicyTab findings={findings} />
@@ -191,15 +191,7 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
   )
 }
 
-function StepRunsTab({
-  stepId,
-  runs,
-  isLoading,
-}: {
-  stepId: number
-  runs: CodexRun[] | undefined
-  isLoading: boolean
-}) {
+function StepRunsTab({ runs, isLoading }: { runs: CodexRun[] | undefined; isLoading: boolean }) {
   const columns: ColumnDef<CodexRun>[] = [
     {
       accessorKey: "run_id",

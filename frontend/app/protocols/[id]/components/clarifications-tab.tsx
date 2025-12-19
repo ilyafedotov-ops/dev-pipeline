@@ -13,6 +13,14 @@ import { toast } from "sonner"
 import { formatRelativeTime } from "@/lib/format"
 import type { Clarification } from "@/lib/api/types"
 
+const resolveClarificationText = (value: Clarification["answer"] | Clarification["recommended"]) => {
+  if (!value) return ""
+  if (typeof value === "string") return value
+  const candidate =
+    value.text || value.value || value.answer || value.recommended || value.default || value.option || ""
+  return typeof candidate === "string" ? candidate : ""
+}
+
 interface ClarificationsTabProps {
   protocolId: number
 }
@@ -62,16 +70,21 @@ export function ClarificationsTab({ protocolId }: ClarificationsTabProps) {
 }
 
 function ClarificationCard({ clarification, protocolId }: { clarification: Clarification; protocolId: number }) {
-  const [answer, setAnswer] = useState(clarification.answer || "")
+  const [answer, setAnswer] = useState(resolveClarificationText(clarification.answer))
   const answerMutation = useAnswerClarification()
+  const clarificationKey = clarification.key || ""
 
   const handleSubmit = async () => {
     if (!answer.trim()) return
+    if (!clarificationKey) {
+      toast.error("Clarification key missing")
+      return
+    }
     try {
       await answerMutation.mutateAsync({
         scope: "protocol",
         scopeId: protocolId,
-        key: clarification.key,
+        key: clarificationKey,
         answer: answer.trim(),
       })
       toast.success("Answer submitted")
@@ -90,7 +103,9 @@ function ClarificationCard({ clarification, protocolId }: { clarification: Clari
             ) : (
               <Unlock className="h-4 w-4 text-muted-foreground" />
             )}
-            <CardTitle className="text-base font-mono">{clarification.key}</CardTitle>
+            <CardTitle className="text-base font-mono">
+              {clarificationKey || `clarification-${clarification.id}`}
+            </CardTitle>
           </div>
           {clarification.status === "answered" && <CheckCircle2 className="h-5 w-5 text-green-500" />}
         </div>
@@ -101,7 +116,7 @@ function ClarificationCard({ clarification, protocolId }: { clarification: Clari
 
         {clarification.recommended && (
           <p className="text-sm text-muted-foreground">
-            Recommended: <span className="font-medium">{clarification.recommended}</span>
+            Recommended: <span className="font-medium">{resolveClarificationText(clarification.recommended)}</span>
           </p>
         )}
 
@@ -130,7 +145,7 @@ function ClarificationCard({ clarification, protocolId }: { clarification: Clari
         ) : (
           <div className="rounded-lg bg-muted p-3">
             <p className="text-sm">
-              <span className="font-medium">Answer:</span> {clarification.answer}
+              <span className="font-medium">Answer:</span> {resolveClarificationText(clarification.answer)}
             </p>
             {clarification.answered_by && (
               <p className="text-xs text-muted-foreground mt-1">

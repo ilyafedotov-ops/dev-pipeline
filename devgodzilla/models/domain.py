@@ -277,7 +277,7 @@ class SpecKitSpec:
     """
     SpecKit specification tracking.
     
-    Links to the spec files (feature-spec.md, plan.md, tasks.md).
+    Links to the spec files (spec.md, plan.md, tasks.md).
     """
     id: int
     protocol_run_id: int

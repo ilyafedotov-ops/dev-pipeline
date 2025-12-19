@@ -5,7 +5,8 @@ REST endpoints for SpecKit integration: initialization, spec generation,
 planning, and task management.
 """
 
-from typing import List, Optional
+from typing import Any, List, Optional
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -14,6 +15,7 @@ from devgodzilla.api.dependencies import get_db, get_service_context
 from devgodzilla.db.database import Database
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.specification import SpecificationService
+from devgodzilla.services.policy import PolicyService
 
 router = APIRouter(prefix="/speckit", tags=["SpecKit"])
 
@@ -71,6 +73,62 @@ class TasksResponse(BaseModel):
     error: Optional[str] = None
 
 
+class ClarificationEntry(BaseModel):
+    question: str
+    answer: str
+
+
+class ClarifyRequest(BaseModel):
+    project_id: int
+    spec_path: str = Field(..., description="Path to spec file")
+    entries: List[ClarificationEntry] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
+class ClarifyResponse(BaseModel):
+    success: bool
+    spec_path: Optional[str] = None
+    clarifications_added: int = 0
+    error: Optional[str] = None
+
+
+class ChecklistRequest(BaseModel):
+    project_id: int
+    spec_path: str = Field(..., description="Path to spec file")
+
+
+class ChecklistResponse(BaseModel):
+    success: bool
+    checklist_path: Optional[str] = None
+    item_count: int = 0
+    error: Optional[str] = None
+
+
+class AnalyzeRequest(BaseModel):
+    project_id: int
+    spec_path: str = Field(..., description="Path to spec file")
+    plan_path: Optional[str] = None
+    tasks_path: Optional[str] = None
+
+
+class AnalyzeResponse(BaseModel):
+    success: bool
+    report_path: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ImplementRequest(BaseModel):
+    project_id: int
+    spec_path: str = Field(..., description="Path to spec file")
+
+
+class ImplementResponse(BaseModel):
+    success: bool
+    run_path: Optional[str] = None
+    metadata_path: Optional[str] = None
+    error: Optional[str] = None
+
+
 class ConstitutionRequest(BaseModel):
     content: str = Field(..., min_length=10)
 
@@ -98,6 +156,7 @@ def init_speckit(
     request: InitRequest,
     db: Database = Depends(get_db),
     service: SpecificationService = Depends(get_specification_service),
+    ctx: ServiceContext = Depends(get_service_context),
 ):
     """Initialize SpecKit for a project."""
     project = db.get_project(request.project_id)
@@ -107,9 +166,19 @@ def init_speckit(
     if not project.local_path:
         raise HTTPException(status_code=400, detail="Project has no local path")
 
+    constitution_content = request.constitution_content
+    if constitution_content is None:
+        policy_service = PolicyService(ctx, db)
+        effective = policy_service.resolve_effective_policy(
+            request.project_id,
+            repo_root=Path(project.local_path).expanduser(),
+            include_repo_local=True,
+        )
+        constitution_content = policy_service.render_constitution(effective)
+
     result = service.init_project(
         project.local_path,
-        constitution_content=request.constitution_content,
+        constitution_content=constitution_content,
         project_id=request.project_id,
     )
 
@@ -146,6 +215,7 @@ def save_constitution(
     request: ConstitutionRequest,
     db: Database = Depends(get_db),
     service: SpecificationService = Depends(get_specification_service),
+    ctx: ServiceContext = Depends(get_service_context),
 ):
     """Save project constitution."""
     project = db.get_project(project_id)
@@ -157,12 +227,24 @@ def save_constitution(
         request.content,
         project_id=project_id,
     )
+    policy_service = PolicyService(ctx, db)
+    override, meta = policy_service.policy_override_from_constitution(request.content)
+    updates: dict[str, Any] = {}
+    if isinstance(meta.get("key"), str):
+        updates["policy_pack_key"] = meta["key"]
+    if isinstance(meta.get("version"), str):
+        updates["policy_pack_version"] = meta["version"]
+    if override is not None:
+        updates["policy_overrides"] = override
+    if updates:
+        db.update_project_policy(project_id, **updates)
 
     return SpecKitResponse(
         success=result.success,
         path=result.spec_path,
         constitution_hash=result.constitution_hash,
         error=result.error,
+        warnings=result.warnings,
     )
 
 
@@ -241,6 +323,109 @@ def run_tasks(
         tasks_path=result.tasks_path,
         task_count=result.task_count,
         parallelizable_count=result.parallelizable_count,
+        error=result.error,
+    )
+
+
+@router.post("/clarify", response_model=ClarifyResponse)
+def run_clarify(
+    request: ClarifyRequest,
+    db: Database = Depends(get_db),
+    service: SpecificationService = Depends(get_specification_service),
+):
+    """Append clarifications to an existing specification."""
+    project = db.get_project(request.project_id)
+    if not project or not project.local_path:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    result = service.run_clarify(
+        project.local_path,
+        request.spec_path,
+        entries=[entry.dict() for entry in request.entries],
+        notes=request.notes,
+        project_id=request.project_id,
+    )
+
+    return ClarifyResponse(
+        success=result.success,
+        spec_path=result.spec_path,
+        clarifications_added=result.clarifications_added,
+        error=result.error,
+    )
+
+
+@router.post("/checklist", response_model=ChecklistResponse)
+def run_checklist(
+    request: ChecklistRequest,
+    db: Database = Depends(get_db),
+    service: SpecificationService = Depends(get_specification_service),
+):
+    """Generate a checklist for a spec."""
+    project = db.get_project(request.project_id)
+    if not project or not project.local_path:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    result = service.run_checklist(
+        project.local_path,
+        request.spec_path,
+        project_id=request.project_id,
+    )
+
+    return ChecklistResponse(
+        success=result.success,
+        checklist_path=result.checklist_path,
+        item_count=result.item_count,
+        error=result.error,
+    )
+
+
+@router.post("/analyze", response_model=AnalyzeResponse)
+def run_analyze(
+    request: AnalyzeRequest,
+    db: Database = Depends(get_db),
+    service: SpecificationService = Depends(get_specification_service),
+):
+    """Generate a placeholder analysis report for a spec."""
+    project = db.get_project(request.project_id)
+    if not project or not project.local_path:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    result = service.run_analyze(
+        project.local_path,
+        request.spec_path,
+        plan_path=request.plan_path,
+        tasks_path=request.tasks_path,
+        project_id=request.project_id,
+    )
+
+    return AnalyzeResponse(
+        success=result.success,
+        report_path=result.report_path,
+        error=result.error,
+    )
+
+
+@router.post("/implement", response_model=ImplementResponse)
+def run_implement(
+    request: ImplementRequest,
+    db: Database = Depends(get_db),
+    service: SpecificationService = Depends(get_specification_service),
+):
+    """Initialize an implementation run directory."""
+    project = db.get_project(request.project_id)
+    if not project or not project.local_path:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    result = service.run_implement(
+        project.local_path,
+        request.spec_path,
+        project_id=request.project_id,
+    )
+
+    return ImplementResponse(
+        success=result.success,
+        run_path=result.run_path,
+        metadata_path=result.metadata_path,
         error=result.error,
     )
 

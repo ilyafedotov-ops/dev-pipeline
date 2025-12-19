@@ -20,6 +20,9 @@ router = APIRouter(tags=["specifications"])
 class SpecificationOut(BaseModel):
     id: int
     path: str
+    spec_path: Optional[str] = None
+    plan_path: Optional[str] = None
+    tasks_path: Optional[str] = None
     title: str
     project_id: int
     project_name: str
@@ -60,6 +63,7 @@ class SpecificationContentOut(BaseModel):
     spec_content: Optional[str] = None
     plan_content: Optional[str] = None
     tasks_content: Optional[str] = None
+    checklist_content: Optional[str] = None
 
 
 class SpecificationsListOut(BaseModel):
@@ -144,6 +148,11 @@ def list_specifications(
     all_specifications = []
     spec_id = 0
     
+    def _spec_value(item: Any, key: str, default: Any = None) -> Any:
+        if isinstance(item, dict):
+            return item.get(key, default)
+        return getattr(item, key, default)
+
     for project in projects:
         if not project or not project.local_path:
             continue
@@ -167,11 +176,15 @@ def list_specifications(
                 spec_id += 1
                 
                 # Determine status based on what exists
-                if spec.has_tasks:
+                has_tasks_value = bool(_spec_value(spec, "has_tasks", False))
+                has_plan_value = bool(_spec_value(spec, "has_plan", False))
+                has_spec_value = bool(_spec_value(spec, "has_spec", False))
+
+                if has_tasks_value:
                     spec_status = "completed"
-                elif spec.has_plan:
+                elif has_plan_value:
                     spec_status = "in-progress"
-                elif spec.has_spec:
+                elif has_spec_value:
                     spec_status = "draft"
                 else:
                     continue  # Skip if no spec file
@@ -181,31 +194,31 @@ def list_specifications(
                     continue
                 
                 # Apply has_plan filter
-                if has_plan is not None and spec.has_plan != has_plan:
+                if has_plan is not None and has_plan_value != has_plan:
                     continue
                 
                 # Apply has_tasks filter
-                if has_tasks is not None and spec.has_tasks != has_tasks:
+                if has_tasks is not None and has_tasks_value != has_tasks:
                     continue
                 
                 # Try to extract title from spec name
-                title = spec.name.replace("-", " ").replace("_", " ").title()
+                spec_name = _spec_value(spec, "name", "spec")
+                title = spec_name.replace("-", " ").replace("_", " ").title()
                 if title.startswith("Feature "):
                     title = title[8:]
                 
                 # Apply search filter
                 if search:
                     search_lower = search.lower()
-                    if search_lower not in title.lower() and search_lower not in spec.path.lower():
+                    spec_path_value = str(_spec_value(spec, "path", ""))
+                    if search_lower not in title.lower() and search_lower not in spec_path_value.lower():
                         continue
                 
                 # Get spec file modification time for date filtering
                 spec_created_at = None
                 try:
-                    spec_dir = Path(project.local_path) / spec.path
-                    spec_file = spec_dir / "feature-spec.md"
-                    if not spec_file.exists():
-                        spec_file = spec_dir / "spec.md"
+                    spec_dir = Path(project.local_path) / _spec_value(spec, "path", "")
+                    spec_file = spec_dir / "spec.md"
                     if spec_file.exists():
                         stat = spec_file.stat()
                         spec_created_at = datetime.fromtimestamp(stat.st_mtime).isoformat()
@@ -231,7 +244,7 @@ def list_specifications(
                     except ValueError:
                         pass
                 
-                spec_slug = Path(spec.path).name
+                spec_slug = Path(_spec_value(spec, "path", "")).name
                 spec_tasks = spec_task_map.get(spec_slug, [])
                 linked_tasks = len(spec_tasks)
                 completed_tasks = sum(1 for t in spec_tasks if t.board_status == "done")
@@ -256,18 +269,21 @@ def list_specifications(
                 
                 all_specifications.append(SpecificationOut(
                     id=spec_id,
-                    path=spec.path,
+                    path=_spec_value(spec, "path", ""),
+                    spec_path=_spec_value(spec, "spec_path"),
+                    plan_path=_spec_value(spec, "plan_path"),
+                    tasks_path=_spec_value(spec, "tasks_path"),
                     title=title,
                     project_id=project.id,
                     project_name=project.name,
                     status=spec_status,
                     created_at=spec_created_at,
-                    tasks_generated=spec.has_tasks,
+                    tasks_generated=has_tasks_value,
                     linked_tasks=linked_tasks,
                     completed_tasks=completed_tasks,
                     story_points=story_points,
-                    has_plan=spec.has_plan,
-                    has_tasks=spec.has_tasks,
+                    has_plan=has_plan_value,
+                    has_tasks=has_tasks_value,
                     sprint_id=spec_sprint_id,
                     sprint_name=spec_sprint_name,
                 ))
@@ -331,11 +347,10 @@ def get_specification_content(
     spec_content = None
     plan_content = None
     tasks_content = None
+    checklist_content = None
     
-    # Read feature-spec.md (fallback to spec.md)
-    spec_file = spec_dir / "feature-spec.md"
-    if not spec_file.exists():
-        spec_file = spec_dir / "spec.md"
+    # Read spec.md
+    spec_file = spec_dir / "spec.md"
     if spec_file.exists():
         try:
             spec_content = spec_file.read_text()
@@ -357,6 +372,14 @@ def get_specification_content(
             tasks_content = tasks_file.read_text()
         except Exception:
             pass
+
+    # Read checklist.md
+    checklist_file = spec_dir / "checklist.md"
+    if checklist_file.exists():
+        try:
+            checklist_content = checklist_file.read_text()
+        except Exception:
+            pass
     
     return SpecificationContentOut(
         id=spec_id,
@@ -365,6 +388,7 @@ def get_specification_content(
         spec_content=spec_content,
         plan_content=plan_content,
         tasks_content=tasks_content,
+        checklist_content=checklist_content,
     )
 
 

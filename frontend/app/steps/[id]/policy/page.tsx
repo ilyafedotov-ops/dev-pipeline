@@ -1,5 +1,4 @@
 "use client"
-import { use } from "react"
 
 import { useStepPolicyFindings } from "@/lib/api"
 import { LoadingState } from "@/components/ui/loading-state"
@@ -8,8 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ArrowLeft, AlertTriangle, Info } from "lucide-react"
 import Link from "next/link"
+import type { PolicyFinding } from "@/lib/api/types"
 
-export default function StepPolicyPage({ params }: { params: Promise<{ id: string }> }) {
+export default function StepPolicyPage({ params }: { params: { id: string } }) {
   const { id } = params
   const stepId = Number.parseInt(id)
   const { data: findings, isLoading } = useStepPolicyFindings(stepId)
@@ -35,7 +35,7 @@ export default function StepPolicyPage({ params }: { params: Promise<{ id: strin
 
       {findings && findings.length > 0 ? (
         <div className="space-y-3">
-          {findings.map((finding: any, idx: number) => (
+          {findings.map((finding: PolicyFinding, idx: number) => (
             <Card key={idx} className="p-4">
               <div className="flex items-start gap-3">
                 {finding.severity === "error" ? (
@@ -44,11 +44,11 @@ export default function StepPolicyPage({ params }: { params: Promise<{ id: strin
                   <Info className="h-5 w-5 text-yellow-500 mt-0.5" />
                 )}
                 <div className="flex-1">
-                  <div className="font-medium">{finding.rule}</div>
+                  <div className="font-medium">{finding.code}</div>
                   <div className="text-sm text-muted-foreground mt-1">{finding.message}</div>
-                  {finding.suggestion && (
+                  {finding.suggested_fix && (
                     <div className="text-sm text-muted-foreground mt-2 bg-muted/50 p-2 rounded">
-                      Suggestion: {finding.suggestion}
+                      Suggestion: {finding.suggested_fix}
                     </div>
                   )}
                 </div>
