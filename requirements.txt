@@ -9,6 +9,7 @@ redis==7.1.0
 rq==2.6.1
 prometheus-client==0.23.1
 psycopg[binary,pool]==3.3.2
+psycopg2-binary==2.9.10
 alembic==1.17.2
 SQLAlchemy==2.0.44
 textual==6.7.1

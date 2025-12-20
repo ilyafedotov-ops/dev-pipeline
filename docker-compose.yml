@@ -52,7 +52,7 @@ services:
     restart: unless-stopped
     environment:
       # DevGodzilla config
-      DEVGODZILLA_DB_URL: postgresql+psycopg://devgodzilla:changeme@db:5432/devgodzilla_db
+      DEVGODZILLA_DB_URL: postgresql://devgodzilla:changeme@db:5432/devgodzilla_db
       DEVGODZILLA_DB_POOL_SIZE: "5"
       DEVGODZILLA_LOG_LEVEL: INFO
       # Windmill integration (DevGodzilla -> Windmill)

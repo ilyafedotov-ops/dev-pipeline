@@ -128,7 +128,7 @@ function ClarificationCard({ clarification, protocolId }: { clarification: Clari
                   <SelectValue placeholder="Select an option" />
                 </SelectTrigger>
                 <SelectContent>
-                  {clarification.options.map((option) => (
+                  {clarification.options.filter((option) => option.trim() !== "").map((option) => (
                     <SelectItem key={option} value={option}>
                       {option}
                     </SelectItem>

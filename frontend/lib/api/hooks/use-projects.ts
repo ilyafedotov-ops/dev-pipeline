@@ -45,6 +45,40 @@ export function useCreateProject() {
   })
 }
 
+export function useArchiveProject() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (projectId: number) => apiClient.post<Project>(`/projects/${projectId}/archive`),
+    onSuccess: (_, projectId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.list() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(projectId) })
+    },
+  })
+}
+
+export function useUnarchiveProject() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (projectId: number) => apiClient.post<Project>(`/projects/${projectId}/unarchive`),
+    onSuccess: (_, projectId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.list() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(projectId) })
+    },
+  })
+}
+
+export function useDeleteProject() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (projectId: number) =>
+      apiClient.delete<{ status: string; project_id: number }>(`/projects/${projectId}`),
+    onSuccess: (_, projectId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.list() })
+      queryClient.removeQueries({ queryKey: queryKeys.projects.detail(projectId) })
+    },
+  })
+}
+
 // Onboarding
 export function useOnboarding(projectId: number | undefined, enabled = true) {
   return useQuery({
