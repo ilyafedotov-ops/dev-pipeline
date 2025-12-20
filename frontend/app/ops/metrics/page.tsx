@@ -1,17 +1,45 @@
 "use client"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Activity, TrendingUp, Zap, Clock } from "lucide-react"
+import { Activity, TrendingUp, Zap, Clock, BarChart3, Loader2 } from "lucide-react"
+import { useMetricsSummary } from "@/lib/api"
+
+function formatDuration(seconds: number | null): string {
+  if (seconds === null) return "N/A"
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
+  return `${(seconds / 3600).toFixed(1)}h`
+}
 
 export default function MetricsPage() {
-  // Note: This would connect to Prometheus metrics endpoint
-  // For now, showing placeholder structure
+  const { data: metrics, isLoading, error } = useMetricsSummary(24)
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold">System Metrics</h2>
+          <p className="text-destructive">Failed to load metrics: {error.message}</p>
+        </div>
+      </div>
+    )
+  }
+
+  const jobMetrics = metrics?.job_type_metrics ?? []
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold">System Metrics</h2>
-        <p className="text-muted-foreground">Prometheus metrics and performance indicators</p>
+        <p className="text-muted-foreground">Real-time system health and performance indicators</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -19,12 +47,12 @@ export default function MetricsPage() {
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-2">
               <Activity className="h-4 w-4" />
-              Total Requests
+              Total Events
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">12,543</div>
-            <p className="text-xs text-muted-foreground">Last 24 hours</p>
+            <div className="text-2xl font-bold">{metrics?.total_events ?? 0}</div>
+            <p className="text-xs text-muted-foreground">Recent events tracked</p>
           </CardContent>
         </Card>
 
@@ -36,8 +64,8 @@ export default function MetricsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">99.2%</div>
-            <p className="text-xs text-muted-foreground">Last 24 hours</p>
+            <div className="text-2xl font-bold">{metrics?.success_rate ?? 100}%</div>
+            <p className="text-xs text-muted-foreground">Protocol completion rate</p>
           </CardContent>
         </Card>
 
@@ -45,12 +73,12 @@ export default function MetricsPage() {
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              Avg Response Time
+              Protocol Runs
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">124ms</div>
-            <p className="text-xs text-muted-foreground">p95: 285ms</p>
+            <div className="text-2xl font-bold">{metrics?.total_protocol_runs ?? 0}</div>
+            <p className="text-xs text-muted-foreground">Total protocols executed</p>
           </CardContent>
         </Card>
 
@@ -58,12 +86,12 @@ export default function MetricsPage() {
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-2">
               <Zap className="h-4 w-4" />
-              Queue Throughput
+              Step Runs
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">42/min</div>
-            <p className="text-xs text-muted-foreground">Jobs processed</p>
+            <div className="text-2xl font-bold">{metrics?.total_step_runs ?? 0}</div>
+            <p className="text-xs text-muted-foreground">Total steps executed</p>
           </CardContent>
         </Card>
       </div>
@@ -75,56 +103,65 @@ export default function MetricsPage() {
             <CardDescription>Performance by job type</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {[
-                { type: "execute_step_job", count: 342, avgTime: "45s" },
-                { type: "plan_protocol_job", count: 118, avgTime: "38s" },
-                { type: "open_pr_job", count: 52, avgTime: "12s" },
-              ].map((metric) => (
-                <div key={metric.type} className="flex items-center justify-between">
-                  <span className="font-mono text-sm">{metric.type}</span>
-                  <div className="flex gap-4 text-sm text-muted-foreground">
-                    <span>{metric.count} runs</span>
-                    <span>avg {metric.avgTime}</span>
+            {jobMetrics.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No job runs recorded yet.</p>
+            ) : (
+              <div className="space-y-4">
+                {jobMetrics.slice(0, 10).map((metric) => (
+                  <div key={metric.job_type} className="flex items-center justify-between">
+                    <span className="font-mono text-sm">{metric.job_type}</span>
+                    <div className="flex gap-4 text-sm text-muted-foreground">
+                      <span>{metric.count} runs</span>
+                      <span>avg {formatDuration(metric.avg_duration_seconds)}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Resource Usage</CardTitle>
-            <CardDescription>System resource metrics</CardDescription>
+            <CardTitle>System Overview</CardTitle>
+            <CardDescription>Resource and activity metrics</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm">CPU Usage</span>
-                  <span className="text-sm text-muted-foreground">42%</span>
+                  <span className="text-sm">Active Projects</span>
+                  <span className="text-sm text-muted-foreground">{metrics?.active_projects ?? 0}</span>
                 </div>
                 <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                  <div className="h-full bg-primary" style={{ width: "42%" }} />
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${Math.min(100, (metrics?.active_projects ?? 0) * 10)}%` }}
+                  />
                 </div>
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm">Memory Usage</span>
-                  <span className="text-sm text-muted-foreground">68%</span>
+                  <span className="text-sm">Job Runs</span>
+                  <span className="text-sm text-muted-foreground">{metrics?.total_job_runs ?? 0}</span>
                 </div>
                 <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                  <div className="h-full bg-primary" style={{ width: "68%" }} />
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${Math.min(100, (metrics?.total_job_runs ?? 0))}%` }}
+                  />
                 </div>
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm">Queue Depth</span>
-                  <span className="text-sm text-muted-foreground">15 jobs</span>
+                  <span className="text-sm">Recent Events</span>
+                  <span className="text-sm text-muted-foreground">{metrics?.recent_events_count ?? 0}</span>
                 </div>
                 <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                  <div className="h-full bg-primary" style={{ width: "30%" }} />
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${Math.min(100, (metrics?.recent_events_count ?? 0) / 5)}%` }}
+                  />
                 </div>
               </div>
             </div>
@@ -134,25 +171,30 @@ export default function MetricsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>API Endpoints</CardTitle>
-          <CardDescription>Top endpoints by request volume</CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Summary
+          </CardTitle>
+          <CardDescription>System-wide statistics</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {[
-              { path: "GET /runs", calls: 2534, avg: "45ms" },
-              { path: "POST /protocols/{id}/actions/run_next_step", calls: 1872, avg: "120ms" },
-              { path: "GET /projects", calls: 1243, avg: "23ms" },
-              { path: "GET /protocols/{id}/steps", calls: 987, avg: "56ms" },
-            ].map((endpoint) => (
-              <div key={endpoint.path} className="flex items-center justify-between py-2 border-b last:border-0">
-                <span className="font-mono text-sm">{endpoint.path}</span>
-                <div className="flex gap-6 text-sm text-muted-foreground">
-                  <span>{endpoint.calls} calls</span>
-                  <span>avg {endpoint.avg}</span>
-                </div>
-              </div>
-            ))}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 bg-muted/50 rounded-lg">
+              <div className="text-3xl font-bold">{metrics?.active_projects ?? 0}</div>
+              <div className="text-sm text-muted-foreground">Active Projects</div>
+            </div>
+            <div className="text-center p-4 bg-muted/50 rounded-lg">
+              <div className="text-3xl font-bold">{metrics?.total_protocol_runs ?? 0}</div>
+              <div className="text-sm text-muted-foreground">Protocol Runs</div>
+            </div>
+            <div className="text-center p-4 bg-muted/50 rounded-lg">
+              <div className="text-3xl font-bold">{metrics?.total_step_runs ?? 0}</div>
+              <div className="text-sm text-muted-foreground">Step Runs</div>
+            </div>
+            <div className="text-center p-4 bg-muted/50 rounded-lg">
+              <div className="text-3xl font-bold">{metrics?.total_events ?? 0}</div>
+              <div className="text-sm text-muted-foreground">Events</div>
+            </div>
           </div>
         </CardContent>
       </Card>

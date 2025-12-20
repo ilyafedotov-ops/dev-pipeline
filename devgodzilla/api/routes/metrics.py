@@ -4,7 +4,14 @@ DevGodzilla Prometheus Metrics Endpoint
 Provides Prometheus-compatible metrics for observability.
 """
 
-from fastapi import APIRouter, Response
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Response
+from pydantic import BaseModel
+
+from devgodzilla.api.dependencies import get_db
+from devgodzilla.db.database import Database
 
 # Try to import prometheus_client, provide stub if not available
 try:
@@ -34,6 +41,121 @@ except ImportError:
         def labels(self, *args, **kwargs): return self
 
 router = APIRouter(tags=["Metrics"])
+
+
+# ==================== JSON Summary Models ====================
+
+class JobTypeMetric(BaseModel):
+    job_type: str
+    count: int
+    avg_duration_seconds: Optional[float] = None
+
+
+class EndpointMetric(BaseModel):
+    path: str
+    calls: int
+    avg_ms: Optional[float] = None
+
+
+class MetricsSummary(BaseModel):
+    total_events: int
+    total_protocol_runs: int
+    total_step_runs: int
+    total_job_runs: int
+    active_projects: int
+    success_rate: float
+    job_type_metrics: list[JobTypeMetric]
+    recent_events_count: int
+
+
+@router.get("/metrics/summary", response_model=MetricsSummary)
+def metrics_summary(
+    hours: int = 24,
+    db: Database = Depends(get_db),
+):
+    """
+    JSON metrics summary for the frontend dashboard.
+    
+    Returns aggregated stats from the database.
+    """
+    # Get basic counts
+    projects = db.list_projects()
+    active_projects = len([p for p in projects if p.status != "archived"])
+    
+    # Get protocol runs across all projects
+    all_protocol_runs = []
+    for project in projects:
+        try:
+            runs = db.list_protocol_runs(project.id)
+            all_protocol_runs.extend(runs)
+        except Exception:
+            pass
+    total_protocol_runs = len(all_protocol_runs)
+    
+    # Calculate success rate
+    completed = [r for r in all_protocol_runs if r.status in ("completed", "passed")]
+    failed = [r for r in all_protocol_runs if r.status in ("failed", "error")]
+    total_finished = len(completed) + len(failed)
+    success_rate = (len(completed) / total_finished * 100) if total_finished > 0 else 100.0
+    
+    # Get step runs across all protocol runs
+    total_step_runs = 0
+    for pr in all_protocol_runs:
+        try:
+            steps = db.list_step_runs(pr.id)
+            total_step_runs += len(steps)
+        except Exception:
+            pass
+    
+    # Get job runs (this method supports limit directly)
+    job_runs = db.list_job_runs(limit=1000)
+    total_job_runs = len(job_runs)
+    
+    # Aggregate job runs by type
+    job_type_counts: dict[str, list] = {}
+    for jr in job_runs:
+        jt = jr.job_type or "unknown"
+        if jt not in job_type_counts:
+            job_type_counts[jt] = []
+        # Calculate duration if we have start/end times
+        duration = None
+        if jr.started_at and jr.completed_at:
+            try:
+                duration = (jr.completed_at - jr.started_at).total_seconds()
+            except Exception:
+                pass
+        job_type_counts[jt].append(duration)
+    
+    job_type_metrics = []
+    for jt, durations in job_type_counts.items():
+        valid_durations = [d for d in durations if d is not None]
+        avg_dur = sum(valid_durations) / len(valid_durations) if valid_durations else None
+        job_type_metrics.append(JobTypeMetric(
+            job_type=jt,
+            count=len(durations),
+            avg_duration_seconds=avg_dur,
+        ))
+    
+    # Sort by count descending
+    job_type_metrics.sort(key=lambda x: x.count, reverse=True)
+    
+    # Get recent events count
+    recent_events = db.list_recent_events(limit=500)
+    recent_events_count = len(recent_events)
+    total_events = recent_events_count  # This is approximate
+    
+    return MetricsSummary(
+        total_events=total_events,
+        total_protocol_runs=total_protocol_runs,
+        total_step_runs=total_step_runs,
+        total_job_runs=total_job_runs,
+        active_projects=active_projects,
+        success_rate=round(success_rate, 1),
+        job_type_metrics=job_type_metrics,
+        recent_events_count=recent_events_count,
+    )
+
+
 
 # ==================== Metrics Definitions ====================
 

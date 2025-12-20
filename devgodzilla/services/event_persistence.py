@@ -70,8 +70,12 @@ def install_db_event_sink(
 
     def _persist(event: BusEvent) -> None:
         protocol_run_id = cast(Optional[int], getattr(event, "protocol_run_id", None))
-        if not protocol_run_id:
+        project_id = cast(Optional[int], getattr(event, "project_id", None))
+        
+        # Require at least one of protocol_run_id or project_id
+        if not protocol_run_id and not project_id:
             return
+            
         step_run_id = cast(Optional[int], getattr(event, "step_run_id", None))
 
         try:
@@ -81,6 +85,7 @@ def install_db_event_sink(
             db.append_event(
                 protocol_run_id=protocol_run_id,
                 step_run_id=step_run_id,
+                project_id=project_id,
                 event_type=normalized_type,
                 message=_default_message(event),
                 metadata=cast(Dict[str, Any], payload) if isinstance(payload, dict) else {"event": payload},

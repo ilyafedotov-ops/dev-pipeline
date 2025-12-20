@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { apiClient } from "../client"
 import { queryKeys } from "../query-keys"
-import type { QueueStats, QueueJob, Event, EventFilters, HealthResponse } from "../types"
+import type { QueueStats, QueueJob, Event, EventFilters, HealthResponse, MetricsSummary } from "../types"
 
 const useConditionalRefetchInterval = (baseInterval: number) => {
   if (typeof document === "undefined") return false
@@ -59,5 +59,14 @@ export function useRecentEvents(filters: EventFilters = {}, options?: { refetchI
       return response.events
     },
     refetchInterval,
+  })
+}
+
+// Metrics Summary
+export function useMetricsSummary(hours: number = 24) {
+  return useQuery({
+    queryKey: queryKeys.ops.metricsSummary(hours),
+    queryFn: () => apiClient.get<MetricsSummary>(`/metrics/summary?hours=${hours}`),
+    refetchInterval: 30000, // Refresh every 30s
   })
 }

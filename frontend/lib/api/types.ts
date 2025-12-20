@@ -367,6 +367,23 @@ export interface QueueJob {
   payload: Record<string, unknown> | null
 }
 
+export interface JobTypeMetric {
+  job_type: string
+  count: number
+  avg_duration_seconds: number | null
+}
+
+export interface MetricsSummary {
+  total_events: number
+  total_protocol_runs: number
+  total_step_runs: number
+  total_job_runs: number
+  active_projects: number
+  success_rate: number
+  job_type_metrics: JobTypeMetric[]
+  recent_events_count: number
+}
+
 // =============================================================================
 // API Responses
 // =============================================================================

@@ -63,6 +63,7 @@ export const queryKeys = {
     queueStats: ["ops", "queueStats"] as const,
     queueJobs: (status?: string) => ["ops", "queueJobs", { status }] as const,
     recentEvents: (filters: EventFilters) => ["ops", "recentEvents", filters] as const,
+    metricsSummary: (hours?: number) => ["ops", "metricsSummary", { hours }] as const,
   },
 
   // Sprints and Tasks for Agile system
