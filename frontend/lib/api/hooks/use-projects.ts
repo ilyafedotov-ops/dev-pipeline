@@ -12,6 +12,8 @@ import type {
   EffectivePolicy,
   Clarification,
   Branch,
+  Commit,
+  PullRequest,
   ActionResponse,
 } from "../types"
 
@@ -224,5 +226,23 @@ export function useDeleteBranch() {
         queryKey: queryKeys.projects.branches(projectId),
       })
     },
+  })
+}
+
+// Commits
+export function useProjectCommits(projectId: number | undefined) {
+  return useQuery({
+    queryKey: queryKeys.projects.commits(projectId!),
+    queryFn: () => apiClient.get<Commit[]>(`/projects/${projectId}/commits`),
+    enabled: !!projectId,
+  })
+}
+
+// Pull Requests
+export function useProjectPulls(projectId: number | undefined) {
+  return useQuery({
+    queryKey: queryKeys.projects.pulls(projectId!),
+    queryFn: () => apiClient.get<PullRequest[]>(`/projects/${projectId}/pulls`),
+    enabled: !!projectId,
   })
 }

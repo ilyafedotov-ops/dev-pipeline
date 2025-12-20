@@ -18,6 +18,8 @@ export const queryKeys = {
     clarifications: (id: number, status?: string) =>
       [...queryKeys.projects.all, "clarifications", id, { status }] as const,
     branches: (id: number) => [...queryKeys.projects.all, "branches", id] as const,
+    commits: (id: number) => [...queryKeys.projects.all, "commits", id] as const,
+    pulls: (id: number) => [...queryKeys.projects.all, "pulls", id] as const,
   },
 
   // Protocols

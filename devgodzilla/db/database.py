@@ -71,6 +71,7 @@ class DatabaseProtocol(Protocol):
     def get_project(self, project_id: int) -> Project: ...
     def list_projects(self) -> List[Project]: ...
     def update_project_local_path(self, project_id: int, local_path: str) -> Project: ...
+    def delete_project(self, project_id: int) -> None: ...
     
     # Protocol runs
     def create_protocol_run(
@@ -781,13 +782,50 @@ class SQLiteDatabase:
     def delete_project(self, project_id: int) -> None:
         """Delete a project and all associated data."""
         with self._transaction() as conn:
+            conn.execute(
+                "UPDATE step_runs SET linked_task_id = NULL WHERE protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = ?)",
+                (project_id,),
+            )
+            conn.execute("UPDATE tasks SET step_run_id = NULL WHERE project_id = ?", (project_id,))
+            conn.execute(
+                """
+                DELETE FROM run_artifacts
+                WHERE run_id IN (
+                    SELECT run_id FROM job_runs
+                    WHERE project_id = ?
+                       OR protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = ?)
+                )
+                """,
+                (project_id, project_id),
+            )
+            conn.execute(
+                """
+                DELETE FROM job_runs
+                WHERE project_id = ?
+                   OR protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = ?)
+                """,
+                (project_id, project_id),
+            )
             conn.execute("DELETE FROM qa_results WHERE project_id = ?", (project_id,))
             # Delete in order respecting foreign keys
-            conn.execute("DELETE FROM feedback_events WHERE protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = ?)", (project_id,))
-            conn.execute("DELETE FROM events WHERE protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = ?)", (project_id,))
-            conn.execute("DELETE FROM step_runs WHERE protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = ?)", (project_id,))
+            conn.execute(
+                "DELETE FROM feedback_events WHERE protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = ?)",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM events WHERE protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = ?)",
+                (project_id,),
+            )
+            conn.execute("DELETE FROM events WHERE project_id = ?", (project_id,))
             conn.execute("DELETE FROM clarifications WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM spec_runs WHERE project_id = ?", (project_id,))
             conn.execute("DELETE FROM speckit_specs WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM sprints WHERE project_id = ?", (project_id,))
+            conn.execute(
+                "DELETE FROM step_runs WHERE protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = ?)",
+                (project_id,),
+            )
             conn.execute("DELETE FROM protocol_runs WHERE project_id = ?", (project_id,))
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
@@ -3329,6 +3367,106 @@ class PostgresDatabase:
 
         params.append(project_id)
 
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE projects SET {', '.join(updates)} WHERE id = %s",
+                    tuple(params),
+                )
+        return self.get_project(project_id)
+
+    def delete_project(self, project_id: int) -> None:
+        """Delete a project and all associated data (PostgreSQL)."""
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE step_runs
+                    SET linked_task_id = NULL
+                    WHERE protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = %s)
+                    """,
+                    (project_id,),
+                )
+                cur.execute(
+                    "UPDATE tasks SET step_run_id = NULL WHERE project_id = %s",
+                    (project_id,),
+                )
+                cur.execute(
+                    """
+                    DELETE FROM run_artifacts
+                    WHERE run_id IN (
+                        SELECT run_id FROM job_runs
+                        WHERE project_id = %s
+                           OR protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = %s)
+                    )
+                    """,
+                    (project_id, project_id),
+                )
+                cur.execute(
+                    """
+                    DELETE FROM job_runs
+                    WHERE project_id = %s
+                       OR protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = %s)
+                    """,
+                    (project_id, project_id),
+                )
+                cur.execute("DELETE FROM qa_results WHERE project_id = %s", (project_id,))
+                cur.execute(
+                    "DELETE FROM feedback_events WHERE protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = %s)",
+                    (project_id,),
+                )
+                cur.execute(
+                    "DELETE FROM events WHERE protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = %s)",
+                    (project_id,),
+                )
+                cur.execute("DELETE FROM events WHERE project_id = %s", (project_id,))
+                cur.execute("DELETE FROM clarifications WHERE project_id = %s", (project_id,))
+                cur.execute("DELETE FROM spec_runs WHERE project_id = %s", (project_id,))
+                cur.execute("DELETE FROM speckit_specs WHERE project_id = %s", (project_id,))
+                cur.execute("DELETE FROM tasks WHERE project_id = %s", (project_id,))
+                cur.execute("DELETE FROM sprints WHERE project_id = %s", (project_id,))
+                cur.execute(
+                    "DELETE FROM step_runs WHERE protocol_run_id IN (SELECT id FROM protocol_runs WHERE project_id = %s)",
+                    (project_id,),
+                )
+                cur.execute("DELETE FROM protocol_runs WHERE project_id = %s", (project_id,))
+                cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+
+    def update_project_policy(
+        self,
+        project_id: int,
+        *,
+        policy_pack_key: Optional[str] = None,
+        policy_pack_version: Optional[str] = None,
+        policy_overrides: Optional[dict] = None,
+        policy_repo_local_enabled: Optional[bool] = None,
+        policy_effective_hash: Optional[str] = None,
+        policy_enforcement_mode: Optional[str] = None,
+    ) -> Project:
+        """Update policy-related fields on a project (PostgreSQL)."""
+        updates = ["updated_at = CURRENT_TIMESTAMP"]
+        params: List[Any] = []
+        if policy_pack_key is not None:
+            updates.append("policy_pack_key = %s")
+            params.append(policy_pack_key)
+        if policy_pack_version is not None:
+            updates.append("policy_pack_version = %s")
+            params.append(policy_pack_version)
+        if policy_overrides is not None:
+            updates.append("policy_overrides = %s")
+            params.append(json.dumps(policy_overrides))
+        if policy_repo_local_enabled is not None:
+            updates.append("policy_repo_local_enabled = %s")
+            params.append(1 if policy_repo_local_enabled else 0)
+        if policy_effective_hash is not None:
+            updates.append("policy_effective_hash = %s")
+            params.append(policy_effective_hash)
+        if policy_enforcement_mode is not None:
+            updates.append("policy_enforcement_mode = %s")
+            params.append(policy_enforcement_mode)
+        
+        params.append(project_id)
+        
         with self._transaction() as conn:
             with conn.cursor() as cur:
                 cur.execute(

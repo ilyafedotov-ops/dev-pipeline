@@ -410,6 +410,24 @@ export interface Branch {
   is_remote: boolean
 }
 
+export interface Commit {
+  sha: string
+  message: string
+  author: string
+  date: string
+}
+
+export interface PullRequest {
+  id: string
+  title: string
+  branch: string
+  status: "open" | "merged" | "closed"
+  checks: "passing" | "failing" | "pending" | "unknown"
+  url: string
+  author: string
+  created_at: string
+}
+
 // =============================================================================
 // Agile / Sprint Board
 // =============================================================================

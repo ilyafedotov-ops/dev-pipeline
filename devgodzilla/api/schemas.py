@@ -436,6 +436,22 @@ class BranchOut(BaseModel):
     sha: str
     is_remote: bool
 
+class CommitOut(BaseModel):
+    sha: str
+    message: str
+    author: str
+    date: str
+
+class PullRequestOut(BaseModel):
+    id: str
+    title: str
+    branch: str
+    status: str  # open, merged, closed
+    checks: str  # passing, failing, pending, unknown
+    url: str
+    author: str
+    created_at: str
+
 # =============================================================================
 # Workflow / UI Convenience Models (Windmill React app)
 # =============================================================================

@@ -730,3 +730,111 @@ def answer_project_clarification(
         raise HTTPException(status_code=404, detail="Clarification not found")
     
     return updated
+
+@router.get("/projects/{project_id}/commits", response_model=List[schemas.CommitOut])
+def list_project_commits(
+    project_id: int,
+    limit: int = 20,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """List recent git commits for a project repository."""
+    try:
+        project = db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if not project.local_path:
+        raise HTTPException(status_code=400, detail="Project has no local repository path")
+    
+    from pathlib import Path
+    from devgodzilla.services.git import run_process
+    
+    repo_path = Path(project.local_path).expanduser()
+    if not repo_path.exists():
+        raise HTTPException(status_code=400, detail="Project repository path does not exist")
+    
+    if not (repo_path / ".git").exists():
+        raise HTTPException(status_code=400, detail="Project path is not a git repository")
+    
+    commits = []
+    try:
+        # Use git log to get recent commits with format: sha|subject|author name|relative date
+        result = run_process(
+            ["git", "log", f"-{limit}", "--format=%H|%s|%an|%ar"],
+            cwd=repo_path,
+        )
+        for line in result.stdout.strip().splitlines():
+            if line:
+                parts = line.split("|", 3)
+                if len(parts) >= 4:
+                    commits.append(schemas.CommitOut(
+                        sha=parts[0],
+                        message=parts[1],
+                        author=parts[2],
+                        date=parts[3],
+                    ))
+    except Exception:
+        pass
+    
+    return commits
+
+@router.get("/projects/{project_id}/pulls", response_model=List[schemas.PullRequestOut])
+def list_project_pulls(
+    project_id: int,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """List open pull requests for a project repository (GitHub only)."""
+    try:
+        project = db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if not project.local_path:
+        return []  # No repo path, return empty list
+    
+    from pathlib import Path
+    from devgodzilla.services.git import run_process
+    import json
+    
+    repo_path = Path(project.local_path).expanduser()
+    if not repo_path.exists() or not (repo_path / ".git").exists():
+        return []
+    
+    pulls = []
+    try:
+        # Use GitHub CLI to list PRs (requires gh to be installed and authenticated)
+        result = run_process(
+            ["gh", "pr", "list", "--json", "number,title,headRefName,state,author,url,createdAt,statusCheckRollup"],
+            cwd=repo_path,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            pr_data = json.loads(result.stdout)
+            for pr in pr_data:
+                # Determine check status
+                checks = "unknown"
+                if pr.get("statusCheckRollup"):
+                    check_statuses = [c.get("conclusion") or c.get("state") for c in pr["statusCheckRollup"]]
+                    if all(s in ("SUCCESS", "success", "COMPLETED") for s in check_statuses if s):
+                        checks = "passing"
+                    elif any(s in ("FAILURE", "failure", "FAILED") for s in check_statuses if s):
+                        checks = "failing"
+                    elif any(s in ("PENDING", "pending", "IN_PROGRESS", "QUEUED") for s in check_statuses if s):
+                        checks = "pending"
+                
+                pulls.append(schemas.PullRequestOut(
+                    id=str(pr.get("number", "")),
+                    title=pr.get("title", ""),
+                    branch=pr.get("headRefName", ""),
+                    status=pr.get("state", "open").lower(),
+                    checks=checks,
+                    url=pr.get("url", ""),
+                    author=pr.get("author", {}).get("login", "") if isinstance(pr.get("author"), dict) else "",
+                    created_at=pr.get("createdAt", ""),
+                ))
+    except Exception:
+        pass  # gh CLI not available or not authenticated
+    
+    return pulls

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,9 +10,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import { CheckCircle2, GitBranch, Settings, Shield, HelpCircle, type LucideIcon } from "lucide-react"
+import { CheckCircle2, GitBranch, Settings, Shield, HelpCircle, type LucideIcon, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { useCreateProject, useUpdateProjectPolicy, useStartOnboarding } from "@/lib/api/hooks/use-projects"
 
 interface ProjectWizardProps {
   open: boolean
@@ -29,6 +31,11 @@ const steps: { id: WizardStep; label: string; icon: LucideIcon }[] = [
 ]
 
 export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
+  const router = useRouter()
+  const createProject = useCreateProject()
+  const updatePolicy = useUpdateProjectPolicy()
+  const startOnboarding = useStartOnboarding()
+
   const [currentStep, setCurrentStep] = useState<WizardStep>("git")
   const [formData, setFormData] = useState({
     repoUrl: "",
@@ -43,10 +50,19 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
     { id: "2", question: "Does this project use a database?", answer: "" },
     { id: "3", question: "What testing framework is preferred?", answer: "" },
   ])
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const currentStepIndex = steps.findIndex((s) => s.id === currentStep)
 
   const handleNext = () => {
+    // Validation
+    if (currentStep === "git") {
+      if (!formData.repoUrl) {
+        toast.error("Repository URL is required")
+        return
+      }
+    }
+
     const nextIndex = currentStepIndex + 1
     if (nextIndex < steps.length) {
       setCurrentStep(steps[nextIndex].id)
@@ -62,18 +78,87 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
     }
   }
 
-  const handleFinish = () => {
-    toast.success("Project created successfully!")
-    onOpenChange(false)
-    setCurrentStep("git")
-    setFormData({
-      repoUrl: "",
-      branch: "main",
-      classification: "",
-      description: "",
-      policyPack: "",
-      enforcementMode: "advisory",
-    })
+  const extractProjectName = (url: string) => {
+    try {
+      const parts = url.split("/")
+      let name = parts[parts.length - 1]
+      if (name.endsWith(".git")) {
+        name = name.slice(0, -4)
+      }
+      return name || "untitled-project"
+    } catch (e) {
+      return "untitled-project"
+    }
+  }
+
+  const handleFinish = async () => {
+    setIsSubmitting(true)
+    try {
+      const name = extractProjectName(formData.repoUrl)
+
+      let finalDescription = formData.description
+
+      // Append Classification
+      if (formData.classification) {
+        finalDescription += `\n\nClassification: ${formData.classification}`
+      }
+
+      // Append Clarifications
+      const answeredClarifications = clarifications.filter(c => c.answer && c.answer.trim())
+      if (answeredClarifications.length > 0) {
+        finalDescription += `\n\nInitial Clarifications:\n`
+        answeredClarifications.forEach(c => {
+          finalDescription += `- ${c.question}: ${c.answer}\n`
+        })
+      }
+
+      // 1. Create Project
+      const project = await createProject.mutateAsync({
+        name,
+        git_url: formData.repoUrl,
+        base_branch: formData.branch || "main",
+        description: finalDescription,
+      })
+
+      // 2. Update Policy if selected
+      if (formData.policyPack || formData.enforcementMode) {
+        await updatePolicy.mutateAsync({
+          projectId: project.id,
+          policy: {
+            policy_pack_key: formData.policyPack || undefined,
+            policy_enforcement_mode: formData.enforcementMode || undefined,
+          },
+        })
+      }
+
+      // 3. Start Onboarding
+      await startOnboarding.mutateAsync(project.id)
+
+      toast.success("Project created and onboarding started!")
+      onOpenChange(false)
+      setCurrentStep("git")
+      setFormData({
+        repoUrl: "",
+        branch: "main",
+        classification: "",
+        description: "",
+        policyPack: "",
+        enforcementMode: "advisory",
+      })
+      setClarifications([
+        { id: "1", question: "What is the primary programming language?", answer: "" },
+        { id: "2", question: "Does this project use a database?", answer: "" },
+        { id: "3", question: "What testing framework is preferred?", answer: "" },
+      ])
+
+      // Redirect to the new project
+      router.push(`/projects/${project.id}/onboarding`)
+    } catch (error) {
+      console.error(error)
+      toast.error("Failed to create project")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -269,14 +354,17 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
         {/* Actions */}
         <Separator />
         <div className="flex justify-between px-6 py-4">
-          <Button variant="outline" onClick={handleBack} disabled={currentStepIndex === 0}>
+          <Button variant="outline" onClick={handleBack} disabled={currentStepIndex === 0 || isSubmitting}>
             Back
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button onClick={handleNext}>{currentStepIndex === steps.length - 1 ? "Create Project" : "Next"}</Button>
+            <Button onClick={handleNext} disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {currentStepIndex === steps.length - 1 ? "Create Project" : "Next"}
+            </Button>
           </div>
         </div>
       </DialogContent>
