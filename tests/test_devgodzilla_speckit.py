@@ -41,8 +41,9 @@ def initialized_workspace(tmp_path):
 
 
 @pytest.fixture
-def service_context():
+def service_context(monkeypatch: pytest.MonkeyPatch):
     """Create a mock service context."""
+    monkeypatch.setenv("DEVGODZILLA_SPECKIT_ENGINE_ID", "dummy")
     config = Mock()
     config.engine_defaults = {"planning": "dummy"}
     return ServiceContext(config=config)

@@ -25,11 +25,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { SpecKitLaunchDialog, type SpecKitWizardAction } from "@/components/wizards/speckit-launch-dialog"
+import { useProjects } from "@/lib/api"
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Projects", href: "/projects", icon: FolderKanban },
-  { name: "Sprints", href: "/sprints", icon: Kanban },
+  { name: "Execution", href: "/execution", icon: Kanban },
   {
     name: "SpecKit",
     href: "/specifications",
@@ -65,6 +66,7 @@ export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [expandedSections, setExpandedSections] = useState<string[]>(["Operations"])
   const [specKitAction, setSpecKitAction] = useState<SpecKitWizardAction | null>(null)
+  const { data: projects = [] } = useProjects()
 
   const toggleSection = (name: string) => {
     setExpandedSections((prev) => (prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]))
@@ -177,28 +179,24 @@ export function Sidebar() {
             <Separator />
             <div className="p-3">
               <div className="mb-2 px-2 text-xs font-semibold text-muted-foreground">RECENT PROJECTS</div>
-              <div className="space-y-1">
-                <Link href="/projects/1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start text-sm text-sidebar-foreground hover:bg-sidebar-accent"
-                  >
-                    <FolderKanban className="mr-2 h-4 w-4" />
-                    E-commerce Web App
-                  </Button>
-                </Link>
-                <Link href="/projects/2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start text-sm text-sidebar-foreground hover:bg-sidebar-accent"
-                  >
-                    <FolderKanban className="mr-2 h-4 w-4" />
-                    API Gateway Service
-                  </Button>
-                </Link>
-              </div>
+              {projects.length === 0 ? (
+                <div className="px-2 py-2 text-xs text-muted-foreground">No projects yet.</div>
+              ) : (
+                <div className="space-y-1">
+                  {projects.slice(0, 4).map((project) => (
+                    <Link key={project.id} href={`/projects/${project.id}`}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start text-sm text-sidebar-foreground hover:bg-sidebar-accent"
+                      >
+                        <FolderKanban className="mr-2 h-4 w-4" />
+                        {project.name}
+                      </Button>
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}

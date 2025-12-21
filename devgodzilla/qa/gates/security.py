@@ -6,11 +6,18 @@ QA gate for security vulnerability scanning using bandit.
 
 import json
 import subprocess
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from devgodzilla.qa.gates.interface import Gate, GateResult, Severity
+from devgodzilla.qa.gates.interface import (
+    Finding,
+    Gate,
+    GateContext,
+    GateResult,
+    GateVerdict,
+)
 
 
 @dataclass
@@ -49,14 +56,18 @@ class SecurityGate(Gate):
         self.exclude_dirs = exclude_dirs or [".venv", "venv", "node_modules", "__pycache__"]
         self.timeout = timeout
     
-    def evaluate(
-        self,
-        workspace: str,
-        step_name: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> GateResult:
+    @property
+    def gate_id(self) -> str:
+        return self.NAME
+
+    @property
+    def gate_name(self) -> str:
+        return "Security Gate"
+
+    def run(self, context: GateContext) -> GateResult:
         """Run security scan on workspace."""
-        workspace_path = Path(workspace)
+        start = time.time()
+        workspace_path = Path(context.workspace_root)
         
         # Detect project type
         has_python = (workspace_path / "pyproject.toml").exists() or \
@@ -92,33 +103,48 @@ class SecurityGate(Gate):
         if self.fail_on_medium and medium_count > 0:
             passed = False
         
-        # Build message
+        # Build summary
         if not findings and not errors:
-            message = "No security vulnerabilities found"
-            severity = Severity.INFO
+            summary = "No security vulnerabilities found"
         elif high_count > 0:
-            message = f"Found {high_count} HIGH severity issues"
-            severity = Severity.ERROR
+            summary = f"Found {high_count} HIGH severity issues"
         elif medium_count > 0:
-            message = f"Found {medium_count} MEDIUM severity issues"
-            severity = Severity.WARNING
+            summary = f"Found {medium_count} MEDIUM severity issues"
         else:
-            message = f"Found {low_count} low severity issues"
-            severity = Severity.INFO
-        
+            summary = f"Found {low_count} low severity issues"
+
+        result_findings = [self._finding_to_result(f) for f in findings]
+        duration = time.time() - start
+        verdict = GateVerdict.PASS if passed else GateVerdict.FAIL
+
         return GateResult(
-            gate_name=self.NAME,
-            passed=passed,
-            message=message,
-            severity=severity,
-            details={
+            gate_id=self.gate_id,
+            gate_name=self.gate_name,
+            verdict=verdict,
+            findings=result_findings,
+            duration_seconds=duration,
+            metadata={
+                "summary": summary,
                 "high_count": high_count,
                 "medium_count": medium_count,
                 "low_count": low_count,
-                "findings": [self._finding_to_dict(f) for f in findings],
                 "errors": errors,
             },
         )
+
+    def evaluate(
+        self,
+        workspace: str,
+        step_name: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> GateResult:
+        """Backwards-compatible wrapper for legacy callers."""
+        gate_context = GateContext(
+            workspace_root=workspace,
+            step_name=step_name,
+            metadata=context or {},
+        )
+        return self.run(gate_context)
     
     def _run_bandit(self, workspace: Path) -> tuple[List[SecurityFinding], Optional[str]]:
         """Run bandit security scanner for Python."""
@@ -212,14 +238,23 @@ class SecurityGate(Gate):
         except Exception as e:
             return [], f"npm audit error: {e}"
     
-    def _finding_to_dict(self, finding: SecurityFinding) -> Dict[str, Any]:
-        """Convert finding to dictionary."""
-        return {
-            "issue_text": finding.issue_text,
-            "severity": finding.severity,
-            "confidence": finding.confidence,
-            "filename": finding.filename,
-            "lineno": finding.lineno,
-            "test_id": finding.test_id,
-            "test_name": finding.test_name,
+    def _finding_to_result(self, finding: SecurityFinding) -> Finding:
+        """Convert a security finding into a QA Finding."""
+        severity_map = {
+            "HIGH": "critical",
+            "MEDIUM": "warning",
+            "LOW": "info",
         }
+        return Finding(
+            gate_id=self.gate_id,
+            severity=severity_map.get(finding.severity.upper(), "warning"),
+            message=finding.issue_text,
+            file_path=finding.filename,
+            line_number=finding.lineno,
+            rule_id=finding.test_id,
+            metadata={
+                "confidence": finding.confidence,
+                "test_name": finding.test_name,
+                "code": finding.code,
+            },
+        )

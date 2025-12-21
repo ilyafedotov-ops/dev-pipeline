@@ -1650,8 +1650,8 @@ Legend:
         try:
             from devgodzilla.services.agent_config import AgentConfigService
 
-            cfg = AgentConfigService(self.context)
-            for key in [assignment_key, prompt_name]:
+            cfg = AgentConfigService(self.context, db=self.db)
+            for key in [assignment_key, "specs", prompt_name]:
                 if not key:
                     continue
                 assignment = cfg.resolve_prompt_assignment(key, project_id=project_id)
@@ -1675,9 +1675,9 @@ Legend:
         try:
             from devgodzilla.services.agent_config import AgentConfigService
 
-            cfg = AgentConfigService(self.context)
+            cfg = AgentConfigService(self.context, db=self.db)
             engine_id = cfg.get_default_engine_id(
-                "planning",
+                "specs",
                 project_id=project_id,
                 fallback=self.context.config.engine_defaults.get("planning"),  # type: ignore[union-attr]
             )

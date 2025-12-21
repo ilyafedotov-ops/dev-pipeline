@@ -7,6 +7,7 @@ import type {
   Project,
   ProjectCreate,
   OnboardingSummary,
+  DiscoveryRetryResponse,
   PolicyConfig,
   PolicyFinding,
   EffectivePolicy,
@@ -14,7 +15,9 @@ import type {
   Branch,
   Commit,
   PullRequest,
+  Worktree,
   ActionResponse,
+  ArtifactContent,
 } from "../types"
 
 // List Projects
@@ -89,7 +92,11 @@ export function useOnboarding(projectId: number | undefined, enabled = true) {
     enabled: !!projectId && enabled,
     retry: false, // Don't retry - endpoint may not exist
     refetchOnWindowFocus: false,
-    refetchInterval: false, // Disable polling until data successfully loads
+    refetchInterval: (data) => {
+      if (!data) return 3000
+      if (["completed", "failed"].includes(data.status)) return false
+      return 3000
+    },
   })
 }
 
@@ -103,6 +110,31 @@ export function useStartOnboarding() {
         queryKey: queryKeys.projects.onboarding(projectId),
       })
     },
+  })
+}
+
+export function useRetryDiscovery() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (projectId: number) =>
+      apiClient.post<DiscoveryRetryResponse>(`/projects/${projectId}/discovery/actions/retry`),
+    onSuccess: (_, projectId) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.projects.onboarding(projectId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.projects.discoveryLogs(projectId, 200_000),
+      })
+    },
+  })
+}
+
+export function useDiscoveryLogs(projectId: number | undefined, maxBytes = 200_000, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.projects.discoveryLogs(projectId!, maxBytes),
+    queryFn: () =>
+      apiClient.get<ArtifactContent>(`/projects/${projectId}/discovery/logs?max_bytes=${maxBytes}`),
+    enabled: !!projectId && enabled,
   })
 }
 
@@ -243,6 +275,15 @@ export function useProjectPulls(projectId: number | undefined) {
   return useQuery({
     queryKey: queryKeys.projects.pulls(projectId!),
     queryFn: () => apiClient.get<PullRequest[]>(`/projects/${projectId}/pulls`),
+    enabled: !!projectId,
+  })
+}
+
+// Worktrees (protocol-linked branches)
+export function useProjectWorktrees(projectId: number | undefined) {
+  return useQuery({
+    queryKey: queryKeys.projects.worktrees(projectId!),
+    queryFn: () => apiClient.get<Worktree[]>(`/projects/${projectId}/worktrees`),
     enabled: !!projectId,
   })
 }

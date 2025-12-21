@@ -6,50 +6,43 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import { CheckCircle2, GitBranch, Settings, Shield, HelpCircle, type LucideIcon, Loader2 } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
+import { CheckCircle2, GitBranch, Shield, type LucideIcon, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import { useCreateProject, useUpdateProjectPolicy, useStartOnboarding } from "@/lib/api/hooks/use-projects"
+import { useCreateProject, useUpdateProjectPolicy } from "@/lib/api/hooks/use-projects"
+import { usePolicyPacks } from "@/lib/api/hooks/use-policy-packs"
 
 interface ProjectWizardProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-type WizardStep = "git" | "classification" | "policy" | "clarifications" | "onboarding"
+type WizardStep = "git" | "policy" | "onboarding"
 
 const steps: { id: WizardStep; label: string; icon: LucideIcon }[] = [
   { id: "git", label: "Git Repository", icon: GitBranch },
-  { id: "classification", label: "Classification", icon: Settings },
   { id: "policy", label: "Policy Pack", icon: Shield },
-  { id: "clarifications", label: "Clarifications", icon: HelpCircle },
-  { id: "onboarding", label: "Onboarding", icon: CheckCircle2 },
+  { id: "onboarding", label: "Review & Start", icon: CheckCircle2 },
 ]
 
 export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
   const router = useRouter()
   const createProject = useCreateProject()
   const updatePolicy = useUpdateProjectPolicy()
-  const startOnboarding = useStartOnboarding()
+  const { data: policyPacks, isLoading: policyPacksLoading } = usePolicyPacks()
 
   const [currentStep, setCurrentStep] = useState<WizardStep>("git")
   const [formData, setFormData] = useState({
     repoUrl: "",
     branch: "main",
-    classification: "",
-    description: "",
     policyPack: "",
-    enforcementMode: "advisory",
+    enforcementMode: "warn",
+    autoDiscovery: true,
   })
-  const [clarifications, setClarifications] = useState([
-    { id: "1", question: "What is the primary programming language?", answer: "" },
-    { id: "2", question: "Does this project use a database?", answer: "" },
-    { id: "3", question: "What testing framework is preferred?", answer: "" },
-  ])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const currentStepIndex = steps.findIndex((s) => s.id === currentStep)
@@ -86,7 +79,7 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
         name = name.slice(0, -4)
       }
       return name || "untitled-project"
-    } catch (e) {
+    } catch {
       return "untitled-project"
     }
   }
@@ -96,28 +89,12 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
     try {
       const name = extractProjectName(formData.repoUrl)
 
-      let finalDescription = formData.description
-
-      // Append Classification
-      if (formData.classification) {
-        finalDescription += `\n\nClassification: ${formData.classification}`
-      }
-
-      // Append Clarifications
-      const answeredClarifications = clarifications.filter(c => c.answer && c.answer.trim())
-      if (answeredClarifications.length > 0) {
-        finalDescription += `\n\nInitial Clarifications:\n`
-        answeredClarifications.forEach(c => {
-          finalDescription += `- ${c.question}: ${c.answer}\n`
-        })
-      }
-
-      // 1. Create Project
       const project = await createProject.mutateAsync({
         name,
         git_url: formData.repoUrl,
         base_branch: formData.branch || "main",
-        description: finalDescription,
+        auto_onboard: true,
+        auto_discovery: formData.autoDiscovery,
       })
 
       // 2. Update Policy if selected
@@ -131,25 +108,16 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
         })
       }
 
-      // 3. Start Onboarding
-      await startOnboarding.mutateAsync(project.id)
-
-      toast.success("Project created and onboarding started!")
+      toast.success("Project created and onboarding queued!")
       onOpenChange(false)
       setCurrentStep("git")
       setFormData({
         repoUrl: "",
         branch: "main",
-        classification: "",
-        description: "",
         policyPack: "",
-        enforcementMode: "advisory",
+        enforcementMode: "warn",
+        autoDiscovery: true,
       })
-      setClarifications([
-        { id: "1", question: "What is the primary programming language?", answer: "" },
-        { id: "2", question: "Does this project use a database?", answer: "" },
-        { id: "3", question: "What testing framework is preferred?", answer: "" },
-      ])
 
       // Redirect to the new project
       router.push(`/projects/${project.id}/onboarding`)
@@ -228,51 +196,24 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
             </div>
           )}
 
-          {currentStep === "classification" && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="classification">Project Classification *</Label>
-                <Select
-                  value={formData.classification}
-                  onValueChange={(v) => setFormData({ ...formData, classification: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select classification" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="web-app">Web Application</SelectItem>
-                    <SelectItem value="api">API Service</SelectItem>
-                    <SelectItem value="mobile">Mobile App</SelectItem>
-                    <SelectItem value="library">Library/Package</SelectItem>
-                    <SelectItem value="data-pipeline">Data Pipeline</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  placeholder="Describe your project..."
-                  rows={4}
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                />
-              </div>
-            </div>
-          )}
-
           {currentStep === "policy" && (
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="policyPack">Policy Pack</Label>
                 <Select value={formData.policyPack} onValueChange={(v) => setFormData({ ...formData, policyPack: v })}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a policy pack" />
+                    <SelectValue placeholder={policyPacksLoading ? "Loading..." : "Select a policy pack (optional)"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="default">Default Policy Pack</SelectItem>
-                    <SelectItem value="strict">Strict Enforcement</SelectItem>
-                    <SelectItem value="security">Security Focused</SelectItem>
+                    {policyPacks?.map((pack) => (
+                      <SelectItem key={pack.key || pack.id} value={pack.key || String(pack.id)}>
+                        {pack.name}
+                        {pack.description && <span className="text-muted-foreground ml-2">- {pack.description}</span>}
+                      </SelectItem>
+                    ))}
+                    {(!policyPacks || policyPacks.length === 0) && !policyPacksLoading && (
+                      <SelectItem value="" disabled>No policy packs available</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">Choose a policy pack to enforce coding standards</p>
@@ -287,34 +228,12 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="advisory">Advisory (Warnings only)</SelectItem>
-                    <SelectItem value="mandatory">Mandatory (Block on violations)</SelectItem>
+                    <SelectItem value="off">Off (No policy checks)</SelectItem>
+                    <SelectItem value="warn">Warn (Advisory only)</SelectItem>
+                    <SelectItem value="enforce">Enforce (Block on violations)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-          )}
-
-          {currentStep === "clarifications" && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Answer these questions to help TasksGodzilla better understand your project
-              </p>
-              {clarifications.map((clarification) => (
-                <div key={clarification.id} className="space-y-2">
-                  <Label>{clarification.question}</Label>
-                  <Textarea
-                    placeholder="Your answer..."
-                    rows={2}
-                    value={clarification.answer}
-                    onChange={(e) => {
-                      setClarifications(
-                        clarifications.map((c) => (c.id === clarification.id ? { ...c, answer: e.target.value } : c)),
-                      )
-                    }}
-                  />
-                </div>
-              ))}
             </div>
           )}
 
@@ -332,18 +251,38 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
                     <span>{formData.branch}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Classification:</span>
-                    <Badge variant="secondary">{formData.classification || "Not set"}</Badge>
-                  </div>
-                  <div className="flex justify-between">
                     <span className="text-muted-foreground">Policy Pack:</span>
                     <span>{formData.policyPack || "None"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Enforcement:</span>
+                    <Badge variant="secondary" className="capitalize">{formData.enforcementMode}</Badge>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Discovery:</span>
+                    <span>{formData.autoDiscovery ? "Enabled" : "Disabled"}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-lg border p-4">
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    checked={formData.autoDiscovery}
+                    onCheckedChange={(checked) =>
+                      setFormData({ ...formData, autoDiscovery: checked === true })
+                    }
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Run repository discovery</p>
+                    <p className="text-xs text-muted-foreground">
+                      Generate `tasksgodzilla/*` artifacts after cloning. Recommended.
+                    </p>
                   </div>
                 </div>
               </div>
               <div className="rounded-lg border bg-blue-500/10 p-4">
                 <p className="text-sm text-blue-600 dark:text-blue-400">
-                  After creating the project, the onboarding process will begin. You may need to answer clarification
+                  After creating the project, onboarding is queued in Windmill. You may need to answer clarification
                   questions to help TasksGodzilla understand your codebase.
                 </p>
               </div>

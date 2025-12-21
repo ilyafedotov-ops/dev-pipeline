@@ -41,7 +41,9 @@ Create a new project.
 {
   "name": "my-project",
   "git_url": "https://github.com/user/repo.git",
-  "base_branch": "main"
+  "base_branch": "main",
+  "auto_onboard": true,
+  "auto_discovery": true
 }
 ```
 
@@ -55,6 +57,11 @@ Create a new project.
   "created_at": "2024-01-01T00:00:00Z"
 }
 ```
+
+**Notes:**
+- When `auto_onboard=true` (default), DevGodzilla enqueues onboarding in Windmill.
+- Set `auto_discovery=false` to skip discovery during onboarding.
+- Windmill must be configured (`DEVGODZILLA_WINDMILL_*`) when auto onboarding is enabled.
 
 ### `GET /projects`
 

@@ -164,7 +164,18 @@ class PromptQAGate(Gate):
 
     @staticmethod
     def _extract_verdict(text: str) -> GateVerdict:
-        match = re.search(r"\bVerdict\s*:\s*(PASS|FAIL)\b", text, re.IGNORECASE)
-        if match:
-            return GateVerdict.PASS if match.group(1).upper() == "PASS" else GateVerdict.FAIL
-        return GateVerdict.ERROR
+        match = re.search(
+            r"\bVerdict\s*:\s*(PASS|FAIL|WARN|WARNING|SKIP|SKIPPED|ERROR)\b",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return GateVerdict.SKIP
+        verdict = match.group(1).upper()
+        if verdict in ("WARN", "WARNING"):
+            return GateVerdict.WARN
+        if verdict in ("SKIP", "SKIPPED"):
+            return GateVerdict.SKIP
+        if verdict == "ERROR":
+            return GateVerdict.ERROR
+        return GateVerdict.PASS if verdict == "PASS" else GateVerdict.FAIL

@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 
 from devgodzilla.cli.main import get_db as cli_get_db, get_service_context as cli_get_service_context
 from devgodzilla.services.base import ServiceContext
@@ -46,7 +46,11 @@ def require_api_token(
 
 
 def require_webhook_token(
+    request: Request,
     x_devgodzilla_webhook_token: Optional[str] = Header(None, alias="X-DevGodzilla-Webhook-Token"),
+    x_hub_signature_256: Optional[str] = Header(None, alias="X-Hub-Signature-256"),
+    x_hub_signature: Optional[str] = Header(None, alias="X-Hub-Signature"),
+    x_gitlab_token: Optional[str] = Header(None, alias="X-Gitlab-Token"),
 ) -> None:
     """
     Require a webhook token if `DEVGODZILLA_WEBHOOK_TOKEN` is set.
@@ -59,6 +63,12 @@ def require_webhook_token(
     expected = config.webhook_token
     if not expected:
         return
+    if x_devgodzilla_webhook_token == expected:
+        return
+    path = request.url.path or ""
+    if path.endswith("/webhooks/github") or path.endswith("/webhooks/gitlab"):
+        if x_hub_signature_256 or x_hub_signature or x_gitlab_token:
+            return
     if x_devgodzilla_webhook_token != expected:
         raise HTTPException(status_code=401, detail="Unauthorized")
 

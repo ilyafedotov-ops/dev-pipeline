@@ -5,12 +5,13 @@ import { apiClient } from "../client"
 import { queryKeys } from "../query-keys"
 import type {
   Agent,
+  AgentAssignments,
   AgentDefaults,
   AgentHealth,
   AgentMetrics,
+  AgentOverrides,
   AgentPromptTemplate,
   AgentPromptUpdate,
-  AgentProjectOverrides,
   AgentUpdate,
 } from "../types"
 
@@ -41,6 +42,15 @@ export function useAgentDefaults(projectId?: number) {
   })
 }
 
+export function useAgentAssignments(projectId?: number) {
+  const path = projectId ? `/projects/${projectId}/agents/assignments` : "/agents/assignments"
+  return useQuery({
+    queryKey: queryKeys.agents.assignments(projectId),
+    queryFn: () => apiClient.get<AgentAssignments>(path),
+    enabled: projectId !== undefined ? Number.isFinite(projectId) : true,
+  })
+}
+
 export function useAgentPrompts(projectId?: number) {
   const suffix = projectId ? `?project_id=${projectId}` : ""
   return useQuery({
@@ -67,8 +77,8 @@ export function useAgentMetrics(projectId?: number) {
 
 export function useProjectAgentOverrides(projectId: number | undefined) {
   return useQuery({
-    queryKey: queryKeys.agents.project(projectId || 0),
-    queryFn: () => apiClient.get<AgentProjectOverrides>(`/agents/projects/${projectId}`),
+    queryKey: queryKeys.agents.overrides(projectId || 0),
+    queryFn: () => apiClient.get<AgentOverrides>(`/projects/${projectId}/agents/overrides`),
     enabled: !!projectId,
   })
 }
@@ -111,6 +121,20 @@ export function useUpdateAgentDefaults() {
   })
 }
 
+export function useUpdateAgentAssignments() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, assignments }: { projectId?: number; assignments: AgentAssignments }) => {
+      const path = projectId ? `/projects/${projectId}/agents/assignments` : "/agents/assignments"
+      return apiClient.put<AgentAssignments>(path, assignments)
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents.assignments(variables.projectId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(variables.projectId) })
+    },
+  })
+}
+
 export function useUpdateAgentPrompt() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -137,10 +161,10 @@ export function useUpdateAgentPrompt() {
 export function useUpdateProjectAgentOverrides() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ projectId, overrides }: { projectId: number; overrides: AgentProjectOverrides }) =>
-      apiClient.put<AgentProjectOverrides>(`/agents/projects/${projectId}`, overrides),
+    mutationFn: ({ projectId, overrides }: { projectId: number; overrides: AgentOverrides }) =>
+      apiClient.put<AgentOverrides>(`/projects/${projectId}/agents/overrides`, overrides),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents.project(variables.projectId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents.overrides(variables.projectId) })
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(variables.projectId) })
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.defaults(variables.projectId) })
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.prompts(variables.projectId) })

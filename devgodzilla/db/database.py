@@ -159,6 +159,15 @@ class DatabaseProtocol(Protocol):
     def update_step_status(self, step_run_id: int, status: str, **kwargs) -> StepRun: ...
     def update_step_run(self, step_run_id: int, **kwargs) -> StepRun: ...
     def update_step_assigned_agent(self, step_run_id: int, assigned_agent: Optional[str]) -> StepRun: ...
+
+    # Agent assignments and overrides
+    def list_agent_assignments(self, project_id: Optional[int]) -> Dict[str, Dict[str, Any]]: ...
+    def upsert_agent_assignment(self, project_id: Optional[int], process_key: str, assignment: Dict[str, Any]) -> None: ...
+    def delete_agent_assignment(self, project_id: int, process_key: str) -> None: ...
+    def get_agent_assignment_settings(self, project_id: int) -> Dict[str, Any]: ...
+    def upsert_agent_assignment_settings(self, project_id: int, inherit_global: bool) -> Dict[str, Any]: ...
+    def list_agent_overrides(self, project_id: int) -> Dict[str, Dict[str, Any]]: ...
+    def upsert_agent_override(self, project_id: int, agent_id: str, overrides: Dict[str, Any]) -> Dict[str, Any]: ...
     
     # Events
     def append_event(
@@ -1253,6 +1262,196 @@ class SQLiteDatabase:
 
     def update_step_assigned_agent(self, step_run_id: int, assigned_agent: Optional[str]) -> StepRun:
         return self.update_step_run(step_run_id, assigned_agent=assigned_agent)
+
+    def _row_to_agent_assignment(self, row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            "agent_id": row["agent_id"],
+            "prompt_id": row["prompt_id"],
+            "model_override": row["model_override"],
+            "enabled": bool(row["enabled"]) if row["enabled"] is not None else None,
+            "metadata": self._parse_json(row["metadata"] if "metadata" in row.keys() else None),
+        }
+
+    def list_agent_assignments(self, project_id: Optional[int]) -> Dict[str, Dict[str, Any]]:
+        if project_id is None:
+            rows = self._fetchall(
+                "SELECT * FROM agent_assignments WHERE project_id IS NULL",
+            )
+            resolved: Dict[str, Dict[str, Any]] = {}
+            for row in rows:
+                assignment = self._row_to_agent_assignment(row)
+                empty_assignment = (
+                    not assignment.get("agent_id")
+                    and not assignment.get("prompt_id")
+                    and not assignment.get("model_override")
+                    and assignment.get("enabled") is None
+                    and assignment.get("metadata") is None
+                )
+                if empty_assignment:
+                    continue
+                resolved[row["process_key"]] = assignment
+            return resolved
+
+        settings = self.get_agent_assignment_settings(project_id)
+        inherit = settings.get("inherit_global", True)
+        resolved: Dict[str, Dict[str, Any]] = {}
+        if inherit:
+            resolved.update(self.list_agent_assignments(None))
+        rows = self._fetchall(
+            "SELECT * FROM agent_assignments WHERE project_id = ?",
+            (project_id,),
+        )
+        for row in rows:
+            assignment = self._row_to_agent_assignment(row)
+            empty_assignment = (
+                not assignment.get("agent_id")
+                and not assignment.get("prompt_id")
+                and not assignment.get("model_override")
+                and assignment.get("enabled") is None
+                and assignment.get("metadata") is None
+            )
+            if empty_assignment:
+                continue
+            resolved[row["process_key"]] = assignment
+        return resolved
+
+    def upsert_agent_assignment(
+        self,
+        project_id: Optional[int],
+        process_key: str,
+        assignment: Dict[str, Any],
+    ) -> None:
+        agent_id = assignment.get("agent_id")
+        prompt_id = assignment.get("prompt_id")
+        model_override = assignment.get("model_override")
+        enabled = assignment.get("enabled")
+        enabled_value = 1 if enabled is True else 0 if enabled is False else None
+        metadata = assignment.get("metadata")
+        metadata_value = json.dumps(metadata) if metadata is not None else None
+
+        with self._transaction() as conn:
+            if project_id is None:
+                row = conn.execute(
+                    "SELECT id FROM agent_assignments WHERE project_id IS NULL AND process_key = ?",
+                    (process_key,),
+                ).fetchone()
+                if row:
+                    conn.execute(
+                        """
+                        UPDATE agent_assignments
+                        SET agent_id = ?, prompt_id = ?, model_override = ?, enabled = ?, metadata = ?,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (
+                            agent_id,
+                            prompt_id,
+                            model_override,
+                            enabled_value,
+                            metadata_value,
+                            row["id"],
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO agent_assignments (
+                            project_id, process_key, agent_id, prompt_id, model_override, enabled, metadata
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            None,
+                            process_key,
+                            agent_id,
+                            prompt_id,
+                            model_override,
+                            enabled_value,
+                            metadata_value,
+                        ),
+                    )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO agent_assignments (
+                        project_id, process_key, agent_id, prompt_id, model_override, enabled, metadata, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(project_id, process_key) DO UPDATE SET
+                        agent_id = excluded.agent_id,
+                        prompt_id = excluded.prompt_id,
+                        model_override = excluded.model_override,
+                        enabled = excluded.enabled,
+                        metadata = excluded.metadata,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        project_id,
+                        process_key,
+                        agent_id,
+                        prompt_id,
+                        model_override,
+                        enabled_value,
+                        metadata_value,
+                    ),
+                )
+
+    def delete_agent_assignment(self, project_id: int, process_key: str) -> None:
+        with self._transaction() as conn:
+            conn.execute(
+                "DELETE FROM agent_assignments WHERE project_id = ? AND process_key = ?",
+                (project_id, process_key),
+            )
+
+    def get_agent_assignment_settings(self, project_id: int) -> Dict[str, Any]:
+        row = self._fetchone(
+            "SELECT inherit_global FROM agent_assignment_settings WHERE project_id = ?",
+            (project_id,),
+        )
+        if not row:
+            return {"inherit_global": True}
+        return {"inherit_global": bool(row["inherit_global"]) if row["inherit_global"] is not None else True}
+
+    def upsert_agent_assignment_settings(self, project_id: int, inherit_global: bool) -> Dict[str, Any]:
+        with self._transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_assignment_settings (project_id, inherit_global, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(project_id) DO UPDATE SET
+                    inherit_global = excluded.inherit_global,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (project_id, 1 if inherit_global else 0),
+            )
+        return {"inherit_global": inherit_global}
+
+    def list_agent_overrides(self, project_id: int) -> Dict[str, Dict[str, Any]]:
+        rows = self._fetchall(
+            "SELECT agent_id, overrides FROM agent_overrides WHERE project_id = ?",
+            (project_id,),
+        )
+        resolved: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            overrides = self._parse_json(row["overrides"])
+            if isinstance(overrides, dict):
+                resolved[row["agent_id"]] = overrides
+        return resolved
+
+    def upsert_agent_override(self, project_id: int, agent_id: str, overrides: Dict[str, Any]) -> Dict[str, Any]:
+        payload = json.dumps(overrides) if overrides is not None else None
+        with self._transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_overrides (project_id, agent_id, overrides, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(project_id, agent_id) DO UPDATE SET
+                    overrides = excluded.overrides,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (project_id, agent_id, payload),
+            )
+        return overrides
 
     # Event operations
     def append_event(
@@ -3855,6 +4054,199 @@ class PostgresDatabase:
 
     def update_step_assigned_agent(self, step_run_id: int, assigned_agent: Optional[str]) -> StepRun:
         return self.update_step_run(step_run_id, assigned_agent=assigned_agent)
+
+    def _row_to_agent_assignment(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "agent_id": row.get("agent_id"),
+            "prompt_id": row.get("prompt_id"),
+            "model_override": row.get("model_override"),
+            "enabled": row.get("enabled"),
+            "metadata": self._parse_json(row.get("metadata")),
+        }
+
+    def list_agent_assignments(self, project_id: Optional[int]) -> Dict[str, Dict[str, Any]]:
+        if project_id is None:
+            rows = self._fetchall(
+                "SELECT * FROM agent_assignments WHERE project_id IS NULL",
+            )
+            resolved: Dict[str, Dict[str, Any]] = {}
+            for row in rows:
+                assignment = self._row_to_agent_assignment(row)
+                empty_assignment = (
+                    not assignment.get("agent_id")
+                    and not assignment.get("prompt_id")
+                    and not assignment.get("model_override")
+                    and assignment.get("enabled") is None
+                    and assignment.get("metadata") is None
+                )
+                if empty_assignment:
+                    continue
+                resolved[row["process_key"]] = assignment
+            return resolved
+
+        settings = self.get_agent_assignment_settings(project_id)
+        inherit = settings.get("inherit_global", True)
+        resolved: Dict[str, Dict[str, Any]] = {}
+        if inherit:
+            resolved.update(self.list_agent_assignments(None))
+        rows = self._fetchall(
+            "SELECT * FROM agent_assignments WHERE project_id = %s",
+            (project_id,),
+        )
+        for row in rows:
+            assignment = self._row_to_agent_assignment(row)
+            empty_assignment = (
+                not assignment.get("agent_id")
+                and not assignment.get("prompt_id")
+                and not assignment.get("model_override")
+                and assignment.get("enabled") is None
+                and assignment.get("metadata") is None
+            )
+            if empty_assignment:
+                continue
+            resolved[row["process_key"]] = assignment
+        return resolved
+
+    def upsert_agent_assignment(
+        self,
+        project_id: Optional[int],
+        process_key: str,
+        assignment: Dict[str, Any],
+    ) -> None:
+        agent_id = assignment.get("agent_id")
+        prompt_id = assignment.get("prompt_id")
+        model_override = assignment.get("model_override")
+        enabled = assignment.get("enabled")
+        metadata = assignment.get("metadata")
+
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                if project_id is None:
+                    cur.execute(
+                        "SELECT id FROM agent_assignments WHERE project_id IS NULL AND process_key = %s",
+                        (process_key,),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        cur.execute(
+                            """
+                            UPDATE agent_assignments
+                            SET agent_id = %s, prompt_id = %s, model_override = %s, enabled = %s, metadata = %s,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = %s
+                            """,
+                            (
+                                agent_id,
+                                prompt_id,
+                                model_override,
+                                enabled,
+                                json.dumps(metadata) if metadata is not None else None,
+                                row["id"],
+                            ),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            INSERT INTO agent_assignments (
+                                project_id, process_key, agent_id, prompt_id, model_override, enabled, metadata
+                            )
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                None,
+                                process_key,
+                                agent_id,
+                                prompt_id,
+                                model_override,
+                                enabled,
+                                json.dumps(metadata) if metadata is not None else None,
+                            ),
+                        )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO agent_assignments (
+                            project_id, process_key, agent_id, prompt_id, model_override, enabled, metadata, updated_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (project_id, process_key) DO UPDATE SET
+                            agent_id = excluded.agent_id,
+                            prompt_id = excluded.prompt_id,
+                            model_override = excluded.model_override,
+                            enabled = excluded.enabled,
+                            metadata = excluded.metadata,
+                            updated_at = CURRENT_TIMESTAMP
+                        """,
+                        (
+                            project_id,
+                            process_key,
+                            agent_id,
+                            prompt_id,
+                            model_override,
+                            enabled,
+                            json.dumps(metadata) if metadata is not None else None,
+                        ),
+                    )
+
+    def delete_agent_assignment(self, project_id: int, process_key: str) -> None:
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM agent_assignments WHERE project_id = %s AND process_key = %s",
+                    (project_id, process_key),
+                )
+
+    def get_agent_assignment_settings(self, project_id: int) -> Dict[str, Any]:
+        row = self._fetchone(
+            "SELECT inherit_global FROM agent_assignment_settings WHERE project_id = %s",
+            (project_id,),
+        )
+        if not row:
+            return {"inherit_global": True}
+        inherit_value = row.get("inherit_global")
+        return {"inherit_global": bool(inherit_value) if inherit_value is not None else True}
+
+    def upsert_agent_assignment_settings(self, project_id: int, inherit_global: bool) -> Dict[str, Any]:
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO agent_assignment_settings (project_id, inherit_global, updated_at)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (project_id) DO UPDATE SET
+                        inherit_global = excluded.inherit_global,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (project_id, inherit_global),
+                )
+        return {"inherit_global": inherit_global}
+
+    def list_agent_overrides(self, project_id: int) -> Dict[str, Dict[str, Any]]:
+        rows = self._fetchall(
+            "SELECT agent_id, overrides FROM agent_overrides WHERE project_id = %s",
+            (project_id,),
+        )
+        resolved: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            overrides = self._parse_json(row.get("overrides"))
+            if isinstance(overrides, dict):
+                resolved[row["agent_id"]] = overrides
+        return resolved
+
+    def upsert_agent_override(self, project_id: int, agent_id: str, overrides: Dict[str, Any]) -> Dict[str, Any]:
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO agent_overrides (project_id, agent_id, overrides, updated_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (project_id, agent_id) DO UPDATE SET
+                        overrides = excluded.overrides,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (project_id, agent_id, json.dumps(overrides) if overrides is not None else None),
+                )
+        return overrides
 
     # Event operations
     def append_event(

@@ -51,6 +51,8 @@ class ProjectCreate(BaseModel):
     git_url: Optional[str] = None
     local_path: Optional[str] = None
     base_branch: str = "main"
+    auto_onboard: bool = True
+    auto_discovery: bool = True
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
@@ -86,8 +88,10 @@ class OnboardingStage(BaseModel):
     completed_at: Optional[Any] = None
 
 class OnboardingEvent(BaseModel):
+    id: int
     event_type: str
     message: str
+    metadata: Optional[Dict[str, Any]] = None
     created_at: Any
 
 class OnboardingSummary(BaseModel):
@@ -96,6 +100,24 @@ class OnboardingSummary(BaseModel):
     stages: List[OnboardingStage]
     events: List[OnboardingEvent]
     blocking_clarifications: int
+
+
+class DiscoveryRetryRequest(BaseModel):
+    discovery_pipeline: bool = True
+    discovery_engine_id: Optional[str] = None
+    discovery_model: Optional[str] = None
+    stages: Optional[List[str]] = None
+    strict_outputs: bool = True
+
+
+class DiscoveryRetryResponse(BaseModel):
+    success: bool
+    discovery_log_path: Optional[str] = None
+    discovery_missing_outputs: List[str] = Field(default_factory=list)
+    discovery_error: Optional[str] = None
+    engine_id: Optional[str] = None
+    model: Optional[str] = None
+    pipeline: Optional[bool] = None
 
 # =============================================================================
 # Protocol Models
@@ -242,6 +264,20 @@ class AgentProjectOverrides(BaseModel):
     prompts: Optional[Dict[str, Dict[str, Any]]] = None
     assignments: Optional[Dict[str, Any]] = None
 
+class AgentProcessAssignment(BaseModel):
+    agent_id: Optional[str] = None
+    prompt_id: Optional[str] = None
+    model_override: Optional[str] = None
+    enabled: Optional[bool] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+class AgentAssignments(BaseModel):
+    assignments: Dict[str, AgentProcessAssignment] = Field(default_factory=dict)
+    inherit_global: Optional[bool] = None
+
+class AgentOverrides(BaseModel):
+    agents: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+
 class AgentHealthOut(BaseModel):
     agent_id: str
     available: bool
@@ -323,6 +359,21 @@ class EventOut(APIModel):
     protocol_name: Optional[str] = None
     project_id: Optional[int] = None
     project_name: Optional[str] = None
+
+# =============================================================================
+# Application Logs
+# =============================================================================
+
+class AppLogEntry(BaseModel):
+    id: int
+    timestamp: str
+    level: str
+    source: str
+    message: str
+    metadata: Optional[Dict[str, Any]] = None
+
+class AppLogsResponse(BaseModel):
+    logs: List[AppLogEntry]
 
 # =============================================================================
 # Artifact Models
@@ -451,6 +502,20 @@ class PullRequestOut(BaseModel):
     url: str
     author: str
     created_at: str
+
+class WorktreeOut(BaseModel):
+    """Worktree info with associated protocol/spec run details."""
+    branch_name: str
+    worktree_path: Optional[str] = None
+    protocol_run_id: Optional[int] = None
+    protocol_name: Optional[str] = None
+    protocol_status: Optional[str] = None
+    spec_run_id: Optional[int] = None
+    last_commit_sha: Optional[str] = None
+    last_commit_message: Optional[str] = None
+    last_commit_date: Optional[str] = None
+    pr_url: Optional[str] = None
+
 
 # =============================================================================
 # Workflow / UI Convenience Models (Windmill React app)

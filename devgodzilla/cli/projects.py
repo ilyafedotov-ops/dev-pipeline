@@ -94,12 +94,31 @@ def show_project(ctx, project_id):
 @click.option("--repo", "git_url", required=True, help="Git repository URL")
 @click.option("--branch", "base_branch", default="main", help="Base branch")
 @click.option("--local-path", default=None, help="Optional local repo path (already cloned)")
+@click.option("--no-onboard", is_flag=True, help="Skip auto onboarding (Windmill)")
+@click.option("--no-discovery", is_flag=True, help="Disable auto discovery during onboarding")
 @click.pass_context
-def create_project(ctx, name, git_url, base_branch, local_path):
+def create_project(ctx, name, git_url, base_branch, local_path, no_onboard, no_discovery):
     """Create a new project."""
     db = get_db()
+    context = get_service_context()
+    if not no_onboard and not getattr(context.config, "windmill_enabled", False):
+        raise click.ClickException("Windmill integration not configured; use --no-onboard to skip")
+
     try:
         p = db.create_project(name=name, git_url=git_url, base_branch=base_branch, local_path=local_path)
+        onboarding_job_id = None
+        if not no_onboard:
+            from devgodzilla.services.onboarding_queue import enqueue_project_onboarding
+
+            result = enqueue_project_onboarding(
+                context,
+                db,
+                project_id=p.id,
+                branch=base_branch,
+                run_discovery_agent=not no_discovery,
+            )
+            onboarding_job_id = result.windmill_job_id
+
         payload = {
             "success": True,
             "project_id": p.id,
@@ -107,11 +126,15 @@ def create_project(ctx, name, git_url, base_branch, local_path):
             "git_url": p.git_url,
             "base_branch": p.base_branch,
             "local_path": p.local_path,
+            "onboarding_queued": not no_onboard,
+            "onboarding_job_id": onboarding_job_id,
         }
         if ctx.obj and ctx.obj.get("JSON"):
             click.echo(json.dumps(payload))
         else:
             console.print(f"[green]Created project {p.name} (ID: {p.id})[/green]")
+            if onboarding_job_id:
+                console.print(f"[green]Queued onboarding job {onboarding_job_id}[/green]")
     except Exception as e:
         if ctx.obj and ctx.obj.get("JSON"):
             click.echo(json.dumps({"success": False, "error": str(e)}))
@@ -232,7 +255,25 @@ def discover_project(
 
 @project.command("onboard")
 @click.argument("project_id", type=int)
-def onboard_project(project_id):
-    """Run onboarding for a project."""
-    # Placeholder for onboarding logic
-    console.print(f"[yellow]Onboarding logic for project {project_id} not yet implemented via CLI[/yellow]")
+@click.option("--branch", default=None, help="Branch to checkout (defaults to project base branch)")
+@click.option("--no-discovery", is_flag=True, help="Disable auto discovery during onboarding")
+def onboard_project(project_id, branch, no_discovery):
+    """Queue onboarding for a project (Windmill)."""
+    context = get_service_context(project_id=project_id)
+    if not getattr(context.config, "windmill_enabled", False):
+        raise click.ClickException("Windmill integration not configured")
+
+    db = get_db()
+    try:
+        from devgodzilla.services.onboarding_queue import enqueue_project_onboarding
+
+        result = enqueue_project_onboarding(
+            context,
+            db,
+            project_id=project_id,
+            branch=branch,
+            run_discovery_agent=not no_discovery,
+        )
+        console.print(f"[green]Queued onboarding job {result.windmill_job_id}[/green]")
+    except Exception as e:
+        console.print(f"[red]Error enqueueing onboarding: {e}[/red]")

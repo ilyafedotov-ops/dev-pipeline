@@ -1,22 +1,21 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import Link from "next/link"
-import { useRecentEvents, useProjects, useRuns } from "@/lib/api"
+import { useEffect, useState } from "react"
+import { useRecentEvents, useProjects } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { LoadingState } from "@/components/ui/loading-state"
 import { EmptyState } from "@/components/ui/empty-state"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { RefreshCw, Activity, ExternalLink } from "lucide-react"
+import { RefreshCw, Activity } from "lucide-react"
 import { formatTime, formatRelativeTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { StreamingLogs } from "@/components/features/streaming-logs"
 import type { EventFilters } from "@/lib/api/types"
 
 const eventTypeColors: Record<string, string> = {
+  onboarding_enqueued: "text-blue-500",
+  onboarding_enqueue_failed: "text-destructive",
   onboarding_started: "text-blue-500",
   onboarding_repo_ready: "text-green-500",
   onboarding_speckit_initialized: "text-green-500",
@@ -24,6 +23,7 @@ const eventTypeColors: Record<string, string> = {
   discovery_started: "text-blue-500",
   discovery_completed: "text-green-500",
   discovery_failed: "text-destructive",
+  discovery_skipped: "text-muted-foreground",
   step_started: "text-blue-500",
   step_completed: "text-green-500",
   step_failed: "text-destructive",
@@ -69,6 +69,8 @@ const categoryColors: Record<string, string> = {
 }
 
 const eventTypeOptions = [
+  "onboarding_enqueued",
+  "onboarding_enqueue_failed",
   "onboarding_started",
   "onboarding_repo_ready",
   "onboarding_speckit_initialized",
@@ -76,6 +78,7 @@ const eventTypeOptions = [
   "discovery_started",
   "discovery_completed",
   "discovery_failed",
+  "discovery_skipped",
   "protocol_started",
   "protocol_completed",
   "protocol_failed",
@@ -115,9 +118,9 @@ const DEFAULT_REFRESH_MS = 10000
 
 export default function EventsPage() {
   const [filters, setFilters] = useState<EventFilters>({ limit: 50, categories: [] })
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [presetName, setPresetName] = useState("")
   const [selectedPreset, setSelectedPreset] = useState<string>("")
+  const [expandedEventIds, setExpandedEventIds] = useState<Set<number>>(new Set())
   const [presets, setPresets] = useState<Array<{ name: string; filters: EventFilters }>>(() => {
     if (typeof window === "undefined") return []
     try {
@@ -143,27 +146,11 @@ export default function EventsPage() {
 
   const { data: events, isLoading, refetch } = useRecentEvents(filters, { refetchIntervalMs: refreshIntervalMs })
   const { data: projects } = useProjects()
-  const { data: runs, isLoading: runsLoading } = useRuns({
-    project_id: filters.project_id,
-    limit: 50,
-  })
 
   useEffect(() => {
     if (typeof window === "undefined") return
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ refreshIntervalMs }))
   }, [refreshIntervalMs])
-
-  useEffect(() => {
-    setSelectedRunId(null)
-  }, [filters.project_id])
-
-  useEffect(() => {
-    if (!selectedRunId && runs && runs.length > 0) {
-      setSelectedRunId(runs[0].run_id)
-    }
-  }, [runs, selectedRunId])
-
-  const selectedRun = useMemo(() => runs?.find((run) => run.run_id === selectedRunId), [runs, selectedRunId])
 
   const toggleCategory = (category: string) => {
     setFilters((current) => {
@@ -174,6 +161,18 @@ export default function EventsPage() {
         next.add(category)
       }
       return { ...current, categories: Array.from(next).sort() }
+    })
+  }
+
+  const toggleEventDetails = (eventId: number) => {
+    setExpandedEventIds((current) => {
+      const next = new Set(current)
+      if (next.has(eventId)) {
+        next.delete(eventId)
+      } else {
+        next.add(eventId)
+      }
+      return next
     })
   }
 
@@ -231,7 +230,7 @@ export default function EventsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Events & Logs</h2>
+        <h2 className="text-xl font-semibold">Events</h2>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => refetch()}>
             <RefreshCw className="mr-2 h-4 w-4" />
@@ -243,226 +242,178 @@ export default function EventsPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="events" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="events">Events</TabsTrigger>
-          <TabsTrigger value="logs">Logs</TabsTrigger>
-        </TabsList>
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={selectedPreset || "none"} onValueChange={handleApplyPreset}>
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="Presets" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Presets</SelectItem>
+            {presets.map((preset) => (
+              <SelectItem key={preset.name} value={preset.name}>
+                {preset.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-        <TabsContent value="events" className="space-y-6">
-          <div className="flex flex-wrap items-center gap-3">
-            <Select value={selectedPreset || "none"} onValueChange={handleApplyPreset}>
-              <SelectTrigger className="w-56">
-                <SelectValue placeholder="Presets" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Presets</SelectItem>
-                {presets.map((preset) => (
-                  <SelectItem key={preset.name} value={preset.name}>
-                    {preset.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <Input
+          placeholder="Preset name"
+          value={presetName}
+          onChange={(e) => setPresetName(e.target.value)}
+          className="w-48"
+        />
+        <Button variant="outline" onClick={handleSavePreset}>
+          Save Preset
+        </Button>
+        <Button variant="ghost" onClick={handleDeletePreset} disabled={!selectedPreset}>
+          Delete
+        </Button>
+      </div>
 
-            <Input
-              placeholder="Preset name"
-              value={presetName}
-              onChange={(e) => setPresetName(e.target.value)}
-              className="w-48"
-            />
-            <Button variant="outline" onClick={handleSavePreset}>
-              Save Preset
-            </Button>
-            <Button variant="ghost" onClick={handleDeletePreset} disabled={!selectedPreset}>
-              Delete
-            </Button>
-          </div>
+      <div className="flex flex-wrap gap-4">
+        <Select
+          value={filters.project_id?.toString() || "all"}
+          onValueChange={(v) =>
+            setFilters((f) => ({ ...f, project_id: v === "all" ? undefined : Number(v) }))
+          }
+        >
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="All Projects" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Projects</SelectItem>
+            {projects?.map((project) => (
+              <SelectItem key={project.id} value={project.id.toString()}>
+                {project.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-          <div className="flex flex-wrap gap-4">
-            <Select
-              value={filters.project_id?.toString() || "all"}
-              onValueChange={(v) =>
-                setFilters((f) => ({ ...f, project_id: v === "all" ? undefined : Number(v) }))
-              }
+        <Select
+          value={filters.event_type || "all"}
+          onValueChange={(v) => setFilters((f) => ({ ...f, event_type: v === "all" ? undefined : v }))}
+        >
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="Event Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            {eventTypeOptions.map((eventType) => (
+              <SelectItem key={eventType} value={eventType}>
+                {eventType}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Input
+          type="number"
+          placeholder="Limit"
+          className="w-24"
+          value={filters.limit || 50}
+          onChange={(e) => setFilters((f) => ({ ...f, limit: Number(e.target.value) || 50 }))}
+        />
+
+        <Select value={String(refreshIntervalMs)} onValueChange={(v) => setRefreshIntervalMs(Number(v))}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="Refresh" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0">Manual</SelectItem>
+            <SelectItem value="5000">5s</SelectItem>
+            <SelectItem value="10000">10s</SelectItem>
+            <SelectItem value="30000">30s</SelectItem>
+            <SelectItem value="60000">60s</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {categoryOptions.map((category) => {
+          const selected = filters.categories?.includes(category)
+          return (
+            <Button
+              key={category}
+              variant={selected ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => toggleCategory(category)}
             >
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="All Projects" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Projects</SelectItem>
-                {projects?.map((project) => (
-                  <SelectItem key={project.id} value={project.id.toString()}>
-                    {project.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              {categoryLabels[category] ?? category}
+            </Button>
+          )
+        })}
+      </div>
 
-            <Select
-              value={filters.event_type || "all"}
-              onValueChange={(v) => setFilters((f) => ({ ...f, event_type: v === "all" ? undefined : v }))}
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue placeholder="Event Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                {eventTypeOptions.map((eventType) => (
-                  <SelectItem key={eventType} value={eventType}>
-                    {eventType}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      {isLoading ? (
+        <LoadingState message="Loading events..." />
+      ) : !events || events.length === 0 ? (
+        <EmptyState icon={Activity} title="No events" description="No events match your filter criteria." />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Event Timeline</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {events.map((event) => {
+                const category = event.event_category || "other"
+                const color =
+                  eventTypeColors[event.event_type] || categoryColors[category] || "text-muted-foreground"
+                const hasMetadata = event.metadata && Object.keys(event.metadata).length > 0
+                const isExpanded = expandedEventIds.has(event.id)
 
-            <Input
-              type="number"
-              placeholder="Limit"
-              className="w-24"
-              value={filters.limit || 50}
-              onChange={(e) => setFilters((f) => ({ ...f, limit: Number(e.target.value) || 50 }))}
-            />
-
-            <Select value={String(refreshIntervalMs)} onValueChange={(v) => setRefreshIntervalMs(Number(v))}>
-              <SelectTrigger className="w-36">
-                <SelectValue placeholder="Refresh" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">Manual</SelectItem>
-                <SelectItem value="5000">5s</SelectItem>
-                <SelectItem value="10000">10s</SelectItem>
-                <SelectItem value="30000">30s</SelectItem>
-                <SelectItem value="60000">60s</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {categoryOptions.map((category) => {
-              const selected = filters.categories?.includes(category)
-              return (
-                <Button
-                  key={category}
-                  variant={selected ? "secondary" : "outline"}
-                  size="sm"
-                  onClick={() => toggleCategory(category)}
-                >
-                  {categoryLabels[category] ?? category}
-                </Button>
-              )
-            })}
-          </div>
-
-          {isLoading ? (
-            <LoadingState message="Loading events..." />
-          ) : !events || events.length === 0 ? (
-            <EmptyState icon={Activity} title="No events" description="No events match your filter criteria." />
-          ) : (
-            <Card>
-              <CardHeader>
-                <CardTitle>Event Timeline</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {events.map((event) => {
-                    const category = event.event_category || "other"
-                    const color =
-                      eventTypeColors[event.event_type] || categoryColors[category] || "text-muted-foreground"
-
-                    return (
-                      <div key={event.id} className="flex gap-4 items-start">
-                        <div className="text-sm text-muted-foreground min-w-24 font-mono">
-                          {formatTime(event.created_at)}
-                        </div>
-                        <div className="relative flex-shrink-0">
-                          <div className="h-3 w-3 rounded-full bg-muted border-2 border-background" />
-                          <div className="absolute top-3 bottom-0 left-1/2 -translate-x-1/2 w-px bg-border h-full" />
-                        </div>
-                        <div className="flex-1 pb-4">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={cn("font-mono text-sm", color)}>{event.event_type}</span>
-                            <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                              {categoryLabels[category] ?? category}
-                            </span>
-                            {event.project_name && (
-                              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                                {event.project_name}
-                              </span>
-                            )}
-                            {event.protocol_name && (
-                              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                                {event.protocol_name}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm mt-1">{event.message}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{formatRelativeTime(event.created_at)}</p>
-                        </div>
+                return (
+                  <div key={event.id} className="flex gap-4 items-start">
+                    <div className="text-sm text-muted-foreground min-w-24 font-mono">
+                      {formatTime(event.created_at)}
+                    </div>
+                    <div className="relative flex-shrink-0">
+                      <div className="h-3 w-3 rounded-full bg-muted border-2 border-background" />
+                      <div className="absolute top-3 bottom-0 left-1/2 -translate-x-1/2 w-px bg-border h-full" />
+                    </div>
+                    <div className="flex-1 pb-4">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={cn("font-mono text-sm", color)}>{event.event_type}</span>
+                        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                          {categoryLabels[category] ?? category}
+                        </span>
+                        {event.project_name && (
+                          <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                            {event.project_name}
+                          </span>
+                        )}
+                        {event.protocol_name && (
+                          <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                            {event.protocol_name}
+                          </span>
+                        )}
+                        {hasMetadata && (
+                          <button
+                            type="button"
+                            onClick={() => toggleEventDetails(event.id)}
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            {isExpanded ? "Hide details" : "Details"}
+                          </button>
+                        )}
                       </div>
-                    )
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        <TabsContent value="logs" className="space-y-6">
-          <div className="flex flex-wrap items-center gap-4">
-            <Select
-              value={filters.project_id?.toString() || "all"}
-              onValueChange={(v) =>
-                setFilters((f) => ({ ...f, project_id: v === "all" ? undefined : Number(v) }))
-              }
-            >
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="All Projects" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Projects</SelectItem>
-                {projects?.map((project) => (
-                  <SelectItem key={project.id} value={project.id.toString()}>
-                    {project.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={selectedRunId || ""} onValueChange={(value) => setSelectedRunId(value)}>
-              <SelectTrigger className="w-72">
-                <SelectValue placeholder="Select a run" />
-              </SelectTrigger>
-              <SelectContent>
-                {runs?.map((run) => (
-                  <SelectItem key={run.run_id} value={run.run_id}>
-                    {run.job_type} • {run.status} • {run.run_id.slice(0, 8)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {selectedRun && (
-              <Link href={`/runs/${selectedRun.run_id}`} className="inline-flex items-center">
-                <Button variant="outline" size="sm">
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  Run Details
-                </Button>
-              </Link>
-            )}
-          </div>
-
-          {runsLoading ? (
-            <LoadingState message="Loading runs..." />
-          ) : !runs || runs.length === 0 ? (
-            <EmptyState icon={Activity} title="No runs" description="No runs available for log streaming." />
-          ) : selectedRunId ? (
-            <div className="h-[calc(100vh-24rem)]">
-              <StreamingLogs runId={selectedRunId} />
+                      <p className="text-sm mt-1">{event.message}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{formatRelativeTime(event.created_at)}</p>
+                      {hasMetadata && isExpanded && (
+                        <pre className="mt-3 text-xs bg-muted rounded p-3 whitespace-pre-wrap break-words">
+                          {JSON.stringify(event.metadata, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-          ) : null}
-        </TabsContent>
-      </Tabs>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

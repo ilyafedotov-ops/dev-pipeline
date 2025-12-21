@@ -6,6 +6,7 @@ Uses DEVGODZILLA_ prefix for all environment variables.
 """
 
 import os
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -327,11 +328,21 @@ def load_config() -> Config:
 
 # Singleton config instance (lazy loaded)
 _config: Optional[Config] = None
+_config_lock = threading.Lock()
 
 
 def get_config() -> Config:
     """Get or create the singleton config instance."""
     global _config
     if _config is None:
-        _config = load_config()
+        with _config_lock:
+            if _config is None:
+                _config = load_config()
     return _config
+
+
+def _reset_config_for_tests() -> None:
+    """Reset the global config cache (tests only)."""
+    global _config
+    with _config_lock:
+        _config = None

@@ -8,10 +8,13 @@ and sensitive data redaction.
 import json
 import logging
 import os
+import threading
+from collections import deque
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 
 STANDARD_FIELDS = ("request_id", "run_id", "job_id", "project_id", "protocol_run_id", "step_run_id")
@@ -183,6 +186,99 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(sanitized, default=_json_fallback)
 
 
+class RingBufferHandler(logging.Handler):
+    """
+    Logging handler that stores logs in a thread-safe ring buffer.
+
+    Logs are stored as structured dicts matching the AppLogEntry interface
+    for streaming via SSE to the frontend.
+    """
+
+    def __init__(self, capacity: int = 10000) -> None:
+        super().__init__()
+        self._buffer: deque[Dict[str, Any]] = deque(maxlen=capacity)
+        self._lock = threading.Lock()
+        self._counter = 0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            metadata: Dict[str, Any] = {}
+            for key, value in record.__dict__.items():
+                if key in _RESERVED_LOG_RECORD_ATTRS:
+                    continue
+                if key in STANDARD_FIELDS:
+                    if value and value != "-":
+                        metadata[key] = value
+                    continue
+                if key in ("id", "timestamp", "level", "source", "message"):
+                    continue
+                metadata[key] = _sanitize_for_logging(key, value)
+
+            entry = {
+                "id": 0,
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "level": record.levelname.lower(),
+                "source": record.name,
+                "message": record.getMessage(),
+                "metadata": metadata if metadata else None,
+            }
+
+            with self._lock:
+                self._counter += 1
+                entry["id"] = self._counter
+                self._buffer.append(entry)
+        except Exception:
+            self.handleError(record)
+
+    def get_logs_since(
+        self,
+        since_id: int,
+        level: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return logs with id > since_id, optionally filtered by level/source."""
+        with self._lock:
+            return [
+                e for e in self._buffer
+                if e["id"] > since_id
+                and (not level or e["level"] == level)
+                and (not source or source in e["source"])
+            ]
+
+    def get_recent(
+        self,
+        limit: int,
+        level: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return the most recent logs, optionally filtered by level/source."""
+        with self._lock:
+            filtered = [
+                e for e in self._buffer
+                if (not level or e["level"] == level)
+                and (not source or source in e["source"])
+            ]
+            return list(filtered)[-limit:]
+
+    def get_last_id(self) -> int:
+        """Return the current counter value (last assigned ID)."""
+        with self._lock:
+            return self._counter
+
+
+_ring_buffer_handler: Optional[RingBufferHandler] = None
+
+
+def get_log_buffer() -> RingBufferHandler:
+    """Get or create the singleton ring buffer handler."""
+    global _ring_buffer_handler
+    if _ring_buffer_handler is None:
+        _ring_buffer_handler = RingBufferHandler(capacity=10000)
+        _ring_buffer_handler.setLevel(logging.DEBUG)
+        logging.getLogger().addHandler(_ring_buffer_handler)
+    return _ring_buffer_handler
+
+
 def setup_logging(level: Optional[str] = None, json_output: bool = False) -> logging.Logger:
     """
     Configure the root logger with structured logging support.
@@ -214,7 +310,9 @@ def setup_logging(level: Optional[str] = None, json_output: bool = False) -> log
     root.handlers = []
     root.setLevel(getattr(logging, str(resolved_level).upper(), logging.INFO))
     root.addHandler(handler)
-    
+
+    get_log_buffer()
+
     return logging.getLogger("devgodzilla")
 
 

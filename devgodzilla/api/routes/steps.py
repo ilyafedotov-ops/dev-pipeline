@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from devgodzilla.api.dependencies import get_service_context
 from devgodzilla.services.base import ServiceContext
+from devgodzilla.services.agent_config import AgentConfigService
 from devgodzilla.services.execution import ExecutionService
 from devgodzilla.services.policy import PolicyService
 from devgodzilla.services.quality import QualityService
@@ -156,12 +157,23 @@ def assign_agent(
     step_id: int,
     request: StepAssignAgentRequest,
     db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
 ):
     """Assign an agent to a step."""
     try:
-        db.get_step_run(step_id)
+        step = db.get_step_run(step_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Step not found")
+
+    try:
+        run = db.get_protocol_run(step.protocol_run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Protocol not found")
+
+    cfg = AgentConfigService(ctx, db=db)
+    agent = cfg.get_agent(request.agent_id, project_id=run.project_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
 
     return db.update_step_assigned_agent(step_id, request.agent_id)
 

@@ -21,6 +21,8 @@ from devgodzilla.qa.gates.common import (
     LintGate,
     TypeGate,
     ChecklistGate,
+    FormatGate,
+    CoverageGate,
 )
 from devgodzilla.qa.gates.constitutional import (
     ConstitutionalGate,
@@ -198,6 +200,56 @@ class TestTestGateImplementation:
             
         # Should skip or error gracefully
         assert result.verdict in (GateVerdict.SKIP, GateVerdict.ERROR)
+
+
+class TestFormatGateImplementation:
+    """Test FormatGate implementation."""
+
+    def test_format_gate_warns_on_issues(self, gate_context, workspace):
+        gate = FormatGate(format_command=["ruff", "format", "--check", "."])
+
+        mock_proc = Mock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = "Formatting needed"
+        mock_proc.stderr = ""
+
+        with patch("shutil.which") as mock_which, patch("subprocess.run") as mock_run:
+            mock_which.return_value = "/usr/bin/ruff"
+            mock_run.return_value = mock_proc
+
+            result = gate.run(gate_context)
+
+        assert result.verdict == GateVerdict.WARN
+        assert result.findings
+
+
+class TestCoverageGateImplementation:
+    """Test CoverageGate implementation."""
+
+    def test_coverage_gate_passes_on_threshold(self, gate_context, workspace):
+        coverage_xml = workspace / "coverage.xml"
+        coverage_xml.write_text(
+            """<?xml version="1.0" ?>
+<coverage line-rate="0.85"></coverage>
+""",
+            encoding="utf-8",
+        )
+        gate = CoverageGate(minimum=80.0)
+        result = gate.run(gate_context)
+        assert result.verdict == GateVerdict.PASS
+
+    def test_coverage_gate_fails_below_threshold(self, gate_context, workspace):
+        coverage_xml = workspace / "coverage.xml"
+        coverage_xml.write_text(
+            """<?xml version="1.0" ?>
+<coverage line-rate="0.50"></coverage>
+""",
+            encoding="utf-8",
+        )
+        gate = CoverageGate(minimum=80.0)
+        result = gate.run(gate_context)
+        assert result.verdict == GateVerdict.FAIL
+        assert result.findings
 
     def test_run_with_passing_tests(self, gate_context, workspace):
         """Test running with passing tests."""

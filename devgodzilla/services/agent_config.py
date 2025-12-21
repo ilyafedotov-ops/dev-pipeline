@@ -75,15 +75,46 @@ class AgentConfigService(Service):
         self,
         context: ServiceContext,
         config_path: Optional[str] = None,
+        db=None,
     ) -> None:
         super().__init__(context)
         self._config_path = config_path
+        self._db = db
         self._agents: Dict[str, AgentConfig] = {}
         self._defaults: Dict[str, str] = {}
         self._health_config: Dict[str, Any] = {}
         self._prompts: Dict[str, Dict[str, Any]] = {}
         self._projects: Dict[str, Dict[str, Any]] = {}
         self._loaded = False
+
+    def _get_db(self):
+        if self._db is not None:
+            return self._db
+        from devgodzilla.cli.main import get_db as cli_get_db
+
+        self._db = cli_get_db()
+        return self._db
+
+    def _normalize_process_key(self, key: Optional[str]) -> Optional[str]:
+        if not key:
+            return None
+        value = str(key).strip().lower()
+        if not value or "." in value:
+            return None
+        aliases = {
+            "onboarding": "onboarding_discovery",
+            "discovery": "onboarding_discovery",
+            "onboarding_discovery": "onboarding_discovery",
+            "specs": "specs",
+            "planning": "planning",
+            "exec": "execution",
+            "execution": "execution",
+            "code_gen": "execution",
+            "qa": "qa",
+            "validation": "qa",
+            "validation_qa": "qa",
+        }
+        return aliases.get(value)
     
     def load_config(self, force: bool = False) -> None:
         """Load agent configuration from YAML file."""
@@ -227,26 +258,32 @@ class AgentConfigService(Service):
             return {}
         return overrides
 
+    def _get_agent_overrides(self, project_id: Optional[int | str]) -> Dict[str, Dict[str, Any]]:
+        if project_id is None:
+            return {}
+        try:
+            db = self._get_db()
+            overrides = db.list_agent_overrides(int(project_id))
+            return overrides if isinstance(overrides, dict) else {}
+        except Exception:
+            return {}
+
     def _inherit_project(self, overrides: Dict[str, Any]) -> bool:
         inherit = overrides.get("inherit", True)
         return bool(inherit) if inherit is not None else True
 
     def _resolve_agents_map(self, project_id: Optional[int | str]) -> Dict[str, AgentConfig]:
         self.load_config()
-        overrides = self._get_project_overrides(project_id)
-        inherit = self._inherit_project(overrides)
         resolved: Dict[str, AgentConfig] = {}
-        if inherit:
-            for agent_id, agent in self._agents.items():
-                resolved[agent_id] = replace(agent)
+        for agent_id, agent in self._agents.items():
+            resolved[agent_id] = replace(agent)
 
-        project_agents = overrides.get("agents") or {}
-        if isinstance(project_agents, dict):
-            for agent_id, agent_data in project_agents.items():
-                if not isinstance(agent_data, dict):
-                    continue
-                base = resolved.get(agent_id)
-                resolved[agent_id] = self._parse_agent(agent_id, agent_data, base=base)
+        project_agents = self._get_agent_overrides(project_id)
+        for agent_id, agent_data in project_agents.items():
+            if not isinstance(agent_data, dict):
+                continue
+            base = resolved.get(agent_id)
+            resolved[agent_id] = self._parse_agent(agent_id, agent_data, base=base)
 
         return resolved
 
@@ -280,6 +317,80 @@ class AgentConfigService(Service):
         if isinstance(project_defaults, dict):
             defaults.update(project_defaults)
         return defaults
+
+    def _resolve_assignments(self, project_id: Optional[int | str]) -> Dict[str, Dict[str, Any]]:
+        try:
+            db = self._get_db()
+            project_value = int(project_id) if project_id is not None else None
+            return db.list_agent_assignments(project_value)
+        except Exception:
+            return {}
+
+    def get_assignment_settings(self, project_id: int) -> Dict[str, Any]:
+        try:
+            db = self._get_db()
+            return db.get_agent_assignment_settings(project_id)
+        except Exception:
+            return {"inherit_global": True}
+
+    def update_assignment_settings(self, project_id: int, inherit_global: bool) -> Dict[str, Any]:
+        db = self._get_db()
+        return db.upsert_agent_assignment_settings(project_id, inherit_global)
+
+    def get_assignments(self, *, project_id: Optional[int | str] = None) -> Dict[str, Any]:
+        assignments = self._resolve_assignments(project_id)
+        payload: Dict[str, Any] = {"assignments": assignments}
+        if project_id is not None:
+            settings = self.get_assignment_settings(int(project_id))
+            payload["inherit_global"] = settings.get("inherit_global", True)
+        return payload
+
+    def get_assignment(self, process_key: str, *, project_id: Optional[int | str] = None) -> Optional[Dict[str, Any]]:
+        assignments = self._resolve_assignments(project_id)
+        return assignments.get(process_key)
+
+    def update_assignments(
+        self,
+        assignments: Dict[str, Dict[str, Any]],
+        *,
+        project_id: Optional[int | str] = None,
+    ) -> Dict[str, Any]:
+        db = self._get_db()
+        project_value = int(project_id) if project_id is not None else None
+        for process_key, assignment in assignments.items():
+            if not isinstance(assignment, dict):
+                continue
+            normalized_key = self._normalize_process_key(process_key) or process_key
+            empty_assignment = (
+                not assignment.get("agent_id")
+                and not assignment.get("prompt_id")
+                and not assignment.get("model_override")
+                and assignment.get("enabled") is None
+                and assignment.get("metadata") is None
+            )
+            if empty_assignment and project_value is not None:
+                db.delete_agent_assignment(project_value, normalized_key)
+                continue
+            db.upsert_agent_assignment(project_value, normalized_key, assignment)
+        return self.get_assignments(project_id=project_id)
+
+    def get_agent_overrides(self, project_id: int | str) -> Dict[str, Dict[str, Any]]:
+        return self._get_agent_overrides(project_id)
+
+    def update_agent_overrides(
+        self,
+        project_id: int | str,
+        overrides: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Dict[str, Any]]:
+        if not isinstance(overrides, dict):
+            return self.get_agent_overrides(project_id)
+        db = self._get_db()
+        project_value = int(project_id)
+        for agent_id, data in overrides.items():
+            if not isinstance(data, dict):
+                continue
+            db.upsert_agent_override(project_value, agent_id, data)
+        return self.get_agent_overrides(project_id)
     
     def _resolve_config_path(self) -> Path:
         """Resolve the configuration file path."""
@@ -356,6 +467,14 @@ class AgentConfigService(Service):
         project_id: Optional[int | str] = None,
         fallback: Optional[str] = None,
     ) -> Optional[str]:
+        process_key = self._normalize_process_key(stage)
+        if process_key:
+            assignment = self.get_assignment(process_key, project_id=project_id)
+            if assignment and assignment.get("agent_id"):
+                agent_id = str(assignment["agent_id"]).strip()
+                if agent_id:
+                    return agent_id
+
         defaults = self._resolve_defaults(project_id)
         resolved = defaults.get(stage)
         if not resolved and stage == "exec":
@@ -396,17 +515,47 @@ class AgentConfigService(Service):
         return payload
 
     def get_defaults(self, *, project_id: Optional[int | str] = None) -> Dict[str, Any]:
-        return self._resolve_defaults(project_id)
+        assignments = self._resolve_assignments(project_id)
+        yaml_defaults = self._resolve_defaults(project_id)
+        if not assignments:
+            return yaml_defaults
+
+        defaults: Dict[str, Any] = dict(yaml_defaults) if isinstance(yaml_defaults, dict) else {}
+        existing_prompts = defaults.get("prompts")
+        prompts: Dict[str, Any] = dict(existing_prompts) if isinstance(existing_prompts, dict) else {}
+        mapping = {
+            "execution": "exec",
+            "planning": "planning",
+            "qa": "qa",
+            "onboarding_discovery": "discovery",
+        }
+        for process_key, stage in mapping.items():
+            assignment = assignments.get(process_key)
+            if not isinstance(assignment, dict):
+                continue
+            agent_id = assignment.get("agent_id")
+            if isinstance(agent_id, str) and agent_id.strip():
+                defaults[stage] = agent_id.strip()
+                if stage == "exec":
+                    defaults["code_gen"] = agent_id.strip()
+            prompt_id = assignment.get("prompt_id")
+            if isinstance(prompt_id, str) and prompt_id.strip():
+                prompts[stage] = prompt_id.strip()
+        if prompts:
+            defaults["prompts"] = prompts
+        return defaults
 
     def get_project_overrides(self, project_id: int | str) -> Dict[str, Any]:
         self.load_config()
-        overrides = self._get_project_overrides(project_id)
+        project_value = int(project_id)
+        yaml_overrides = self._get_project_overrides(project_value)
+        settings = self.get_assignment_settings(project_value)
         payload = {
-            "inherit": self._inherit_project(overrides),
-            "agents": overrides.get("agents", {}) or {},
-            "defaults": overrides.get("defaults", {}) or {},
-            "prompts": overrides.get("prompts", {}) or {},
-            "assignments": overrides.get("assignments", {}) or {},
+            "inherit": settings.get("inherit_global", True),
+            "agents": self._get_agent_overrides(project_value),
+            "defaults": self.get_defaults(project_id=project_value),
+            "prompts": yaml_overrides.get("prompts", {}) or {},
+            "assignments": self._resolve_assignments(project_value),
         }
         return payload
 
@@ -416,6 +565,21 @@ class AgentConfigService(Service):
         *,
         project_id: Optional[int | str] = None,
     ) -> Optional[Dict[str, Any]]:
+        process_key = self._normalize_process_key(assignment_key)
+        if process_key:
+            assignment = self.get_assignment(process_key, project_id=project_id)
+            if assignment and assignment.get("prompt_id"):
+                prompt_id = str(assignment["prompt_id"]).strip()
+                if prompt_id:
+                    prompts = self._resolve_prompts_map(project_id)
+                    prompt = prompts.get(prompt_id)
+                    if isinstance(prompt, dict):
+                        payload = dict(prompt)
+                        payload["id"] = prompt_id
+                        return payload
+                    if "/" in prompt_id or prompt_id.endswith(".md"):
+                        return {"id": prompt_id, "path": prompt_id}
+
         defaults = self._resolve_defaults(project_id)
         assignments = defaults.get("prompts") if isinstance(defaults, dict) else None
         if not isinstance(assignments, dict):
@@ -557,7 +721,7 @@ class AgentConfigService(Service):
         """Update agent configuration and save to YAML."""
         self.load_config()
 
-        if yaml is None:
+        if yaml is None and project_id is None:
             raise RuntimeError("PyYAML is required to update agent configuration")
 
         update_data: Dict[str, Any] = {}
@@ -593,20 +757,16 @@ class AgentConfigService(Service):
             return agent
 
         try:
-            data = self._load_raw_config()
             if project_id is not None:
-                projects = data.setdefault("projects", {})
-                project_key = str(project_id)
-                project = projects.setdefault(project_key, {})
-                agents_section = project.setdefault("agents", {})
+                db = self._get_db()
+                db.upsert_agent_override(int(project_id), agent_id, update_data)
             else:
+                data = self._load_raw_config()
                 agents_section = data.setdefault("agents", {})
-
-            agent_data = agents_section.setdefault(agent_id, {})
-            agent_data.update(update_data)
-
-            self._write_raw_config(data)
-            self.load_config(force=True)
+                agent_data = agents_section.setdefault(agent_id, {})
+                agent_data.update(update_data)
+                self._write_raw_config(data)
+                self.load_config(force=True)
 
             self.logger.info(
                 "agent_config_updated",
@@ -631,20 +791,51 @@ class AgentConfigService(Service):
         *,
         project_id: Optional[int | str] = None,
     ) -> Dict[str, Any]:
-        if yaml is None:
-            raise RuntimeError("PyYAML is required to update agent configuration")
-        data = self._load_raw_config()
-        if project_id is not None:
-            projects = data.setdefault("projects", {})
-            project_key = str(project_id)
-            project = projects.setdefault(project_key, {})
-            target = project.setdefault("defaults", {})
-        else:
-            target = data.setdefault("defaults", {})
-        if isinstance(defaults, dict):
-            target.update(defaults)
-        self._write_raw_config(data)
-        self.load_config(force=True)
+        if not isinstance(defaults, dict):
+            return self.get_defaults(project_id=project_id)
+
+        stage_map = {
+            "planning": "planning",
+            "exec": "execution",
+            "code_gen": "execution",
+            "qa": "qa",
+            "discovery": "onboarding_discovery",
+        }
+        assignments: Dict[str, Dict[str, Any]] = {}
+        for stage, process_key in stage_map.items():
+            if stage not in defaults:
+                continue
+            agent_id = defaults.get(stage)
+            if isinstance(agent_id, str) and agent_id.strip():
+                current = assignments.setdefault(process_key, {})
+                if stage == "code_gen" and current.get("agent_id"):
+                    continue
+                current["agent_id"] = agent_id.strip()
+
+        prompt_assignments = defaults.get("prompts")
+        yaml_prompt_updates: Dict[str, str] = {}
+        if isinstance(prompt_assignments, dict):
+            for stage, prompt_id in prompt_assignments.items():
+                process_key = self._normalize_process_key(stage)
+                if not process_key:
+                    if isinstance(prompt_id, str) and prompt_id.strip():
+                        yaml_prompt_updates[stage] = prompt_id.strip()
+                    continue
+                if isinstance(prompt_id, str) and prompt_id.strip():
+                    current = assignments.setdefault(process_key, {})
+                    current["prompt_id"] = prompt_id.strip()
+
+        if assignments:
+            self.update_assignments(assignments, project_id=project_id)
+
+        if yaml_prompt_updates and yaml is not None:
+            data = self._load_raw_config()
+            target = data.setdefault("defaults", {}).setdefault("prompts", {})
+            if isinstance(target, dict):
+                target.update(yaml_prompt_updates)
+            self._write_raw_config(data)
+            self.load_config(force=True)
+
         return self.get_defaults(project_id=project_id)
 
     def update_prompt(
@@ -680,14 +871,81 @@ class AgentConfigService(Service):
         project_id: int | str,
         overrides: Dict[str, Any],
     ) -> Dict[str, Any]:
-        if yaml is None:
-            raise RuntimeError("PyYAML is required to update agent configuration")
-        data = self._load_raw_config()
-        projects = data.setdefault("projects", {})
-        project_key = str(project_id)
-        project = projects.setdefault(project_key, {})
-        if isinstance(overrides, dict):
-            project.update(overrides)
-        self._write_raw_config(data)
-        self.load_config(force=True)
+        if not isinstance(overrides, dict):
+            return self.get_project_overrides(project_id)
+
+        project_value = int(project_id)
+        if "inherit" in overrides:
+            inherit_value = overrides.get("inherit")
+            if inherit_value is not None:
+                self.update_assignment_settings(project_value, bool(inherit_value))
+
+        agents = overrides.get("agents")
+        if isinstance(agents, dict):
+            for agent_id, data in agents.items():
+                if not isinstance(data, dict):
+                    continue
+                self._get_db().upsert_agent_override(project_value, agent_id, data)
+
+        assignments = overrides.get("assignments")
+        if isinstance(assignments, dict):
+            self.update_assignments(assignments, project_id=project_value)
+        else:
+            defaults = overrides.get("defaults")
+            if isinstance(defaults, dict):
+                self.update_defaults(defaults, project_id=project_value)
+
+        prompts = overrides.get("prompts")
+        if isinstance(prompts, dict) and yaml is not None:
+            for prompt_id, prompt_data in prompts.items():
+                if not isinstance(prompt_data, dict):
+                    continue
+                try:
+                    self.update_prompt(prompt_id, prompt_data, project_id=project_value)
+                except Exception:
+                    continue
+
         return self.get_project_overrides(project_id)
+
+    def migrate_yaml_defaults_to_db(self) -> bool:
+        """
+        Seed DB assignments from YAML defaults if no global assignments exist.
+
+        Returns True when a migration was applied.
+        """
+        self.load_config()
+        db = self._get_db()
+        existing = db.list_agent_assignments(None)
+        if existing:
+            return False
+
+        defaults = self._defaults if isinstance(self._defaults, dict) else {}
+        prompt_assignments = defaults.get("prompts") if isinstance(defaults, dict) else None
+        stage_map = {
+            "planning": "planning",
+            "exec": "execution",
+            "code_gen": "execution",
+            "qa": "qa",
+            "discovery": "onboarding_discovery",
+        }
+        assignments: Dict[str, Dict[str, Any]] = {}
+        for stage, process_key in stage_map.items():
+            agent_id = defaults.get(stage)
+            if isinstance(agent_id, str) and agent_id.strip():
+                current = assignments.setdefault(process_key, {})
+                if stage == "code_gen" and current.get("agent_id"):
+                    continue
+                current["agent_id"] = agent_id.strip()
+
+        if isinstance(prompt_assignments, dict):
+            for stage, prompt_id in prompt_assignments.items():
+                process_key = self._normalize_process_key(stage)
+                if not process_key:
+                    continue
+                if isinstance(prompt_id, str) and prompt_id.strip():
+                    assignments.setdefault(process_key, {})["prompt_id"] = prompt_id.strip()
+
+        for process_key, assignment in assignments.items():
+            db.upsert_agent_assignment(None, process_key, assignment)
+
+        return bool(assignments)

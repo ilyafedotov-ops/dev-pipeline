@@ -37,6 +37,8 @@ def main(
                 "git_url": git_url,
                 "base_branch": branch or "main",
                 "description": description or "",
+                "auto_onboard": False,
+                "auto_discovery": False,
             },
         ),
     )
@@ -73,4 +75,3 @@ def main(
         "speckit_plan": plan,
         "speckit_tasks": tasks,
     }
-

@@ -27,6 +27,8 @@ from devgodzilla.qa.gates import (
     LintGate,
     TypeGate,
     ChecklistGate,
+    FormatGate,
+    CoverageGate,
     SpecKitChecklistGate,
     ConstitutionalGate,
     PromptQAGate,
@@ -72,6 +74,10 @@ def _gate_ids_from_required_checks(checks: List[str]) -> List[str]:
             gate_ids.append("test")
         elif "checklist" in text:
             gate_ids.append("checklist")
+        elif "format" in text or "fmt" in text or "prettier" in text or "black" in text:
+            gate_ids.append("format")
+        elif "coverage" in text or "cov" in text:
+            gate_ids.append("coverage")
         elif "constitution" in text or "constitutional" in text:
             gate_ids.append("constitutional")
     return list(dict.fromkeys(gate_ids))
@@ -171,7 +177,7 @@ class QualityService(Service):
         try:
             from devgodzilla.services.agent_config import AgentConfigService
 
-            cfg = AgentConfigService(self.context)
+            cfg = AgentConfigService(self.context, db=self.db)
             engine_id = cfg.get_default_engine_id(
                 "qa",
                 project_id=project_id,
@@ -341,7 +347,7 @@ class QualityService(Service):
                 prompt_path = self._qa_prompt_path()
                 assignment = None
                 try:
-                    cfg = AgentConfigService(self.context)
+                    cfg = AgentConfigService(self.context, db=self.db)
                     assignment = cfg.resolve_prompt_assignment("qa", project_id=project.id)
                 except Exception:
                     assignment = None
@@ -382,6 +388,8 @@ class QualityService(Service):
                     "type": TypeGate(),
                     "test": TestGate(),
                     "checklist": ChecklistGate(),
+                    "format": FormatGate(),
+                    "coverage": CoverageGate(),
                 }
                 if "constitutional" in gate_ids:
                     constitution_gate = self._load_constitution_gate(project.id, workspace_root)
@@ -806,8 +814,13 @@ class QualityService(Service):
             lines.append(f"### {verdict_icon} {gate_result.gate_id}")
             lines.append("")
             lines.append(f"**Verdict:** {gate_result.verdict.value if hasattr(gate_result.verdict, 'value') else gate_result.verdict}")
-            if gate_result.message:
-                lines.append(f"**Message:** {gate_result.message}")
+            summary = None
+            if gate_result.error:
+                summary = gate_result.error
+            elif gate_result.metadata:
+                summary = gate_result.metadata.get("summary")
+            if summary:
+                lines.append(f"**Summary:** {summary}")
             lines.append(f"**Findings:** {len(gate_result.findings)}")
             lines.append("")
 
@@ -825,7 +838,7 @@ class QualityService(Service):
                 for finding in gate_result.findings[:20]:  # Limit to 20 per gate
                     lines.append(
                         f"| {finding.severity} | {finding.message[:50]}... | "
-                        f"{finding.file or 'N/A'} | {finding.line or ''} |"
+                        f"{finding.file_path or 'N/A'} | {finding.line_number or ''} |"
                     )
                 lines.append("")
         

@@ -38,20 +38,15 @@ export interface Project {
   git_url: string
   local_path: string | null
   base_branch: string
-  ci_provider: string | null
   project_classification: string | null
-  default_models: Record<string, string> | null
-  secrets: Record<string, unknown> | null
   created_at: string
   updated_at: string
-  // Policy fields
   policy_pack_key: string | null
   policy_pack_version: string | null
   policy_overrides: Record<string, unknown> | null
   policy_repo_local_enabled: boolean | null
   policy_effective_hash: string | null
   policy_enforcement_mode: PolicyEnforcementMode | null
-  // API fields
   status?: string | null
   constitution_version?: string | null
 }
@@ -60,8 +55,10 @@ export interface ProjectCreate {
   name: string
   git_url: string
   base_branch?: string
-  ci_provider?: string
+  description?: string
   policy_pack_key?: string
+  auto_onboard?: boolean
+  auto_discovery?: boolean
 }
 
 export interface OnboardingSummary {
@@ -72,16 +69,28 @@ export interface OnboardingSummary {
   blocking_clarifications: number
 }
 
+export interface DiscoveryRetryResponse {
+  success: boolean
+  discovery_log_path?: string | null
+  discovery_missing_outputs: string[]
+  discovery_error?: string | null
+  engine_id?: string | null
+  model?: string | null
+  pipeline?: boolean | null
+}
+
 export interface OnboardingStage {
   name: string
-  status: "pending" | "running" | "completed" | "failed" | "skipped"
+  status: "pending" | "running" | "completed" | "failed" | "skipped" | "blocked"
   started_at: string | null
   completed_at: string | null
 }
 
 export interface OnboardingEvent {
+  id: number
   event_type: string
   message: string
+  metadata?: Record<string, unknown> | null
   created_at: string
 }
 
@@ -282,6 +291,27 @@ export interface EventFilters {
 }
 
 // =============================================================================
+// Application Logs
+// =============================================================================
+
+export type LogLevel = "debug" | "info" | "warn" | "warning" | "error"
+
+export interface AppLogEntry {
+  id: number
+  timestamp: string
+  level: LogLevel
+  source: string
+  message: string
+  metadata?: Record<string, unknown> | null
+}
+
+export interface AppLogFilters {
+  level?: string
+  source?: string
+  limit?: number
+}
+
+// =============================================================================
 // Policy
 // =============================================================================
 
@@ -428,6 +458,19 @@ export interface PullRequest {
   created_at: string
 }
 
+export interface Worktree {
+  branch_name: string
+  worktree_path: string | null
+  protocol_run_id: number | null
+  protocol_name: string | null
+  protocol_status: string | null
+  spec_run_id: number | null
+  last_commit_sha: string | null
+  last_commit_message: string | null
+  last_commit_date: string | null
+  pr_url: string | null
+}
+
 // =============================================================================
 // Agile / Sprint Board
 // =============================================================================
@@ -452,6 +495,13 @@ export interface SprintCreate {
   start_date?: string
   end_date?: string
   velocity_planned?: number
+}
+
+export interface CreateSprintFromProtocolRequest {
+  sprint_name?: string
+  start_date?: string
+  end_date?: string
+  auto_sync?: boolean
 }
 
 export interface AgileTask {
@@ -480,6 +530,7 @@ export interface AgileTask {
 }
 
 export interface AgileTaskCreate {
+  project_id?: number
   title: string
   description?: string
   task_type?: TaskType
@@ -574,6 +625,23 @@ export interface AgentDefaults {
   qa?: string | null
   discovery?: string | null
   prompts?: Record<string, string> | null
+}
+
+export interface AgentProcessAssignment {
+  agent_id?: string | null
+  prompt_id?: string | null
+  model_override?: string | null
+  enabled?: boolean | null
+  metadata?: Record<string, unknown> | null
+}
+
+export interface AgentAssignments {
+  assignments: Record<string, AgentProcessAssignment>
+  inherit_global?: boolean | null
+}
+
+export interface AgentOverrides {
+  agents: Record<string, Record<string, unknown>>
 }
 
 export interface AgentPromptTemplate {

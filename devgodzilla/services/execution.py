@@ -363,7 +363,7 @@ class ExecutionService(Service):
         # Resolve engine and model
         default_engine = None
         try:
-            cfg = AgentConfigService(self.context)
+            cfg = AgentConfigService(self.context, db=self.db)
             default_engine = cfg.get_default_engine_id(
                 "exec",
                 project_id=project.id,
@@ -374,8 +374,8 @@ class ExecutionService(Service):
 
         resolved_engine = (
             engine_id
-            or (step_spec.get("engine_id") if step_spec else None)
             or step.assigned_agent
+            or (step_spec.get("engine_id") if step_spec else None)
             or default_engine
             or "codex"
         )
@@ -390,7 +390,7 @@ class ExecutionService(Service):
         prompt_template_path = None
         prompt_assignment = None
         try:
-            cfg = AgentConfigService(self.context)
+            cfg = AgentConfigService(self.context, db=self.db)
             prompt_assignment = cfg.resolve_prompt_assignment("exec", project_id=project.id)
         except Exception:
             prompt_assignment = None

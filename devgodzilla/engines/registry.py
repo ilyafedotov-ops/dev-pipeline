@@ -6,6 +6,7 @@ Manages engine registration, lookup, and health checks.
 """
 
 from typing import Dict, List, Optional
+import threading
 
 from devgodzilla.engines.interface import Engine, EngineMetadata, EngineKind, EngineRequest, EngineResult
 from devgodzilla.logging import get_logger
@@ -203,13 +204,16 @@ class PlaceholderEngine(Engine):
 
 # Global registry instance
 _registry: Optional[EngineRegistry] = None
+_registry_lock = threading.Lock()
 
 
 def get_registry() -> EngineRegistry:
     """Get the global engine registry."""
     global _registry
     if _registry is None:
-        _registry = EngineRegistry()
+        with _registry_lock:
+            if _registry is None:
+                _registry = EngineRegistry()
     return _registry
 
 
@@ -226,3 +230,10 @@ def get_engine(engine_id: str) -> Engine:
 def get_default_engine() -> Engine:
     """Get the default engine from the global registry."""
     return get_registry().get_default()
+
+
+def _reset_registry_for_tests() -> None:
+    """Reset the global engine registry (tests only)."""
+    global _registry
+    with _registry_lock:
+        _registry = None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import Mock
@@ -85,6 +86,17 @@ def sample_repo(tmp_path: Path) -> Path:
     repo.mkdir(parents=True, exist_ok=True)
     (repo / ".protocols").mkdir(parents=True, exist_ok=True)
     return repo
+
+
+def _write_stub_cli(bin_dir: Path, name: str) -> None:
+    stub = bin_dir / name
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        "cat >/dev/null\n"
+        "printf \"ok\\n\"\n",
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
 
 
 def test_orchestrator_dispatches_to_windmill(service_context: ServiceContext, devgodzilla_db: SQLiteDatabase, sample_repo: Path) -> None:
@@ -176,7 +188,14 @@ def test_windmill_worker_entrypoints_plan_and_update_status(
     service_context: ServiceContext,
     devgodzilla_db: SQLiteDatabase,
     sample_repo: Path,
+    tmp_path: Path,
 ) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    _write_stub_cli(bin_dir, "codex")
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("DEVGODZILLA_ASSUME_AGENT_AUTH", "true")
+
     protocol_root = sample_repo / ".protocols" / "demo-proto"
     protocol_root.mkdir(parents=True, exist_ok=True)
     (protocol_root / "step-01-setup.md").write_text("# step\n", encoding="utf-8")

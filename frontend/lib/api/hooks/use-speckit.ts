@@ -415,7 +415,7 @@ export function useCleanupSpecRun() {
     return useMutation({
         mutationFn: ({ specRunId, payload }: { specRunId: number; payload?: SpecRunCleanupRequest }) =>
             apiClient.post<SpecRunCleanupResponse>(`/speckit/spec-runs/${specRunId}/cleanup`, payload ?? {}),
-        onSuccess: (_, variables) => {
+        onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["speckit", "status"] })
             queryClient.invalidateQueries({ queryKey: ["speckit", "specs"] })
             queryClient.invalidateQueries({ queryKey: queryKeys.specifications.all })

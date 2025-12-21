@@ -7,7 +7,7 @@ import { FolderGit2, PlayCircle, Activity, Shield, FileText, BarChart3, Bot, Kan
 
 const navItems = [
   { href: "/projects", label: "Projects", icon: FolderGit2 },
-  { href: "/sprints", label: "Sprints", icon: Kanban },
+  { href: "/execution", label: "Execution", icon: Kanban },
   { href: "/specifications", label: "Specifications", icon: FileText },
   { href: "/runs", label: "Runs", icon: PlayCircle },
   { href: "/quality", label: "Quality", icon: BarChart3 },

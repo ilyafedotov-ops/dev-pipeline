@@ -19,14 +19,17 @@ function splitLines(content: string) {
 
 export function StreamingLogs({ runId }: StreamingLogsProps) {
   const { data: logData, isLoading } = useRunLogs(runId)
-  const [lines, setLines] = useState<string[]>([])
+  const [streamState, setStreamState] = useState<{ runId: string; lines: string[]; buffer: string }>(() => ({
+    runId,
+    lines: [],
+    buffer: "",
+  }))
   const [isPaused, setIsPaused] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
-  const [isTruncated, setIsTruncated] = useState(false)
+  const isTruncated = Boolean(logData?.truncated)
   const scrollRef = useRef<HTMLDivElement>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
-  const bufferRef = useRef("")
   const streamUrl = useMemo(() => {
     const baseUrl = apiClient.getConfig().baseUrl.replace(/\/$/, "")
     if (baseUrl) {
@@ -34,21 +37,12 @@ export function StreamingLogs({ runId }: StreamingLogsProps) {
     }
     return `/runs/${runId}/logs/stream`
   }, [runId])
-
-  useEffect(() => {
-    setLines([])
-    bufferRef.current = ""
-    setIsTruncated(false)
-  }, [runId])
-
-  useEffect(() => {
-    if (!logData) return
-    const content = logData.content ?? ""
-    const { lines: nextLines, remainder } = splitLines(content)
-    bufferRef.current = remainder
-    setLines(nextLines)
-    setIsTruncated(logData.truncated)
+  const parsedLogData = useMemo(() => {
+    const content = logData?.content ?? ""
+    return splitLines(content)
   }, [logData])
+  const effectiveStreamState =
+    streamState.runId === runId ? streamState : { runId, lines: [], buffer: "" }
 
   useEffect(() => {
     if (!isStreaming || isPaused) return
@@ -60,12 +54,16 @@ export function StreamingLogs({ runId }: StreamingLogsProps) {
       try {
         const payload = JSON.parse(event.data) as { chunk?: string }
         if (payload.chunk) {
-          const combined = bufferRef.current + payload.chunk
-          const { lines: chunkLines, remainder } = splitLines(combined)
-          bufferRef.current = remainder
-          if (chunkLines.length > 0) {
-            setLines((prev) => [...prev, ...chunkLines])
-          }
+          setStreamState((prev) => {
+            const base = prev.runId === runId ? prev : { runId, lines: [], buffer: "" }
+            const combined = base.buffer + payload.chunk
+            const { lines: chunkLines, remainder } = splitLines(combined)
+            return {
+              runId,
+              lines: chunkLines.length > 0 ? [...base.lines, ...chunkLines] : base.lines,
+              buffer: remainder,
+            }
+          })
         }
       } catch {
         // Ignore malformed chunks
@@ -83,20 +81,24 @@ export function StreamingLogs({ runId }: StreamingLogsProps) {
       source.close()
       eventSourceRef.current = null
     }
-  }, [isStreaming, isPaused, streamUrl])
+  }, [isStreaming, isPaused, runId, streamUrl])
+
+  const displayLines = useMemo(() => {
+    const merged = [...parsedLogData.lines, ...effectiveStreamState.lines]
+    if (parsedLogData.remainder) {
+      merged.push(parsedLogData.remainder)
+    }
+    if (effectiveStreamState.buffer) {
+      merged.push(effectiveStreamState.buffer)
+    }
+    return merged
+  }, [effectiveStreamState.buffer, effectiveStreamState.lines, parsedLogData.lines, parsedLogData.remainder])
 
   useEffect(() => {
     if (!isPaused && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [lines, isPaused])
-
-  const displayLines = useMemo(() => {
-    if (bufferRef.current) {
-      return [...lines, bufferRef.current]
-    }
-    return lines
-  }, [lines])
+  }, [displayLines, isPaused])
 
   const filteredLines = useMemo(() => {
     if (!searchQuery) return displayLines

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from devgodzilla.api import schemas
 from devgodzilla.api.dependencies import get_db, get_service_context
 from devgodzilla.db.database import Database, _UNSET
+from devgodzilla.events_catalog import normalize_event_type
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.policy import PolicyService
 from devgodzilla.services.clarifier import ClarifierService
@@ -69,7 +70,7 @@ class ProjectOnboardRequest(BaseModel):
     branch: Optional[str] = Field(default=None, description="Branch to checkout after clone (defaults to project.base_branch)")
     clone_if_missing: bool = Field(default=True, description="Clone repo if local_path is missing")
     constitution_content: Optional[str] = Field(default=None, description="Optional custom constitution content")
-    run_discovery_agent: bool = Field(default=False, description="Run headless agent discovery (writes tasksgodzilla/*)")
+    run_discovery_agent: bool = Field(default=True, description="Run headless agent discovery (writes tasksgodzilla/*)")
     discovery_pipeline: bool = Field(default=True, description="Use multi-stage discovery pipeline")
     discovery_engine_id: Optional[str] = Field(default=None, description="Engine ID for discovery (default: opencode)")
     discovery_model: Optional[str] = Field(default=None, description="Model for discovery (default: engine default)")
@@ -93,15 +94,44 @@ class ProjectOnboardResponse(BaseModel):
 @router.post("/projects", response_model=schemas.ProjectOut)
 def create_project(
     project: schemas.ProjectCreate,
-    db: Database = Depends(get_db)
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
 ):
     """Create a new project."""
-    return db.create_project(
+    if project.auto_onboard and not (project.git_url or "").strip():
+        raise HTTPException(status_code=400, detail="git_url is required for auto onboarding")
+    if project.auto_onboard and not getattr(ctx.config, "windmill_enabled", False):
+        raise HTTPException(status_code=503, detail="Windmill integration not configured")
+
+    created = db.create_project(
         name=project.name,
         git_url=project.git_url or "",
         base_branch=project.base_branch,
-        local_path=project.local_path
+        local_path=project.local_path,
     )
+
+    if project.auto_onboard:
+        try:
+            from devgodzilla.services.onboarding_queue import enqueue_project_onboarding
+
+            enqueue_project_onboarding(
+                ctx,
+                db,
+                project_id=created.id,
+                branch=created.base_branch,
+                run_discovery_agent=bool(project.auto_discovery),
+            )
+        except Exception as exc:
+            _append_project_event(
+                db,
+                project_id=created.id,
+                event_type="onboarding_enqueue_failed",
+                message="Failed to enqueue onboarding",
+                metadata={"error": str(exc)},
+            )
+            raise HTTPException(status_code=502, detail=f"Failed to enqueue onboarding: {exc}")
+
+    return created
 
 @router.get("/projects", response_model=List[schemas.ProjectOut])
 def list_projects(
@@ -192,32 +222,80 @@ def get_project_onboarding(
     except KeyError:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    recent_events = db.list_recent_events(
+        limit=50,
+        project_id=project_id,
+        categories=["onboarding", "discovery"],
+    )
+    event_set = {normalize_event_type(event.event_type) for event in recent_events}
+
+    def _event_time(event_type: str) -> Optional[Any]:
+        for event in recent_events:
+            if normalize_event_type(event.event_type) == event_type:
+                return event.created_at
+        return None
+
     # Compute stages
     stages = []
-    
+
     # Stage 1: Repository Setup
-    repo_status = "completed" if project.local_path else "pending"
-    stages.append(schemas.OnboardingStage(
-        name="Repository Setup",
-        status=repo_status,
-        completed_at=project.created_at if repo_status == "completed" else None
-    ))
+    repo_status = "completed" if project.local_path or "onboarding_repo_ready" in event_set else "pending"
+    if repo_status == "pending" and ("onboarding_started" in event_set or "onboarding_enqueued" in event_set):
+        repo_status = "running"
+
+    repo_completed_at = _event_time("onboarding_repo_ready") if repo_status == "completed" else None
+    if repo_completed_at is None and repo_status == "completed":
+        repo_completed_at = project.updated_at or project.created_at
+
+    stages.append(
+        schemas.OnboardingStage(
+            name="Repository Setup",
+            status=repo_status,
+            started_at=_event_time("onboarding_started") or _event_time("onboarding_enqueued"),
+            completed_at=repo_completed_at,
+        )
+    )
 
     # Stage 2: SpecKit Init
-    spec_status = "completed" if project.constitution_hash else "pending"
-    if repo_status == "pending":
-        spec_status = "pending"
-    
-    stages.append(schemas.OnboardingStage(
-        name="SpecKit Initialization",
-        status=spec_status
-    ))
+    spec_status = "completed" if project.constitution_hash or "onboarding_speckit_initialized" in event_set else "pending"
+    if "onboarding_failed" in event_set:
+        spec_status = "failed"
+    elif repo_status in ("running", "completed") and spec_status == "pending":
+        spec_status = "running" if repo_status == "running" else "pending"
+
+    spec_completed_at = _event_time("onboarding_speckit_initialized") if spec_status == "completed" else None
+    if spec_completed_at is None and spec_status == "completed":
+        spec_completed_at = project.updated_at or project.created_at
+
+    stages.append(
+        schemas.OnboardingStage(
+            name="SpecKit Initialization",
+            status=spec_status,
+            started_at=_event_time("onboarding_repo_ready") or _event_time("onboarding_started"),
+            completed_at=spec_completed_at,
+        )
+    )
 
     # Stage 3: Discovery
-    stages.append(schemas.OnboardingStage(
-        name="Discovery",
-        status="skipped"
-    ))
+    if "discovery_completed" in event_set:
+        discovery_status = "completed"
+    elif "discovery_failed" in event_set:
+        discovery_status = "failed"
+    elif "discovery_started" in event_set:
+        discovery_status = "running"
+    elif "discovery_skipped" in event_set:
+        discovery_status = "skipped"
+    else:
+        discovery_status = "pending"
+
+    stages.append(
+        schemas.OnboardingStage(
+            name="Discovery",
+            status=discovery_status,
+            started_at=_event_time("discovery_started"),
+            completed_at=_event_time("discovery_completed") if discovery_status == "completed" else None,
+        )
+    )
 
     # Calculate blocking clarifications
     try:
@@ -235,20 +313,24 @@ def get_project_onboarding(
         status=clarifications_status,
     ))
 
-    if blocking_count > 0:
+    stage_statuses = {repo_status, spec_status, discovery_status, clarifications_status}
+    if "failed" in stage_statuses:
+        overall_status = "failed"
+    elif blocking_count > 0:
         overall_status = "blocked"
+    elif "running" in stage_statuses:
+        overall_status = "running"
+    elif stage_statuses.issubset({"completed", "skipped"}):
+        overall_status = "completed"
     else:
-        overall_status = "completed" if (repo_status == "completed" and spec_status == "completed") else "pending"
+        overall_status = "pending"
 
-    recent_events = db.list_recent_events(
-        limit=50,
-        project_id=project_id,
-        categories=["onboarding", "discovery"],
-    )
     events = [
         schemas.OnboardingEvent(
+            id=event.id,
             event_type=event.event_type,
             message=event.message,
+            metadata=event.metadata,
             created_at=event.created_at,
         )
         for event in reversed(recent_events)
@@ -435,6 +517,14 @@ def onboard_project(
                 "error": discovery_error,
             },
         )
+    else:
+        _append_project_event(
+            db,
+            project_id=project_id,
+            event_type="discovery_skipped",
+            message="Discovery skipped",
+            metadata={"reason": "disabled"},
+        )
     updated_project = db.get_project(project_id)
 
     return ProjectOnboardResponse(
@@ -450,6 +540,140 @@ def onboard_project(
         discovery_missing_outputs=discovery_missing_outputs,
         discovery_error=discovery_error,
         error=init_result.error,
+    )
+
+
+@router.post("/projects/{project_id}/discovery/actions/retry", response_model=schemas.DiscoveryRetryResponse)
+def retry_project_discovery(
+    project_id: int,
+    request: schemas.DiscoveryRetryRequest = schemas.DiscoveryRetryRequest(),
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """Retry repository discovery for a project."""
+    try:
+        project = db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not project.local_path:
+        raise HTTPException(status_code=400, detail="Project has no local repository path")
+
+    repo_root = Path(project.local_path).expanduser().resolve()
+    if not repo_root.exists():
+        raise HTTPException(status_code=404, detail="Project repository not found on disk")
+
+    engine_id = request.discovery_engine_id or "opencode"
+    pipeline = bool(request.discovery_pipeline)
+
+    _append_project_event(
+        db,
+        project_id=project_id,
+        event_type="discovery_started",
+        message="Discovery started",
+        metadata={
+            "engine_id": engine_id,
+            "model": request.discovery_model,
+            "pipeline": pipeline,
+            "retry": True,
+        },
+    )
+
+    discovery_success = False
+    discovery_log_path: Optional[str] = None
+    discovery_missing_outputs: List[str] = []
+    discovery_error: Optional[str] = None
+    try:
+        from devgodzilla.services.discovery_agent import DiscoveryAgentService
+
+        svc = DiscoveryAgentService(ctx)
+        disc = svc.run_discovery(
+            repo_root=repo_root,
+            engine_id=engine_id,
+            model=request.discovery_model,
+            pipeline=pipeline,
+            stages=request.stages,
+            timeout_seconds=int(os.environ.get("DEVGODZILLA_DISCOVERY_TIMEOUT_SECONDS", "900")),
+            strict_outputs=bool(request.strict_outputs),
+            project_id=project_id,
+        )
+        discovery_success = bool(disc.success)
+        discovery_log_path = str(disc.log_path)
+        discovery_missing_outputs = [str(p) for p in disc.missing_outputs]
+        discovery_error = disc.error
+    except Exception as e:
+        discovery_success = False
+        discovery_error = str(e)
+
+    _append_project_event(
+        db,
+        project_id=project_id,
+        event_type="discovery_completed" if discovery_success else "discovery_failed",
+        message="Discovery completed" if discovery_success else "Discovery failed",
+        metadata={
+            "success": discovery_success,
+            "log_path": discovery_log_path,
+            "missing_outputs": discovery_missing_outputs,
+            "error": discovery_error,
+            "engine_id": engine_id,
+            "model": request.discovery_model,
+            "pipeline": pipeline,
+            "retry": True,
+        },
+    )
+
+    return schemas.DiscoveryRetryResponse(
+        success=discovery_success,
+        discovery_log_path=discovery_log_path,
+        discovery_missing_outputs=discovery_missing_outputs,
+        discovery_error=discovery_error,
+        engine_id=engine_id,
+        model=request.discovery_model,
+        pipeline=pipeline,
+    )
+
+
+@router.get("/projects/{project_id}/discovery/logs", response_model=schemas.ArtifactContentOut)
+def get_project_discovery_logs(
+    project_id: int,
+    max_bytes: int = 200_000,
+    db: Database = Depends(get_db),
+):
+    try:
+        project = db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not project.local_path:
+        raise HTTPException(status_code=400, detail="Project has no local repository path")
+
+    repo_root = Path(project.local_path).expanduser().resolve()
+    log_path = repo_root / "opencode-discovery.log"
+    if not log_path.exists() or not log_path.is_file():
+        return schemas.ArtifactContentOut(
+            id="discovery-log",
+            name=log_path.name,
+            type="log",
+            content="",
+            truncated=False,
+        )
+
+    max_bytes = max(1, min(int(max_bytes), 2_000_000))
+    raw = log_path.read_bytes()
+    truncated = len(raw) > max_bytes
+    if truncated:
+        raw = raw[:max_bytes]
+    try:
+        content = raw.decode("utf-8")
+    except Exception:
+        content = raw.decode("utf-8", errors="replace")
+
+    return schemas.ArtifactContentOut(
+        id="discovery-log",
+        name=log_path.name,
+        type="log",
+        content=content,
+        truncated=truncated,
     )
 
 @router.get("/projects/{project_id}/sprints", response_model=List[schemas.SprintOut])
@@ -838,3 +1062,115 @@ def list_project_pulls(
         pass  # gh CLI not available or not authenticated
     
     return pulls
+
+
+@router.get("/projects/{project_id}/worktrees", response_model=List[schemas.WorktreeOut])
+def list_project_worktrees(
+    project_id: int,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """List worktrees associated with protocols and spec runs for a project."""
+    try:
+        project = db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if not project.local_path:
+        return []
+    
+    from devgodzilla.services.git import run_process
+    
+    repo_path = Path(project.local_path).expanduser()
+    if not repo_path.exists() or not (repo_path / ".git").exists():
+        return []
+    
+    worktrees = []
+    
+    # Get all protocol runs for this project to find associated branches
+    try:
+        protocols = db.list_protocol_runs(project_id=project_id)
+    except Exception:
+        protocols = []
+    
+    # Build a map of branch names to protocols
+    branch_protocols = {}
+    for p in protocols:
+        # Protocol branch name is typically the protocol_name
+        branch_name = p.protocol_name
+        if branch_name:
+            branch_protocols[branch_name] = p
+    
+    # Get git worktrees if any
+    worktree_paths = {}
+    try:
+        result = run_process(
+            ["git", "worktree", "list", "--porcelain"],
+            cwd=repo_path,
+            check=False,
+        )
+        if result.returncode == 0:
+            current_worktree = None
+            current_branch = None
+            for line in result.stdout.strip().splitlines():
+                if line.startswith("worktree "):
+                    current_worktree = line.split(" ", 1)[1]
+                elif line.startswith("branch refs/heads/"):
+                    current_branch = line.replace("branch refs/heads/", "")
+                    if current_worktree and current_branch:
+                        worktree_paths[current_branch] = current_worktree
+                    current_worktree = None
+                    current_branch = None
+    except Exception:
+        pass
+    
+    # Build worktree list from protocols
+    for branch_name, protocol in branch_protocols.items():
+        # Get last commit for this branch
+        last_sha = None
+        last_message = None
+        last_date = None
+        try:
+            result = run_process(
+                ["git", "log", "-1", "--format=%H|%s|%ar", branch_name],
+                cwd=repo_path,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                parts = result.stdout.strip().split("|", 2)
+                if len(parts) >= 3:
+                    last_sha = parts[0]
+                    last_message = parts[1]
+                    last_date = parts[2]
+        except Exception:
+            pass
+        
+        # Check if there's a PR for this branch
+        pr_url = None
+        try:
+            result = run_process(
+                ["gh", "pr", "view", branch_name, "--json", "url"],
+                cwd=repo_path,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                import json
+                pr_data = json.loads(result.stdout)
+                pr_url = pr_data.get("url")
+        except Exception:
+            pass
+        
+        worktrees.append(schemas.WorktreeOut(
+            branch_name=branch_name,
+            worktree_path=worktree_paths.get(branch_name) or protocol.worktree_path,
+            protocol_run_id=protocol.id,
+            protocol_name=protocol.protocol_name,
+            protocol_status=protocol.status,
+            spec_run_id=None,  # Could be populated if we track spec runs per protocol
+            last_commit_sha=last_sha,
+            last_commit_message=last_message,
+            last_commit_date=last_date,
+            pr_url=pr_url,
+        ))
+    
+    return worktrees

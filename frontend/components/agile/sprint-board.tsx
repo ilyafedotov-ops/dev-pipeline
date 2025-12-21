@@ -62,6 +62,7 @@ interface SprintBoardProps {
   onTaskCreate: (data: AgileTaskCreate) => Promise<void>
   onTaskEdit: (taskId: number, data: AgileTaskUpdate) => Promise<void>
   showBacklog?: boolean
+  canCreate?: boolean
 }
 
 export function SprintBoard({
@@ -71,6 +72,7 @@ export function SprintBoard({
   onTaskCreate,
   onTaskEdit,
   showBacklog = true,
+  canCreate = true,
 }: SprintBoardProps) {
   const [draggedTask, setDraggedTask] = useState<AgileTask | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<TaskBoardStatus | null>(null)
@@ -159,14 +161,14 @@ export function SprintBoard({
     <>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
-          <h3 className="text-lg font-semibold">Sprint Board</h3>
+          <h3 className="text-lg font-semibold">Execution Board</h3>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>{tasks.length} tasks</span>
             <Separator orientation="vertical" className="h-4" />
             <span>{tasks.reduce((acc, t) => acc + (t.story_points || 0), 0)} points</span>
           </div>
         </div>
-        <Button size="sm" onClick={() => openCreateModal()}>
+        <Button size="sm" onClick={() => canCreate && openCreateModal()} disabled={!canCreate}>
           <Plus className="h-4 w-4 mr-2" />
           Add Task
         </Button>
@@ -234,6 +236,12 @@ export function SprintBoard({
                                     <TypeIcon className={cn("h-3 w-3", taskTypeConfig[task.task_type].color)} />
                                   </div>
                                   <span className="text-xs font-mono text-muted-foreground">#{task.id}</span>
+                                  {task.protocol_run_id && (
+                                    <span className="text-[10px] text-muted-foreground">PR#{task.protocol_run_id}</span>
+                                  )}
+                                  {task.step_run_id && (
+                                    <span className="text-[10px] text-muted-foreground">S#{task.step_run_id}</span>
+                                  )}
                                 </div>
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>

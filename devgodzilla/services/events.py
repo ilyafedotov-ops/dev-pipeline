@@ -6,6 +6,7 @@ Supports both sync and async event handlers.
 """
 
 import asyncio
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set, TypeVar
@@ -336,16 +337,26 @@ class EventBus:
 
 # Global event bus instance
 _event_bus: Optional[EventBus] = None
+_event_bus_lock = threading.Lock()
 
 
 def get_event_bus() -> EventBus:
     """Get or create the global event bus instance."""
     global _event_bus
     if _event_bus is None:
-        _event_bus = EventBus()
+        with _event_bus_lock:
+            if _event_bus is None:
+                _event_bus = EventBus()
     return _event_bus
 
 
 def publish_event(event: Event) -> None:
     """Convenience function to publish an event to the global bus."""
     get_event_bus().publish(event)
+
+
+def _reset_event_bus_for_tests() -> None:
+    """Reset the global event bus (tests only)."""
+    global _event_bus
+    with _event_bus_lock:
+        _event_bus = None

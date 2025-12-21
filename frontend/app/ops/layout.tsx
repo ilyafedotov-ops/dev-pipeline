@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 const opsNav = [
   { href: "/ops/queues", label: "Queues" },
   { href: "/ops/events", label: "Events" },
+  { href: "/ops/logs", label: "Logs" },
   { href: "/ops/metrics", label: "Metrics" },
 ]
 

@@ -15,10 +15,11 @@ def list_agents(
     project_id: Optional[int] = Query(default=None),
     enabled_only: bool = Query(default=False),
     ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
 ):
     """List available agents."""
     # Prefer YAML-configured agents (stable list even when engines are not registered).
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     agents = [
         schemas.AgentInfo(
             id=a.id,
@@ -57,9 +58,12 @@ def list_agents(
 
 
 @router.get("/agents/health", response_model=List[schemas.AgentHealthOut])
-def check_all_agents_health(ctx: ServiceContext = Depends(get_service_context)):
+def check_all_agents_health(
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
     """Check health for all enabled agents."""
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     results = cfg.check_all_health()
     return [
         schemas.AgentHealthOut(
@@ -109,10 +113,11 @@ def update_agent_config(
     agent_id: str,
     config: schemas.AgentConfigUpdate,
     project_id: Optional[int] = Query(default=None),
-    ctx: ServiceContext = Depends(get_service_context)
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
 ):
     """Update agent configuration."""
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     try:
         updated_agent = cfg.update_config(
             agent_id=agent_id,
@@ -158,18 +163,20 @@ def update_project_agent_config(
     agent_id: str,
     config: schemas.AgentConfigUpdate,
     ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
 ):
     """Update project-specific agent configuration overrides."""
-    return update_agent_config(agent_id, config, project_id=project_id, ctx=ctx)
+    return update_agent_config(agent_id, config, project_id=project_id, ctx=ctx, db=db)
 
 
 @router.get("/agents/defaults", response_model=schemas.AgentDefaults)
 def get_agent_defaults(
     project_id: Optional[int] = Query(default=None),
     ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
 ):
     """Get agent defaults."""
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     defaults = cfg.get_defaults(project_id=project_id)
     return schemas.AgentDefaults(**defaults)
 
@@ -179,11 +186,98 @@ def update_agent_defaults(
     defaults: schemas.AgentDefaults,
     project_id: Optional[int] = Query(default=None),
     ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
 ):
     """Update agent defaults."""
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     updated = cfg.update_defaults(defaults.model_dump(exclude_unset=True), project_id=project_id)
     return schemas.AgentDefaults(**updated)
+
+@router.get("/agents/assignments", response_model=schemas.AgentAssignments)
+def list_agent_assignments(
+    project_id: Optional[int] = Query(default=None),
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
+    """List agent assignments (global or project-scoped)."""
+    cfg = AgentConfigService(ctx, db=db)
+    payload = cfg.get_assignments(project_id=project_id)
+    return schemas.AgentAssignments(**payload)
+
+
+@router.put("/agents/assignments", response_model=schemas.AgentAssignments)
+def update_agent_assignments(
+    assignments: schemas.AgentAssignments,
+    project_id: Optional[int] = Query(default=None),
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
+    """Update agent assignments (global or project-scoped)."""
+    cfg = AgentConfigService(ctx, db=db)
+    if project_id is not None and assignments.inherit_global is not None:
+        cfg.update_assignment_settings(project_id, bool(assignments.inherit_global))
+    assignment_payload = assignments.model_dump(exclude_unset=True).get("assignments", {})
+    if assignment_payload:
+        updated = cfg.update_assignments(assignment_payload, project_id=project_id)
+    else:
+        updated = cfg.get_assignments(project_id=project_id)
+    return schemas.AgentAssignments(**updated)
+
+
+@router.get("/projects/{project_id}/agents/assignments", response_model=schemas.AgentAssignments)
+def list_project_assignments(
+    project_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
+    """List agent assignments for a project."""
+    cfg = AgentConfigService(ctx, db=db)
+    payload = cfg.get_assignments(project_id=project_id)
+    return schemas.AgentAssignments(**payload)
+
+
+@router.put("/projects/{project_id}/agents/assignments", response_model=schemas.AgentAssignments)
+def update_project_assignments(
+    project_id: int,
+    assignments: schemas.AgentAssignments,
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
+    """Update agent assignments for a project."""
+    cfg = AgentConfigService(ctx, db=db)
+    if assignments.inherit_global is not None:
+        cfg.update_assignment_settings(project_id, bool(assignments.inherit_global))
+    assignment_payload = assignments.model_dump(exclude_unset=True).get("assignments", {})
+    if assignment_payload:
+        updated = cfg.update_assignments(assignment_payload, project_id=project_id)
+    else:
+        updated = cfg.get_assignments(project_id=project_id)
+    return schemas.AgentAssignments(**updated)
+
+
+@router.get("/projects/{project_id}/agents/overrides", response_model=schemas.AgentOverrides)
+def list_project_agent_overrides(
+    project_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
+    """List per-project agent overrides."""
+    cfg = AgentConfigService(ctx, db=db)
+    overrides = cfg.get_agent_overrides(project_id)
+    return schemas.AgentOverrides(agents=overrides)
+
+
+@router.put("/projects/{project_id}/agents/overrides", response_model=schemas.AgentOverrides)
+def update_project_agent_overrides_v2(
+    project_id: int,
+    overrides: schemas.AgentOverrides,
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
+    """Update per-project agent overrides."""
+    cfg = AgentConfigService(ctx, db=db)
+    updated = cfg.update_agent_overrides(project_id, overrides.model_dump(exclude_unset=True).get("agents", {}))
+    return schemas.AgentOverrides(agents=updated)
 
 
 @router.get("/agents/prompts", response_model=List[schemas.AgentPromptTemplate])
@@ -191,9 +285,10 @@ def list_agent_prompts(
     project_id: Optional[int] = Query(default=None),
     enabled_only: bool = Query(default=False),
     ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
 ):
     """List prompt templates."""
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     prompts = cfg.list_prompts(project_id=project_id, enabled_only=enabled_only)
     sources = {}
     if project_id is not None:
@@ -222,9 +317,10 @@ def update_agent_prompt(
     prompt_id: str,
     prompt: schemas.AgentPromptUpdate,
     ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
 ):
     """Update a global prompt template."""
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     updated = cfg.update_prompt(prompt_id, prompt.model_dump(exclude_unset=True))
     return schemas.AgentPromptTemplate(
         id=updated.get("id") or prompt_id,
@@ -245,9 +341,10 @@ def update_project_prompt(
     prompt_id: str,
     prompt: schemas.AgentPromptUpdate,
     ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
 ):
     """Update a project prompt override."""
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     updated = cfg.update_prompt(prompt_id, prompt.model_dump(exclude_unset=True), project_id=project_id)
     return schemas.AgentPromptTemplate(
         id=updated.get("id") or prompt_id,
@@ -267,9 +364,10 @@ def update_project_prompt(
 def get_project_agent_overrides(
     project_id: int,
     ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
 ):
     """Get project-level agent overrides."""
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     overrides = cfg.get_project_overrides(project_id)
     return schemas.AgentProjectOverrides(**overrides)
 
@@ -279,9 +377,10 @@ def update_project_agent_overrides(
     project_id: int,
     overrides: schemas.AgentProjectOverrides,
     ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
 ):
     """Update project-level agent overrides."""
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     updated = cfg.update_project_overrides(project_id, overrides.model_dump(exclude_unset=True))
     return schemas.AgentProjectOverrides(**updated)
 
@@ -291,9 +390,10 @@ def get_agent(
     agent_id: str,
     project_id: Optional[int] = Query(default=None),
     ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
 ):
     """Get agent details by ID."""
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     agent = cfg.get_agent(agent_id, project_id=project_id)
     if agent:
         return schemas.AgentInfo(
@@ -330,9 +430,13 @@ def get_agent(
 
 
 @router.get("/agents/{agent_id}/health")
-def check_agent_health(agent_id: str, ctx: ServiceContext = Depends(get_service_context)):
+def check_agent_health(
+    agent_id: str,
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
     """Check agent health (availability)."""
-    cfg = AgentConfigService(ctx)
+    cfg = AgentConfigService(ctx, db=db)
     res = cfg.check_health(agent_id)
     if res.error == "Agent not found":
         raise HTTPException(status_code=404, detail="Agent not found")

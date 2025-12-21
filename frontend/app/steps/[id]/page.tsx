@@ -93,7 +93,7 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
               {displayStep.engine_id && (
                 <>
                   <span className="text-muted-foreground">•</span>
-                  <span>Engine: {displayStep.engine_id}</span>
+                  <span>Engine: {displayStep.assigned_agent || displayStep.engine_id}</span>
                 </>
               )}
             </p>
@@ -146,7 +146,7 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
             <CardDescription>Engine</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="font-medium">{displayStep.engine_id || "-"}</p>
+            <p className="font-medium">{displayStep.assigned_agent || displayStep.engine_id || "-"}</p>
           </CardContent>
         </Card>
       </div>

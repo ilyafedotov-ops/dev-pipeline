@@ -183,7 +183,7 @@ export function TaskModal({ open, onOpenChange, task, sprints, onSave, mode }: T
               </DialogTitle>
               <DialogDescription>
                 {mode === "create"
-                  ? "Create a new task for your sprint board"
+                  ? "Create a new task for your execution board"
                   : mode === "edit"
                     ? "Update task details and properties"
                     : `${taskTypeConfig[formData.task_type || "task"].label} #${task?.id}`}
@@ -308,7 +308,7 @@ export function TaskModal({ open, onOpenChange, task, sprints, onSave, mode }: T
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Sprint</Label>
+                  <Label>Execution</Label>
                   <Select
                     value={formData.sprint_id?.toString() || "backlog"}
                     onValueChange={(value) =>
@@ -320,10 +320,10 @@ export function TaskModal({ open, onOpenChange, task, sprints, onSave, mode }: T
                     disabled={isReadOnly}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select sprint" />
+                      <SelectValue placeholder="Select execution" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="backlog">Product Backlog</SelectItem>
+                      <SelectItem value="backlog">Execution Backlog</SelectItem>
                       {sprints.map((sprint) => (
                         <SelectItem key={sprint.id} value={sprint.id.toString()}>
                           {sprint.name}
@@ -332,6 +332,20 @@ export function TaskModal({ open, onOpenChange, task, sprints, onSave, mode }: T
                     </SelectContent>
                   </Select>
                 </div>
+
+                {task && (
+                  <div className="space-y-2">
+                    <Label>Protocol Run</Label>
+                    <Input value={task.protocol_run_id ? `#${task.protocol_run_id}` : "Not linked"} disabled />
+                  </div>
+                )}
+
+                {task && (
+                  <div className="space-y-2">
+                    <Label>Step Run</Label>
+                    <Input value={task.step_run_id ? `#${task.step_run_id}` : "Not linked"} disabled />
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="story_points">Story Points</Label>

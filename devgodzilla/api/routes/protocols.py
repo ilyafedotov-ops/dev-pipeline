@@ -244,6 +244,19 @@ def get_protocol(
         raise HTTPException(status_code=404, detail=f"Protocol {protocol_id} not found")
 
 
+@router.get("/protocols/{protocol_id}/steps", response_model=List[schemas.StepOut])
+def list_protocol_steps(
+    protocol_id: int,
+    db: Database = Depends(get_db),
+):
+    """List steps for a protocol run."""
+    try:
+        db.get_protocol_run(protocol_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Protocol not found")
+    return db.list_step_runs(protocol_id)
+
+
 @router.get("/protocols/{protocol_id}/events", response_model=List[schemas.EventOut])
 def list_protocol_events(
     protocol_id: int,

@@ -6,6 +6,7 @@ Handles job submission, flow management, and status queries.
 """
 
 import os
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -61,6 +62,9 @@ class WindmillConfig:
     token: str
     workspace: str = "starter"
     timeout: float = 30.0
+    max_retries: int = 3
+    backoff_base_seconds: float = 0.5
+    backoff_max_seconds: float = 5.0
 
 
 def get_windmill_config() -> WindmillConfig:
@@ -70,6 +74,9 @@ def get_windmill_config() -> WindmillConfig:
         token=os.environ.get("DEVGODZILLA_WINDMILL_TOKEN", ""),
         workspace=os.environ.get("DEVGODZILLA_WINDMILL_WORKSPACE", "devgodzilla"),
         timeout=float(os.environ.get("DEVGODZILLA_WINDMILL_TIMEOUT", "30")),
+        max_retries=int(os.environ.get("DEVGODZILLA_WINDMILL_MAX_RETRIES", "3")),
+        backoff_base_seconds=float(os.environ.get("DEVGODZILLA_WINDMILL_BACKOFF_BASE_SECONDS", "0.5")),
+        backoff_max_seconds=float(os.environ.get("DEVGODZILLA_WINDMILL_BACKOFF_MAX_SECONDS", "5.0")),
     )
 
 
@@ -120,6 +127,36 @@ class WindmillClient:
         """Build API URL."""
         return f"/api/w/{self.config.workspace}{path}"
 
+    def _request(self, method: str, path: str, **kwargs: Any) -> "httpx.Response":
+        """Issue a Windmill API request with retry/backoff."""
+        retryable = {429, 500, 502, 503, 504}
+        max_retries = max(0, int(self.config.max_retries))
+        for attempt in range(max_retries + 1):
+            try:
+                resp = self._get_client().request(method, self._url(path), **kwargs)
+                try:
+                    resp.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    status = exc.response.status_code
+                    if status in retryable and attempt < max_retries:
+                        delay = min(
+                            self.config.backoff_base_seconds * (2 ** attempt),
+                            self.config.backoff_max_seconds,
+                        )
+                        time.sleep(delay)
+                        continue
+                    raise
+                return resp
+            except httpx.RequestError:
+                if attempt >= max_retries:
+                    raise
+                delay = min(
+                    self.config.backoff_base_seconds * (2 ** attempt),
+                    self.config.backoff_max_seconds,
+                )
+                time.sleep(delay)
+        raise RuntimeError("Windmill request retries exhausted")
+
     def close(self) -> None:
         """Close HTTP client."""
         if self._client:
@@ -154,8 +191,7 @@ class WindmillClient:
             "description": description or "",
         }
         
-        resp = self._get_client().post(self._url("/flows/create"), json=payload)
-        resp.raise_for_status()
+        self._request("post", "/flows/create", json=payload)
         
         logger.info("flow_created", extra={"path": path})
         return FlowInfo(path=path, name=summary or path.split("/")[-1])
@@ -173,22 +209,19 @@ class WindmillClient:
             "summary": summary,
         }
         
-        resp = self._get_client().post(self._url(f"/flows/update/{path}"), json=payload)
-        resp.raise_for_status()
+        self._request("post", f"/flows/update/{path}", json=payload)
         
         logger.info("flow_updated", extra={"path": path})
         return FlowInfo(path=path, name=summary or path.split("/")[-1])
 
     def delete_flow(self, path: str) -> None:
         """Delete a flow."""
-        resp = self._get_client().delete(self._url(f"/flows/delete/{path}"))
-        resp.raise_for_status()
+        self._request("delete", f"/flows/delete/{path}")
         logger.info("flow_deleted", extra={"path": path})
 
     def get_flow(self, path: str) -> FlowInfo:
         """Get flow details."""
-        resp = self._get_client().get(self._url(f"/flows/get/{path}"))
-        resp.raise_for_status()
+        resp = self._request("get", f"/flows/get/{path}")
         data = resp.json()
         return FlowInfo(
             path=path,
@@ -203,8 +236,7 @@ class WindmillClient:
         if prefix:
             params["path_start"] = prefix
         
-        resp = self._get_client().get(self._url("/flows/list"), params=params)
-        resp.raise_for_status()
+        resp = self._request("get", "/flows/list", params=params)
         
         flows = []
         for item in resp.json():
@@ -236,8 +268,7 @@ class WindmillClient:
         if script_path_exact:
             params["script_path_exact"] = script_path_exact
 
-        resp = self._get_client().get(self._url("/jobs/list"), params=params)
-        resp.raise_for_status()
+        resp = self._request("get", "/jobs/list", params=params)
         data = resp.json()
         return data if isinstance(data, list) else []
 
@@ -282,12 +313,12 @@ class WindmillClient:
         if scheduled_for:
             params["scheduled_for"] = scheduled_for
         
-        resp = self._get_client().post(
-            self._url(f"/jobs/run/f/{path}"),
+        resp = self._request(
+            "post",
+            f"/jobs/run/f/{path}",
             json=payload,
             params=params,
         )
-        resp.raise_for_status()
         
         job_id = resp.text.strip('"')
         logger.info("flow_job_started", extra={"path": path, "job_id": job_id})
@@ -310,11 +341,11 @@ class WindmillClient:
         """
         payload = args or {}
         
-        resp = self._get_client().post(
-            self._url(f"/jobs/run/p/{path}"),
+        resp = self._request(
+            "post",
+            f"/jobs/run/p/{path}",
             json=payload,
         )
-        resp.raise_for_status()
         
         job_id = resp.text.strip('"')
         logger.info("script_job_started", extra={"path": path, "job_id": job_id})
@@ -323,8 +354,7 @@ class WindmillClient:
     def get_job(self, job_id: str) -> JobInfo:
         """Get job status and details."""
         # Windmill exposes job details under jobs_u/*.
-        resp = self._get_client().get(self._url(f"/jobs_u/get/{job_id}"))
-        resp.raise_for_status()
+        resp = self._request("get", f"/jobs_u/get/{job_id}")
         data = resp.json()
         
         # Map Windmill job type/success to a stable status enum.
@@ -353,14 +383,12 @@ class WindmillClient:
 
     def get_job_logs(self, job_id: str) -> str:
         """Get job logs."""
-        resp = self._get_client().get(self._url(f"/jobs_u/get_logs/{job_id}"))
-        resp.raise_for_status()
+        resp = self._request("get", f"/jobs_u/get_logs/{job_id}")
         return resp.text
 
     def cancel_job(self, job_id: str) -> None:
         """Cancel a running job."""
-        resp = self._get_client().post(self._url(f"/jobs_u/queue/cancel/{job_id}"))
-        resp.raise_for_status()
+        self._request("post", f"/jobs_u/queue/cancel/{job_id}")
         logger.info("job_canceled", extra={"job_id": job_id})
 
     def wait_for_job(
@@ -393,7 +421,7 @@ class WindmillClient:
                 # Best-effort: completed jobs often store results under the completed endpoints.
                 if job.status == JobStatus.COMPLETED and job.result is None:
                     try:
-                        r = self._get_client().get(self._url(f"/jobs_u/completed/get_result_maybe/{job_id}"))
+                        r = self._request("get", f"/jobs_u/completed/get_result_maybe/{job_id}")
                         if r.status_code == 200:
                             job.result = r.json()
                     except Exception:

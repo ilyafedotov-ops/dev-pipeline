@@ -48,3 +48,24 @@ export function useStepAction() {
     },
   })
 }
+
+export function useAssignStepAgent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      stepId,
+      agentId,
+    }: {
+      stepId: number
+      protocolId: number
+      agentId: string
+    }) =>
+      apiClient.post<ActionResponse>(`/steps/${stepId}/actions/assign_agent`, {
+        agent_id: agentId,
+      }),
+    onSuccess: (_, { stepId, protocolId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.protocols.steps(protocolId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.steps.runs(stepId) })
+    },
+  })
+}

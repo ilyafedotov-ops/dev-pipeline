@@ -4,18 +4,26 @@ DevGodzilla Webhook Handlers
 Handles incoming webhooks from Windmill and CI/CD systems.
 """
 
+import json
 import hashlib
 import hmac
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from devgodzilla.api.dependencies import get_db
+from devgodzilla.config import load_config
 from devgodzilla.db.database import Database
+from devgodzilla.logging import get_logger
+from devgodzilla.models.domain import ProtocolStatus, StepStatus
+from devgodzilla.services.base import ServiceContext
+from devgodzilla.services.orchestrator import OrchestratorMode, OrchestratorResult, OrchestratorService
+from devgodzilla.windmill.client import WindmillClient, WindmillConfig
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
+logger = get_logger(__name__)
 
 
 # ==================== Request Models ====================
@@ -99,8 +107,134 @@ def _emit_ci_event(
             message=message,
             metadata=metadata,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error(
+            "ci_event_persist_failed",
+            extra={"event_type": event_type, "error": str(exc)},
+        )
+
+
+def _build_orchestrator(db: Database) -> OrchestratorService:
+    config = load_config()
+    ctx = ServiceContext(config=config)
+    windmill_client = None
+    mode = OrchestratorMode.LOCAL
+    if getattr(config, "windmill_enabled", False):
+        windmill_client = WindmillClient(
+            WindmillConfig(
+                base_url=config.windmill_url or "http://localhost:8000",
+                token=config.windmill_token or "",
+                workspace=getattr(config, "windmill_workspace", "devgodzilla"),
+            )
+        )
+        mode = OrchestratorMode.WINDMILL
+    return OrchestratorService(context=ctx, db=db, windmill_client=windmill_client, mode=mode)
+
+
+def _extract_protocol_run_id(payload: dict) -> Optional[int]:
+    candidates = [
+        payload.get("protocol_run_id"),
+        payload.get("protocolRunId"),
+    ]
+    for key in ("input", "flow_input", "args", "metadata", "context"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            candidates.append(value.get("protocol_run_id"))
+            candidates.append(value.get("protocolRunId"))
+    for value in candidates:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    return None
+
+
+def _extract_flow_path(payload: dict) -> Optional[str]:
+    direct = payload.get("flow_path") or payload.get("flow_id") or payload.get("path")
+    if isinstance(direct, str):
+        return direct
+    flow = payload.get("flow")
+    if isinstance(flow, dict):
+        for key in ("path", "flow_path", "id"):
+            if isinstance(flow.get(key), str):
+                return flow.get(key)
+    return None
+
+
+def _extract_status(payload: dict) -> Optional[str]:
+    for key in ("status", "state", "conclusion", "result"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            return value.lower()
+        if isinstance(value, dict):
+            inner = value.get("status") or value.get("state") or value.get("conclusion")
+            if isinstance(inner, str):
+                return inner.lower()
+    return None
+
+
+def _is_success_status(value: Optional[str]) -> bool:
+    return value in ("success", "succeeded", "completed", "ok", "passed")
+
+
+def _is_failure_status(value: Optional[str]) -> bool:
+    return value in ("failure", "failed", "cancelled", "canceled", "error", "timed_out")
+
+
+def _verify_github_signature(secret: str, body: bytes, signature_header: Optional[str]) -> bool:
+    if not signature_header:
+        return False
+    algo, _, signature = signature_header.partition("=")
+    algo = algo.strip().lower()
+    signature = signature.strip()
+    if not signature:
+        return False
+    if algo == "sha256":
+        digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    elif algo == "sha1":
+        digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha1).hexdigest()
+    else:
+        return False
+    return hmac.compare_digest(digest, signature)
+
+
+def _verify_gitlab_token(secret: str, token: Optional[str]) -> bool:
+    if not token:
+        return False
+    return hmac.compare_digest(token, secret)
+
+
+def _maybe_advance_protocol_on_ci(
+    db: Database,
+    *,
+    protocol_run_id: Optional[int],
+) -> Optional[OrchestratorResult]:
+    if protocol_run_id is None:
+        return None
+
+    try:
+        run = db.get_protocol_run(protocol_run_id)
+    except KeyError:
+        return None
+
+    if run.status in (
+        ProtocolStatus.PAUSED,
+        ProtocolStatus.BLOCKED,
+        ProtocolStatus.CANCELLED,
+        ProtocolStatus.COMPLETED,
+        ProtocolStatus.FAILED,
+    ):
+        return OrchestratorResult(
+            success=False,
+            error=f"Protocol in {run.status} state",
+        )
+
+    steps = db.list_step_runs(protocol_run_id)
+    if any(s.status in (StepStatus.RUNNING, StepStatus.NEEDS_QA) for s in steps):
+        return OrchestratorResult(success=False, error="Protocol has in-flight steps")
+
+    orchestrator = _build_orchestrator(db)
+    return orchestrator.enqueue_next_step(protocol_run_id)
 
 
 # ==================== Windmill Webhooks ====================
@@ -117,9 +251,6 @@ async def windmill_job_webhook(
     Called by Windmill when a job completes, fails, or is cancelled.
     Updates the corresponding protocol/step run in the database.
     """
-    from devgodzilla.logging import get_logger
-    logger = get_logger(__name__)
-    
     logger.info(
         "windmill_webhook_received",
         extra={
@@ -148,9 +279,12 @@ async def windmill_job_webhook(
             started_at=payload.started_at.isoformat() if payload.started_at else None,
             finished_at=payload.finished_at.isoformat() if payload.finished_at else None,
         )
-    except KeyError:
+    except KeyError as exc:
         # Webhook can arrive before we persist the job run; don't fail the webhook.
-        pass
+        logger.warning(
+            "windmill_job_not_found",
+            extra={"job_id": payload.job_id, "error": str(exc)},
+        )
     
     return {
         "status": "received",
@@ -161,6 +295,7 @@ async def windmill_job_webhook(
 @router.post("/windmill/flow")
 async def windmill_flow_webhook(
     request: Request,
+    db: Database = Depends(get_db),
 ):
     """
     Handle Windmill flow completion webhook.
@@ -168,17 +303,29 @@ async def windmill_flow_webhook(
     Called when an entire flow completes.
     """
     payload = await request.json()
-    
-    from devgodzilla.logging import get_logger
-    logger = get_logger(__name__)
-    
+
     logger.info(
         "windmill_flow_webhook_received",
         extra={"payload": payload},
     )
-    
-    # TODO: Update protocol_run by windmill_flow_id
-    
+
+    status = _extract_status(payload)
+    protocol_run_id = _extract_protocol_run_id(payload)
+    flow_path = _extract_flow_path(payload)
+
+    if protocol_run_id is None and flow_path:
+        for run in db.list_all_protocol_runs(limit=200):
+            if run.windmill_flow_id == flow_path:
+                protocol_run_id = run.id
+                break
+
+    if protocol_run_id is not None:
+        if _is_success_status(status):
+            orchestrator = _build_orchestrator(db)
+            orchestrator.check_and_complete_protocol(protocol_run_id)
+        elif _is_failure_status(status):
+            db.update_protocol_status(protocol_run_id, ProtocolStatus.BLOCKED)
+
     return {"status": "received"}
 
 
@@ -189,6 +336,7 @@ async def github_webhook(
     request: Request,
     x_github_event: str = Header(None),
     x_hub_signature_256: str = Header(None),
+    x_hub_signature: str = Header(None),
     project_id: Optional[int] = Query(None, description="Override project ID for logging"),
     protocol_run_id: Optional[int] = Query(None, description="Override protocol run ID for logging"),
     db: Database = Depends(get_db),
@@ -201,11 +349,18 @@ async def github_webhook(
     - check_run: When a check run completes
     - pull_request: When a PR is opened/merged
     """
-    payload = await request.json()
-    
-    from devgodzilla.logging import get_logger
-    logger = get_logger(__name__)
-    
+    body = await request.body()
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    config = load_config()
+    if config.webhook_token:
+        signature = x_hub_signature_256 or x_hub_signature
+        if not _verify_github_signature(config.webhook_token, body, signature):
+            raise HTTPException(status_code=401, detail="Invalid GitHub signature")
+
     logger.info(
         "github_webhook_received",
         extra={
@@ -243,26 +398,63 @@ async def github_webhook(
     )
 
     if x_github_event == "workflow_run":
-        return await _handle_workflow_run(payload)
+        return await _handle_workflow_run(
+            payload,
+            db=db,
+            project_id=resolved_project_id,
+            protocol_run_id=protocol_run_id,
+        )
     elif x_github_event == "check_run":
-        return await _handle_check_run(payload)
+        return await _handle_check_run(
+            payload,
+            db=db,
+            project_id=resolved_project_id,
+            protocol_run_id=protocol_run_id,
+        )
     elif x_github_event == "pull_request":
-        return await _handle_pull_request(payload)
+        return await _handle_pull_request(
+            payload,
+            db=db,
+            project_id=resolved_project_id,
+            protocol_run_id=protocol_run_id,
+        )
     
     return {"status": "ignored", "event": x_github_event}
 
 
-async def _handle_workflow_run(payload: dict):
+async def _handle_workflow_run(
+    payload: dict,
+    *,
+    db: Database,
+    project_id: Optional[int],
+    protocol_run_id: Optional[int],
+):
     """Handle GitHub workflow_run event."""
     workflow_run = payload.get("workflow_run", {})
     conclusion = workflow_run.get("conclusion")
     
     if conclusion == "success":
-        # CI passed - could auto-advance protocol
-        pass
+        _emit_ci_event(
+            db,
+            event_type="ci_workflow_success",
+            message="GitHub workflow succeeded",
+            project_id=project_id,
+            protocol_run_id=protocol_run_id,
+            metadata={"workflow": workflow_run.get("name"), "id": workflow_run.get("id")},
+        )
+        if load_config().auto_qa_on_ci:
+            _maybe_advance_protocol_on_ci(db, protocol_run_id=protocol_run_id)
     elif conclusion in ("failure", "cancelled"):
-        # CI failed - trigger feedback loop
-        pass
+        _emit_ci_event(
+            db,
+            event_type="ci_workflow_failed",
+            message="GitHub workflow failed",
+            project_id=project_id,
+            protocol_run_id=protocol_run_id,
+            metadata={"workflow": workflow_run.get("name"), "id": workflow_run.get("id")},
+        )
+        if protocol_run_id is not None:
+            db.update_protocol_status(protocol_run_id, ProtocolStatus.BLOCKED)
     
     return {
         "status": "processed",
@@ -271,20 +463,60 @@ async def _handle_workflow_run(payload: dict):
     }
 
 
-async def _handle_check_run(payload: dict):
+async def _handle_check_run(
+    payload: dict,
+    *,
+    db: Database,
+    project_id: Optional[int],
+    protocol_run_id: Optional[int],
+):
     """Handle GitHub check_run event."""
     check_run = payload.get("check_run", {})
+    conclusion = check_run.get("conclusion")
+    if conclusion == "success":
+        _emit_ci_event(
+            db,
+            event_type="ci_check_success",
+            message="GitHub check run succeeded",
+            project_id=project_id,
+            protocol_run_id=protocol_run_id,
+            metadata={"check": check_run.get("name"), "id": check_run.get("id")},
+        )
+    elif conclusion in ("failure", "cancelled"):
+        _emit_ci_event(
+            db,
+            event_type="ci_check_failed",
+            message="GitHub check run failed",
+            project_id=project_id,
+            protocol_run_id=protocol_run_id,
+            metadata={"check": check_run.get("name"), "id": check_run.get("id")},
+        )
     return {
         "status": "processed",
         "check": check_run.get("name"),
-        "conclusion": check_run.get("conclusion"),
+        "conclusion": conclusion,
     }
 
 
-async def _handle_pull_request(payload: dict):
+async def _handle_pull_request(
+    payload: dict,
+    *,
+    db: Database,
+    project_id: Optional[int],
+    protocol_run_id: Optional[int],
+):
     """Handle GitHub pull_request event."""
     action = payload.get("action")
     pr = payload.get("pull_request", {})
+
+    _emit_ci_event(
+        db,
+        event_type="ci_pull_request",
+        message=f"GitHub pull request {action}",
+        project_id=project_id,
+        protocol_run_id=protocol_run_id,
+        metadata={"pr_number": pr.get("number"), "action": action},
+    )
     
     return {
         "status": "processed",
@@ -310,7 +542,16 @@ async def gitlab_webhook(
     - Pipeline: When a CI pipeline completes
     - Merge Request: When an MR is created/merged
     """
-    payload = await request.json()
+    body = await request.body()
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    config = load_config()
+    if config.webhook_token:
+        if not _verify_gitlab_token(config.webhook_token, x_gitlab_token):
+            raise HTTPException(status_code=401, detail="Invalid GitLab token")
     
     from devgodzilla.logging import get_logger
     logger = get_logger(__name__)
@@ -350,25 +591,78 @@ async def gitlab_webhook(
     )
 
     if object_kind == "pipeline":
-        return await _handle_gitlab_pipeline(payload)
+        return await _handle_gitlab_pipeline(
+            payload,
+            db=db,
+            project_id=resolved_project_id,
+            protocol_run_id=protocol_run_id,
+        )
     elif object_kind == "merge_request":
-        return await _handle_gitlab_mr(payload)
+        return await _handle_gitlab_mr(
+            payload,
+            db=db,
+            project_id=resolved_project_id,
+            protocol_run_id=protocol_run_id,
+        )
     
     return {"status": "ignored", "object_kind": object_kind}
 
 
-async def _handle_gitlab_pipeline(payload: dict):
+async def _handle_gitlab_pipeline(
+    payload: dict,
+    *,
+    db: Database,
+    project_id: Optional[int],
+    protocol_run_id: Optional[int],
+):
     """Handle GitLab pipeline event."""
     attrs = payload.get("object_attributes", {})
+    status = attrs.get("status")
+    if status == "success":
+        _emit_ci_event(
+            db,
+            event_type="ci_pipeline_success",
+            message="GitLab pipeline succeeded",
+            project_id=project_id,
+            protocol_run_id=protocol_run_id,
+            metadata={"pipeline_id": attrs.get("id")},
+        )
+        if load_config().auto_qa_on_ci:
+            _maybe_advance_protocol_on_ci(db, protocol_run_id=protocol_run_id)
+    elif status in ("failed", "canceled", "cancelled"):
+        _emit_ci_event(
+            db,
+            event_type="ci_pipeline_failed",
+            message="GitLab pipeline failed",
+            project_id=project_id,
+            protocol_run_id=protocol_run_id,
+            metadata={"pipeline_id": attrs.get("id")},
+        )
+        if protocol_run_id is not None:
+            db.update_protocol_status(protocol_run_id, ProtocolStatus.BLOCKED)
     return {
         "status": "processed",
         "pipeline_status": attrs.get("status"),
     }
 
 
-async def _handle_gitlab_mr(payload: dict):
+async def _handle_gitlab_mr(
+    payload: dict,
+    *,
+    db: Database,
+    project_id: Optional[int],
+    protocol_run_id: Optional[int],
+):
     """Handle GitLab merge request event."""
     attrs = payload.get("object_attributes", {})
+    _emit_ci_event(
+        db,
+        event_type="ci_merge_request",
+        message=f"GitLab merge request {attrs.get('action')}",
+        project_id=project_id,
+        protocol_run_id=protocol_run_id,
+        metadata={"mr_iid": attrs.get("iid"), "action": attrs.get("action")},
+    )
     return {
         "status": "processed",
         "action": attrs.get("action"),

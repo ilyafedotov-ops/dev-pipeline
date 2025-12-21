@@ -99,9 +99,9 @@ const steps: { key: WorkflowStep; label: string; icon: React.ElementType; descri
     },
     {
         key: "sprint",
-        label: "Sprint",
+        label: "Execution",
         icon: Kanban,
-        description: "Assign to sprint for execution",
+        description: "Assign to execution cycle",
     },
 ]
 
@@ -122,7 +122,7 @@ function getStepHref(step: WorkflowStep, projectId: number): string {
         case "implement":
             return `/projects/${projectId}?tab=spec`
         case "sprint":
-            return `/projects/${projectId}/sprint-board`
+            return `/projects/${projectId}/execution`
         default:
             return `/projects/${projectId}`
     }
@@ -155,7 +155,7 @@ function getStatusColor(status: StepStatus | undefined, isActive: boolean): stri
 /**
  * SpecWorkflow - Visual stepper component showing the SpecKit workflow pipeline
  * 
- * Shows the SpecKit workflow: Specification → Clarify → Plan → Checklist → Tasks → Analyze → Implement → Sprint
+ * Shows the SpecKit workflow: Specification → Clarify → Plan → Checklist → Tasks → Analyze → Implement → Execution
  * Each step shows its status and provides navigation to the relevant page.
  */
 export function SpecWorkflow({
@@ -335,7 +335,7 @@ export function SpecWorkflowBadges({
             {inSprint && (
                 <Badge className="text-xs gap-1 bg-purple-500">
                     <Kanban className="h-3 w-3" />
-                    Sprint
+                    Execution
                 </Badge>
             )}
         </div>

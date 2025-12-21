@@ -91,7 +91,7 @@ export default function SpecificationDetailPage({
           <>
             <div className="flex items-center gap-2">
               <Target className="h-4 w-4 text-purple-400" />
-              <span className="font-medium">Sprint:</span>
+              <span className="font-medium">Execution:</span>
               <span className="text-purple-400">{spec.sprint_name}</span>
             </div>
             <div className="h-4 w-px bg-border" />
@@ -182,8 +182,8 @@ export default function SpecificationDetailPage({
                   {spec.sprint_id && (
                     <div className="mt-4">
                       <Button variant="outline" size="sm" asChild>
-                        <Link href={`/projects/${spec.project_id}/sprint-board`}>
-                          View in Sprint Board
+                        <Link href={`/projects/${spec.project_id}/execution`}>
+                          View in Execution
                           <ExternalLink className="ml-2 h-3 w-3" />
                         </Link>
                       </Button>

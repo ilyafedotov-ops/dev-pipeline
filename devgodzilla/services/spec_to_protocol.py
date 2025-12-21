@@ -120,7 +120,7 @@ class SpecToProtocolService(Service):
         try:
             from devgodzilla.services.agent_config import AgentConfigService
 
-            cfg = AgentConfigService(self.context)
+            cfg = AgentConfigService(self.context, db=self.db)
             candidate = cfg.get_default_engine_id(
                 "exec",
                 project_id=project_id,
@@ -136,7 +136,7 @@ class SpecToProtocolService(Service):
             from devgodzilla.services.agent_config import AgentConfigService
             from devgodzilla.spec import resolve_spec_path
 
-            cfg = AgentConfigService(self.context)
+            cfg = AgentConfigService(self.context, db=self.db)
             assignment = cfg.resolve_prompt_assignment("qa", project_id=project_id)
             if assignment and assignment.get("path"):
                 candidate = resolve_spec_path(

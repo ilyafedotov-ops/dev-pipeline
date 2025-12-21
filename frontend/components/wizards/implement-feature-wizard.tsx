@@ -113,11 +113,11 @@ export function ImplementFeatureWizardModal({ projectId, open, onOpenChange }: I
             await importTasks.mutateAsync(Number.parseInt(targetSprint, 10), {
               spec_path: result.tasks_path,
             })
-            toast.success("Tasks imported to sprint")
-            router.push(`/projects/${projectId}/sprint-board?sprint=${targetSprint}`)
+            toast.success("Tasks imported to execution sprint")
+            router.push(`/projects/${projectId}/execution?sprint=${targetSprint}`)
             onOpenChange(false)
           } catch {
-            toast.error("Tasks generated, but sprint import failed")
+            toast.error("Tasks generated, but execution import failed")
             router.push(`/projects/${projectId}?tab=spec&tasks=${result.tasks_path}`)
             onOpenChange(false)
           }
@@ -331,7 +331,7 @@ export function ImplementFeatureWizardModal({ projectId, open, onOpenChange }: I
                         <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
                           4
                         </div>
-                        <span>Sprint</span>
+                        <span>Execution</span>
                       </div>
                     </div>
                   </CardContent>
@@ -455,17 +455,17 @@ export function ImplementFeatureWizardModal({ projectId, open, onOpenChange }: I
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                           <Kanban className="h-5 w-5" />
-                          Assign to Sprint (Optional)
+                          Assign to Execution (Optional)
                         </CardTitle>
-                        <CardDescription>Optionally assign generated tasks directly to a sprint</CardDescription>
+                        <CardDescription>Optionally assign generated tasks directly to an execution sprint</CardDescription>
                       </CardHeader>
                       <CardContent>
                         <Select value={targetSprint} onValueChange={setTargetSprint}>
                           <SelectTrigger>
-                            <SelectValue placeholder="No sprint (create in backlog)" />
+                            <SelectValue placeholder="No execution (create in backlog)" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value={noSprintValue}>No sprint (create in backlog)</SelectItem>
+                            <SelectItem value={noSprintValue}>No execution (create in backlog)</SelectItem>
                             <Separator className="my-1" />
                             {activeSprints.map((sprint) => (
                               <SelectItem key={sprint.id} value={sprint.id.toString()}>
@@ -482,9 +482,9 @@ export function ImplementFeatureWizardModal({ projectId, open, onOpenChange }: I
                         </Select>
                         {activeSprints.length === 0 && (
                           <p className="text-xs text-muted-foreground mt-2">
-                            No active or planning sprints.{" "}
-                            <Link href={`/projects/${projectId}/sprint-board`} className="underline">
-                              Create a sprint first
+                            No active or planning executions.{" "}
+                            <Link href={`/projects/${projectId}/execution`} className="underline">
+                              Create an execution sprint first
                             </Link>
                           </p>
                         )}

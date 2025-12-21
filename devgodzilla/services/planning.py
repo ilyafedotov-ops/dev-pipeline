@@ -249,7 +249,7 @@ class PlanningService(Service):
 
                     engine_id = None
                     try:
-                        cfg = AgentConfigService(self.context)
+                        cfg = AgentConfigService(self.context, db=self.db)
                         engine_id = cfg.get_default_engine_id(
                             "planning",
                             project_id=project.id,
@@ -471,7 +471,7 @@ class PlanningService(Service):
             try:
                 from devgodzilla.services.agent_config import AgentConfigService
 
-                cfg = AgentConfigService(self.context)
+                cfg = AgentConfigService(self.context, db=self.db)
                 candidate = cfg.get_default_engine_id(
                     "exec",
                     project_id=run.project_id,

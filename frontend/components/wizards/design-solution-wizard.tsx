@@ -286,7 +286,7 @@ export function DesignSolutionWizardModal({ projectId, open, onOpenChange }: Des
                         <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
                           4
                         </div>
-                        <span>Sprint</span>
+                        <span>Execution</span>
                       </div>
                     </div>
                   </CardContent>

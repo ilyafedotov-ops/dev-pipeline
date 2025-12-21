@@ -1,5 +1,5 @@
 // Query key factory for TanStack Query
-import type { RunFilters, EventFilters } from "./types"
+import type { RunFilters, EventFilters, AppLogFilters } from "./types"
 
 export const queryKeys = {
   // Health
@@ -11,6 +11,8 @@ export const queryKeys = {
     list: () => [...queryKeys.projects.all, "list"] as const,
     detail: (id: number) => [...queryKeys.projects.all, "detail", id] as const,
     onboarding: (id: number) => [...queryKeys.projects.all, "onboarding", id] as const,
+    discoveryLogs: (id: number, maxBytes?: number) =>
+      [...queryKeys.projects.all, "discoveryLogs", id, { maxBytes }] as const,
     protocols: (id: number) => [...queryKeys.projects.all, "protocols", id] as const,
     policy: (id: number) => [...queryKeys.projects.all, "policy", id] as const,
     policyEffective: (id: number) => [...queryKeys.projects.all, "policyEffective", id] as const,
@@ -20,6 +22,7 @@ export const queryKeys = {
     branches: (id: number) => [...queryKeys.projects.all, "branches", id] as const,
     commits: (id: number) => [...queryKeys.projects.all, "commits", id] as const,
     pulls: (id: number) => [...queryKeys.projects.all, "pulls", id] as const,
+    worktrees: (id: number) => [...queryKeys.projects.all, "worktrees", id] as const,
   },
 
   // Protocols
@@ -65,6 +68,7 @@ export const queryKeys = {
     queueStats: ["ops", "queueStats"] as const,
     queueJobs: (status?: string) => ["ops", "queueJobs", { status }] as const,
     recentEvents: (filters: EventFilters) => ["ops", "recentEvents", filters] as const,
+    recentLogs: (filters: AppLogFilters) => ["ops", "recentLogs", filters] as const,
     metricsSummary: (hours?: number) => ["ops", "metricsSummary", { hours }] as const,
   },
 
@@ -88,10 +92,12 @@ export const queryKeys = {
     list: (projectId?: number) => [...queryKeys.agents.all, "list", projectId ?? "global"] as const,
     detail: (id: string) => [...queryKeys.agents.all, "detail", id] as const,
     defaults: (projectId?: number) => [...queryKeys.agents.all, "defaults", projectId ?? "global"] as const,
+    assignments: (projectId?: number) => [...queryKeys.agents.all, "assignments", projectId ?? "global"] as const,
     prompts: (projectId?: number) => [...queryKeys.agents.all, "prompts", projectId ?? "global"] as const,
     health: (projectId?: number) => [...queryKeys.agents.all, "health", projectId ?? "global"] as const,
     metrics: (projectId?: number) => [...queryKeys.agents.all, "metrics", projectId ?? "global"] as const,
     project: (projectId: number) => [...queryKeys.agents.all, "project", projectId] as const,
+    overrides: (projectId: number) => [...queryKeys.agents.all, "overrides", projectId] as const,
   },
 
   // Clarifications

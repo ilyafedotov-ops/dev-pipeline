@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useProtocolRuns } from "@/lib/api"
 import { Button } from "@/components/ui/button"
@@ -18,13 +18,9 @@ export function LogsTab({ protocolId }: LogsTabProps) {
   const { data: runs, isLoading } = useProtocolRuns(protocolId)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!selectedRunId && runs && runs.length > 0) {
-      setSelectedRunId(runs[0].run_id)
-    }
-  }, [runs, selectedRunId])
+  const resolvedRunId = selectedRunId ?? runs?.[0]?.run_id ?? null
 
-  const selectedRun = useMemo(() => runs?.find((run) => run.run_id === selectedRunId), [runs, selectedRunId])
+  const selectedRun = useMemo(() => runs?.find((run) => run.run_id === resolvedRunId), [runs, resolvedRunId])
 
   if (isLoading) return <LoadingState message="Loading runs..." />
 
@@ -35,7 +31,7 @@ export function LogsTab({ protocolId }: LogsTabProps) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-4">
-        <Select value={selectedRunId || ""} onValueChange={(value) => setSelectedRunId(value)}>
+        <Select value={resolvedRunId || ""} onValueChange={(value) => setSelectedRunId(value)}>
           <SelectTrigger className="w-72">
             <SelectValue placeholder="Select a run" />
           </SelectTrigger>
@@ -58,9 +54,9 @@ export function LogsTab({ protocolId }: LogsTabProps) {
         )}
       </div>
 
-      {selectedRunId && (
+      {resolvedRunId && (
         <div className="h-[calc(100vh-28rem)]">
-          <StreamingLogs runId={selectedRunId} />
+          <StreamingLogs runId={resolvedRunId} />
         </div>
       )}
     </div>

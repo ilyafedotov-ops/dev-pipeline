@@ -11,7 +11,7 @@ except ImportError:
 
 from devgodzilla.api import schemas
 from devgodzilla.api.routes import projects, protocols, steps, agents, clarifications, speckit, sprints, tasks, policy_packs, specifications, quality, profile
-from devgodzilla.api.routes import metrics, webhooks, events
+from devgodzilla.api.routes import metrics, webhooks, events, logs
 from devgodzilla.api.routes import windmill as windmill_routes
 from devgodzilla.api.routes import runs as runs_routes
 from devgodzilla.api.routes import project_speckit as project_speckit_routes
@@ -20,10 +20,13 @@ from devgodzilla.api.dependencies import get_db, get_service_context, require_ap
 from devgodzilla.config import get_config
 from devgodzilla.engines.bootstrap import bootstrap_default_engines
 from devgodzilla.db.database import Database
-from devgodzilla.logging import get_logger
+from devgodzilla.logging import get_logger, get_log_buffer
+from devgodzilla.services.orchestrator import OrchestratorMode, OrchestratorService
 from devgodzilla.windmill.client import WindmillClient, WindmillConfig
 
 logger = get_logger(__name__)
+
+get_log_buffer()
 
 app = FastAPI(
     title="DevGodzilla API",
@@ -62,6 +65,7 @@ app.include_router(speckit.router, tags=["SpecKit"], dependencies=auth_deps)
 app.include_router(metrics.router)  # /metrics (optionally unauthenticated)
 app.include_router(webhooks.router, dependencies=[Depends(require_webhook_token)])  # /webhooks/*
 app.include_router(events.router, dependencies=auth_deps)  # /events
+app.include_router(logs.router, dependencies=auth_deps)  # /logs
 app.include_router(windmill_routes.router, dependencies=auth_deps)  # /flows, /jobs (Windmill)
 app.include_router(runs_routes.router, dependencies=auth_deps)  # /runs (Job runs)
 app.include_router(project_speckit_routes.router, dependencies=auth_deps)  # /projects/{id}/speckit/*
@@ -94,6 +98,7 @@ def bootstrap_database() -> None:
     This is safe to run multiple times (CREATE TABLE IF NOT EXISTS).
     """
     from devgodzilla.cli.main import get_db as cli_get_db
+    from devgodzilla.cli.main import get_service_context as cli_get_service_context
 
     db = cli_get_db()
     db.init_schema()
@@ -103,6 +108,57 @@ def bootstrap_database() -> None:
         install_db_event_sink(db_provider=cli_get_db)
     except Exception:
         pass
+    try:
+        from devgodzilla.services.agent_config import AgentConfigService
+
+        ctx = cli_get_service_context()
+        cfg = AgentConfigService(ctx, db=db)
+        cfg.migrate_yaml_defaults_to_db()
+    except Exception as exc:
+        logger.error(
+            "agent_defaults_migration_failed",
+            extra={"error": str(exc)},
+        )
+
+
+@app.on_event("startup")
+def recover_protocol_runs() -> None:
+    """Recover protocols stuck in RUNNING without active steps."""
+    try:
+        from devgodzilla.cli.main import get_db as cli_get_db
+        from devgodzilla.cli.main import get_service_context as cli_get_service_context
+
+        ctx = cli_get_service_context()
+        db = cli_get_db()
+        windmill_client = None
+        mode = OrchestratorMode.LOCAL
+        if getattr(ctx.config, "windmill_enabled", False):
+            windmill_client = WindmillClient(
+                WindmillConfig(
+                    base_url=ctx.config.windmill_url or "http://localhost:8000",
+                    token=ctx.config.windmill_token or "",
+                    workspace=getattr(ctx.config, "windmill_workspace", "devgodzilla"),
+                )
+            )
+            mode = OrchestratorMode.WINDMILL
+
+        orchestrator = OrchestratorService(
+            context=ctx,
+            db=db,
+            windmill_client=windmill_client,
+            mode=mode,
+        )
+        recovered = orchestrator.recover_stuck_protocols()
+        if recovered:
+            logger.warning(
+                "protocol_recovery_actions",
+                extra={"recovered_count": len(recovered)},
+            )
+    except Exception as exc:
+        logger.error(
+            "protocol_recovery_failed",
+            extra={"error": str(exc)},
+        )
 
 
 @app.on_event("startup")

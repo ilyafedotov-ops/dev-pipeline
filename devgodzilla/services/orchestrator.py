@@ -193,8 +193,16 @@ class OrchestratorService(Service):
                     protocol_run_id=protocol_run_id,
                     windmill_job_id=job_id,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                self.logger.error(
+                    "job_run_persist_failed",
+                    extra=self.log_extra(
+                        protocol_run_id=protocol_run_id,
+                        job_type="protocol_plan_and_wait",
+                        job_id=job_id,
+                        error=str(exc),
+                    ),
+                )
             return OrchestratorResult(success=True, job_id=job_id)
         elif self.planning_service:
             # Local mode - run planning directly
@@ -318,8 +326,16 @@ class OrchestratorService(Service):
                 windmill_job_id=job_id,
                 params={"flow_id": run.windmill_flow_id},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            self.logger.error(
+                "job_run_persist_failed",
+                extra=self.log_extra(
+                    protocol_run_id=protocol_run_id,
+                    job_type="run_flow",
+                    job_id=job_id,
+                    error=str(exc),
+                ),
+            )
         
         self.logger.info(
             "protocol_flow_started",
@@ -377,8 +393,17 @@ class OrchestratorService(Service):
                     windmill_job_id=job_id,
                     params={},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                self.logger.error(
+                    "job_run_persist_failed",
+                    extra=self.log_extra(
+                        protocol_run_id=step.protocol_run_id,
+                        step_run_id=step_run_id,
+                        job_type="execute_step",
+                        job_id=job_id,
+                        error=str(exc),
+                    ),
+                )
             return OrchestratorResult(success=True, job_id=job_id)
         elif self.execution_service:
             # Local mode
@@ -420,8 +445,17 @@ class OrchestratorService(Service):
                     step_run_id=step_run_id,
                     windmill_job_id=job_id,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                self.logger.error(
+                    "job_run_persist_failed",
+                    extra=self.log_extra(
+                        protocol_run_id=step.protocol_run_id,
+                        step_run_id=step_run_id,
+                        job_type="run_qa",
+                        job_id=job_id,
+                        error=str(exc),
+                    ),
+                )
             return OrchestratorResult(success=True, job_id=job_id)
         elif self.quality_service:
             # Local mode
@@ -456,7 +490,14 @@ class OrchestratorService(Service):
             deps_satisfied = all(dep in completed_ids for dep in (step.depends_on or []))
             if deps_satisfied:
                 return self.run_step(step.id)
-        
+
+        if self.check_and_complete_protocol(protocol_run_id):
+            return OrchestratorResult(
+                success=True,
+                message="Protocol completed",
+                data={"completed": True},
+            )
+
         return OrchestratorResult(
             success=False,
             error="No runnable steps found",
@@ -607,6 +648,114 @@ class OrchestratorService(Service):
         )
 
         return True
+
+    def _find_runnable_step(self, steps: List[StepRun]) -> Optional[StepRun]:
+        completed_ids = {s.id for s in steps if s.status == StepStatus.COMPLETED}
+        for step in steps:
+            if step.status != StepStatus.PENDING:
+                continue
+            deps_satisfied = all(dep in completed_ids for dep in (step.depends_on or []))
+            if deps_satisfied:
+                return step
+        return None
+
+    def recover_stuck_protocols(
+        self,
+        *,
+        limit: int = 200,
+        resume: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """
+        Attempt to recover protocols stuck in RUNNING without active steps.
+
+        This will:
+        - complete protocols with all terminal steps
+        - mark protocols blocked when failed/blocked steps exist
+        - optionally enqueue the next runnable step
+        """
+        recovered: List[Dict[str, Any]] = []
+        runs = self.db.list_all_protocol_runs(limit=limit)
+        for run in runs:
+            if run.status != ProtocolStatus.RUNNING:
+                continue
+
+            steps = self.db.list_step_runs(run.id)
+            if not steps:
+                continue
+
+            in_flight = any(
+                s.status in (StepStatus.RUNNING, StepStatus.NEEDS_QA)
+                for s in steps
+            )
+            if in_flight:
+                continue
+
+            if self.check_and_complete_protocol(run.id):
+                recovered.append(
+                    {"protocol_run_id": run.id, "action": "completed"}
+                )
+                self.logger.info(
+                    "protocol_recovered_completed",
+                    extra=self.log_extra(protocol_run_id=run.id),
+                )
+                continue
+
+            if any(
+                s.status in (StepStatus.FAILED, StepStatus.TIMEOUT, StepStatus.BLOCKED)
+                for s in steps
+            ):
+                self.db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+                recovered.append(
+                    {"protocol_run_id": run.id, "action": "blocked_failed_step"}
+                )
+                self.logger.warning(
+                    "protocol_recovered_blocked",
+                    extra=self.log_extra(protocol_run_id=run.id),
+                )
+                continue
+
+            runnable = self._find_runnable_step(steps)
+            if runnable and resume:
+                result = self.run_step(runnable.id)
+                recovered.append(
+                    {
+                        "protocol_run_id": run.id,
+                        "action": "enqueued_step",
+                        "step_run_id": runnable.id,
+                        "success": result.success,
+                    }
+                )
+                self.logger.info(
+                    "protocol_recovered_enqueued_step",
+                    extra=self.log_extra(
+                        protocol_run_id=run.id,
+                        step_run_id=runnable.id,
+                        success=result.success,
+                        error=result.error,
+                    ),
+                )
+                if not result.success:
+                    self.db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+                continue
+
+            self.db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+            recovered.append(
+                {"protocol_run_id": run.id, "action": "blocked_no_runnable"}
+            )
+            self.logger.warning(
+                "protocol_recovered_blocked",
+                extra=self.log_extra(protocol_run_id=run.id, reason="no_runnable_steps"),
+            )
+
+        if recovered:
+            self.logger.info(
+                "protocol_recovery_summary",
+                extra=self.log_extra(recovered_count=len(recovered)),
+            )
+        else:
+            self.logger.info("protocol_recovery_noop", extra=self.log_extra())
+
+        return recovered
 
     # PR Operations
     def open_protocol_pr(self, protocol_run_id: int) -> OrchestratorResult:

@@ -39,7 +39,7 @@ class SpecKitChecklistGate(Gate):
         unchecked_items = 0
 
         for line in content.splitlines():
-            match = re.match(r"^\\s*-\\s*\\[([ xX])\\]\\s*(.+)$", line)
+            match = re.match(r"^\s*-\s*\[([ xX])\]\s*(.+)$", line)
             if not match:
                 continue
             total_items += 1

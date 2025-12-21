@@ -1,7 +1,16 @@
 import useSWR, { mutate } from "swr"
 import { apiClient } from "../client"
 import { queryKeys } from "../query-keys"
-import type { Sprint, SprintCreate, AgileTask, AgileTaskCreate, AgileTaskUpdate, SprintMetrics, SyncResult } from "../types"
+import type {
+  Sprint,
+  SprintCreate,
+  AgileTask,
+  AgileTaskCreate,
+  AgileTaskUpdate,
+  SprintMetrics,
+  SyncResult,
+  CreateSprintFromProtocolRequest,
+} from "../types"
 export function useSprints(projectId: number) {
   return useSWR<Sprint[]>(queryKeys.sprints.byProject(projectId), async () => {
     return apiClient.get<Sprint[]>(`/projects/${projectId}/sprints`)
@@ -20,10 +29,13 @@ export function useSprint(sprintId: number) {
   })
 }
 
-export function useSprintMetrics(sprintId: number) {
-  return useSWR<SprintMetrics>(queryKeys.sprints.metrics(sprintId), async () => {
-    return apiClient.get<SprintMetrics>(`/sprints/${sprintId}/metrics`)
-  })
+export function useSprintMetrics(sprintId?: number | null) {
+  return useSWR<SprintMetrics>(
+    sprintId ? queryKeys.sprints.metrics(sprintId) : null,
+    async () => {
+      return apiClient.get<SprintMetrics>(`/sprints/${sprintId}/metrics`)
+    },
+  )
 }
 
 export function useTasks(projectId: number, sprintId?: number | null) {
@@ -48,7 +60,8 @@ export function useTask(taskId: number) {
 export function useCreateTask() {
   return {
     mutateAsync: async (projectId: number, data: AgileTaskCreate) => {
-      const result = await apiClient.post<AgileTask>(`/projects/${projectId}/tasks`, data)
+      const payload = { ...data, project_id: projectId }
+      const result = await apiClient.post<AgileTask>("/tasks", payload)
       mutate(queryKeys.tasks.byProject(projectId, data.sprint_id))
       return result
     },
@@ -72,6 +85,22 @@ export function useCreateSprint() {
     mutateAsync: async (projectId: number, data: SprintCreate) => {
       const result = await apiClient.post<Sprint>(`/sprints`, { ...data, project_id: projectId })
       mutate(queryKeys.sprints.byProject(projectId))
+      return result
+    },
+    isPending: false,
+  }
+}
+
+export function useCreateSprintFromProtocol(projectId?: number) {
+  return {
+    mutateAsync: async (protocolId: number, data?: CreateSprintFromProtocolRequest) => {
+      const result = await apiClient.post<Sprint>(`/protocols/${protocolId}/actions/create-sprint`, data ?? {})
+      if (projectId) {
+        mutate(queryKeys.sprints.byProject(projectId))
+        mutate((key) => Array.isArray(key) && key[0] === "tasks" && key[1] === "project" && key[2] === projectId)
+      }
+      mutate(queryKeys.sprints.all)
+      mutate(queryKeys.tasks.all)
       return result
     },
     isPending: false,

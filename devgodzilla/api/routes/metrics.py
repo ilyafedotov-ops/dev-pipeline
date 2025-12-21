@@ -113,17 +113,24 @@ def metrics_summary(
     
     # Aggregate job runs by type
     job_type_counts: dict[str, list] = {}
+    def _parse_ts(value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except Exception:
+            return None
+
     for jr in job_runs:
         jt = jr.job_type or "unknown"
         if jt not in job_type_counts:
             job_type_counts[jt] = []
         # Calculate duration if we have start/end times
         duration = None
-        if jr.started_at and jr.completed_at:
-            try:
-                duration = (jr.completed_at - jr.started_at).total_seconds()
-            except Exception:
-                pass
+        started_at = _parse_ts(jr.started_at)
+        finished_at = _parse_ts(jr.finished_at)
+        if started_at and finished_at:
+            duration = (finished_at - started_at).total_seconds()
         job_type_counts[jt].append(duration)
     
     job_type_metrics = []

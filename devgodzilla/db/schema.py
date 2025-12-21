@@ -133,6 +133,39 @@ CREATE TABLE IF NOT EXISTS step_runs (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS agent_assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER REFERENCES projects(id),
+    process_key TEXT NOT NULL,
+    agent_id TEXT,
+    prompt_id TEXT,
+    model_override TEXT,
+    enabled INTEGER DEFAULT 1,
+    metadata TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, process_key)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_assignments_project ON agent_assignments(project_id, process_key);
+
+CREATE TABLE IF NOT EXISTS agent_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id),
+    agent_id TEXT NOT NULL,
+    overrides TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_overrides_project ON agent_overrides(project_id);
+
+CREATE TABLE IF NOT EXISTS agent_assignment_settings (
+    project_id INTEGER PRIMARY KEY REFERENCES projects(id),
+    inherit_global INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     protocol_run_id INTEGER REFERENCES protocol_runs(id),
@@ -415,6 +448,39 @@ CREATE TABLE IF NOT EXISTS step_runs (
     parallel_group TEXT,
     assigned_agent TEXT,
     linked_task_id INTEGER REFERENCES tasks(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS agent_assignments (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER REFERENCES projects(id),
+    process_key TEXT NOT NULL,
+    agent_id TEXT,
+    prompt_id TEXT,
+    model_override TEXT,
+    enabled BOOLEAN DEFAULT TRUE,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, process_key)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_assignments_project ON agent_assignments(project_id, process_key);
+
+CREATE TABLE IF NOT EXISTS agent_overrides (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id),
+    agent_id TEXT NOT NULL,
+    overrides JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_overrides_project ON agent_overrides(project_id);
+
+CREATE TABLE IF NOT EXISTS agent_assignment_settings (
+    project_id INTEGER PRIMARY KEY REFERENCES projects(id),
+    inherit_global BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

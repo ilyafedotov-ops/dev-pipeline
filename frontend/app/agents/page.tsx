@@ -1,18 +1,16 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import {
   useAgents,
-  useAgentDefaults,
+  useAgentAssignments,
   useAgentHealth,
   useAgentMetrics,
   useAgentPrompts,
   useProjects,
-  useProjectAgentOverrides,
   useUpdateAgentConfig,
-  useUpdateAgentDefaults,
+  useUpdateAgentAssignments,
   useUpdateAgentPrompt,
-  useUpdateProjectAgentOverrides,
 } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -28,7 +26,7 @@ import { LoadingState } from "@/components/ui/loading-state"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Bot, Circle, Settings, Plus, Activity, TrendingUp, Zap, RefreshCw, Layers, Info } from "lucide-react"
 import { toast } from "sonner"
-import type { Agent, AgentDefaults, AgentPromptTemplate, AgentUpdate } from "@/lib/api/types"
+import type { Agent, AgentAssignments, AgentPromptTemplate, AgentUpdate } from "@/lib/api/types"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 type AgentCard = Agent & {
@@ -55,14 +53,12 @@ type AgentDraft = {
   max_retries: string
 }
 
-type DefaultsDraft = {
-  code_gen: string
-  planning: string
-  exec: string
-  qa: string
-  discovery: string
-  prompts: Record<string, string>
+type AssignmentDraft = {
+  agent_id?: string
+  prompt_id?: string
 }
+
+type AssignmentsDraft = Record<string, AssignmentDraft>
 
 type PromptDraft = {
   id: string
@@ -76,16 +72,32 @@ type PromptDraft = {
   description: string
 }
 
-const defaultPromptAssignments = [
-  { key: "planning", label: "Planning", description: "Protocol generation prompt (creates plan and steps)." },
-  { key: "exec", label: "Execution", description: "Prepended to each step before execution." },
-  { key: "qa", label: "QA", description: "Quality gate prompt used for step review." },
-  { key: "discovery", label: "Discovery", description: "Repo discovery prompt for initial inventory." },
-  { key: "speckit.specify", label: "SpecKit: Specify", description: "Spec draft generation prompt." },
-  { key: "speckit.plan", label: "SpecKit: Plan", description: "Plan generation prompt from spec." },
-  { key: "speckit.tasks", label: "SpecKit: Tasks", description: "Tasks generation prompt from plan." },
-  { key: "speckit.checklist", label: "SpecKit: Checklist", description: "Checklist generation prompt." },
-  { key: "speckit.analyze", label: "SpecKit: Analyze", description: "Analysis prompt for specs." },
+const processAssignments = [
+  {
+    key: "onboarding_discovery",
+    label: "Onboarding & Discovery",
+    description: "Onboarding setup and repository discovery prompts.",
+  },
+  {
+    key: "specs",
+    label: "Specs",
+    description: "SpecKit planning prompts (specs, plans, tasks).",
+  },
+  {
+    key: "planning",
+    label: "Planning",
+    description: "Protocol planning prompt (creates plan and steps).",
+  },
+  {
+    key: "execution",
+    label: "Execution",
+    description: "Prepended to each step before execution.",
+  },
+  {
+    key: "qa",
+    label: "Validation / QA",
+    description: "Quality gate prompt used for step review.",
+  },
 ]
 
 export default function AgentsPage() {
@@ -94,7 +106,7 @@ export default function AgentsPage() {
   const projectId = scopeProjectId === "global" ? undefined : Number(scopeProjectId)
 
   const { data: agentsData, isLoading: agentsLoading } = useAgents(projectId)
-  const { data: defaultsData } = useAgentDefaults(projectId)
+  const { data: assignmentsData } = useAgentAssignments(projectId)
   const { data: promptsData } = useAgentPrompts(projectId)
   const {
     data: healthData,
@@ -102,18 +114,17 @@ export default function AgentsPage() {
     isFetching: isRefreshingHealth,
   } = useAgentHealth(projectId)
   const { data: metricsData } = useAgentMetrics(projectId)
-  const { data: projectOverrides } = useProjectAgentOverrides(projectId)
 
   const updateAgent = useUpdateAgentConfig()
-  const updateDefaults = useUpdateAgentDefaults()
+  const updateAssignments = useUpdateAgentAssignments()
   const updatePrompt = useUpdateAgentPrompt()
-  const updateProjectOverrides = useUpdateProjectAgentOverrides()
 
   const [selectedAgent, setSelectedAgent] = useState<AgentDraft | null>(null)
   const [isConfigOpen, setIsConfigOpen] = useState(false)
   const [selectedPrompt, setSelectedPrompt] = useState<PromptDraft | null>(null)
   const [isPromptOpen, setIsPromptOpen] = useState(false)
-  const [defaultsDraft, setDefaultsDraft] = useState<DefaultsDraft | null>(null)
+  const [assignmentsDraft, setAssignmentsDraft] = useState<AssignmentsDraft>({})
+  const [inheritGlobalOverride, setInheritGlobalOverride] = useState<boolean | null>(null)
 
   const healthById = useMemo(() => {
     return new Map((healthData || []).map((health) => [health.agent_id, health]))
@@ -149,17 +160,31 @@ export default function AgentsPage() {
     })
   }, [agentsData, healthById, metricsById])
 
-  useEffect(() => {
-    const defaults: DefaultsDraft = {
-      code_gen: defaultsData?.code_gen || "",
-      planning: defaultsData?.planning || "",
-      exec: defaultsData?.exec || "",
-      qa: defaultsData?.qa || "",
-      discovery: defaultsData?.discovery || "",
-      prompts: { ...(defaultsData?.prompts || {}) },
-    }
-    setDefaultsDraft(defaults)
-  }, [defaultsData])
+  const baselineAssignments = useMemo<AssignmentsDraft>(() => {
+    const nextDraft: AssignmentsDraft = {}
+    processAssignments.forEach((process) => {
+      const assignment = assignmentsData?.assignments?.[process.key]
+      nextDraft[process.key] = {
+        agent_id: assignment?.agent_id || "",
+        prompt_id: assignment?.prompt_id || "",
+      }
+    })
+    return nextDraft
+  }, [assignmentsData])
+
+  const effectiveAssignments = useMemo<AssignmentsDraft>(() => {
+    const keys = new Set([...Object.keys(baselineAssignments), ...Object.keys(assignmentsDraft)])
+    const merged: AssignmentsDraft = {}
+    keys.forEach((key) => {
+      const base = baselineAssignments[key] || {}
+      const draft = assignmentsDraft[key] || {}
+      merged[key] = {
+        agent_id: draft.agent_id ?? base.agent_id ?? "",
+        prompt_id: draft.prompt_id ?? base.prompt_id ?? "",
+      }
+    })
+    return merged
+  }, [assignmentsDraft, baselineAssignments])
 
   const statusColors = {
     available: { bg: "bg-green-500", text: "Available" },
@@ -176,15 +201,32 @@ export default function AgentsPage() {
     completedSteps: agents.reduce((sum, agent) => sum + agent.completedSteps, 0),
   }
 
-  const inheritEnabled = projectId ? projectOverrides?.inherit ?? true : true
+  const inheritGlobal = inheritGlobalOverride ?? Boolean(assignmentsData?.inherit_global ?? true)
+  const inheritEnabled = projectId ? inheritGlobal : true
 
   const promptOptions = promptsData || []
+  const assignmentsReady = Boolean(assignmentsData)
+
+  const handleScopeChange = (value: string) => {
+    setScopeProjectId(value)
+    setAssignmentsDraft({})
+    setInheritGlobalOverride(null)
+  }
 
   const handleToggleInheritance = (value: boolean) => {
     if (!projectId) return
-    updateProjectOverrides.mutate(
-      { projectId, overrides: { inherit: value } },
+    updateAssignments.mutate(
       {
+        projectId,
+        assignments: {
+          assignments: {},
+          inherit_global: value,
+        },
+      },
+      {
+        onSuccess: () => {
+          setInheritGlobalOverride(value)
+        },
         onError: (error) => {
           toast.error(error instanceof Error ? error.message : "Failed to update inheritance")
         },
@@ -207,7 +249,7 @@ export default function AgentsPage() {
           <ScopeSelector
             projects={projects || []}
             value={scopeProjectId}
-            onChange={setScopeProjectId}
+            onChange={handleScopeChange}
             showInheritance={!!projectId}
             inheritEnabled={inheritEnabled}
             onToggleInheritance={handleToggleInheritance}
@@ -292,27 +334,43 @@ export default function AgentsPage() {
     }
   }
 
-  const handleSaveDefaults = async () => {
-    if (!defaultsDraft) return
+  const handleSaveAssignments = async () => {
     const toNullable = (value: string) => (value.trim().length > 0 ? value.trim() : null)
-    const cleanedPrompts = Object.fromEntries(
-      Object.entries(defaultsDraft.prompts).filter(([, value]) => value && value.trim().length > 0),
+    const baseline = assignmentsData?.assignments || {}
+    const assignments = Object.fromEntries(
+      processAssignments.flatMap((process) => {
+        const draft = effectiveAssignments[process.key] || { agent_id: "", prompt_id: "" }
+        const nextAgent = toNullable(draft.agent_id ?? "")
+        const nextPrompt = toNullable(draft.prompt_id ?? "")
+        const currentAgent = toNullable(baseline[process.key]?.agent_id || "")
+        const currentPrompt = toNullable(baseline[process.key]?.prompt_id || "")
+        if (nextAgent === currentAgent && nextPrompt === currentPrompt) {
+          return []
+        }
+        return [
+          [
+            process.key,
+            {
+              agent_id: nextAgent,
+              prompt_id: nextPrompt,
+            },
+          ],
+        ]
+      }),
     )
-    const payload: AgentDefaults = {
-      code_gen: toNullable(defaultsDraft.code_gen),
-      planning: toNullable(defaultsDraft.planning),
-      exec: toNullable(defaultsDraft.exec),
-      qa: toNullable(defaultsDraft.qa),
-      discovery: toNullable(defaultsDraft.discovery),
-      prompts: cleanedPrompts,
+    const payload: AgentAssignments = {
+      assignments,
+      inherit_global: projectId ? inheritGlobal : undefined,
     }
 
     try {
-      await updateDefaults.mutateAsync({
+      await updateAssignments.mutateAsync({
         projectId,
-        defaults: payload,
+        assignments: payload,
       })
       toast.success("Assignments updated")
+      setAssignmentsDraft({})
+      setInheritGlobalOverride(null)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to update assignments")
     }
@@ -359,7 +417,7 @@ export default function AgentsPage() {
           <ScopeSelector
             projects={projects || []}
             value={scopeProjectId}
-            onChange={setScopeProjectId}
+            onChange={handleScopeChange}
             showInheritance={!!projectId}
             inheritEnabled={inheritEnabled}
             onToggleInheritance={handleToggleInheritance}
@@ -456,75 +514,54 @@ export default function AgentsPage() {
         <TabsContent value="assignments" className="space-y-6 mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Default Agent Assignments</CardTitle>
-              <CardDescription>Set fallback agents for each workflow stage.</CardDescription>
+              <CardTitle className="text-base">Process Agent Assignments</CardTitle>
+              <CardDescription>Set default agents for each workflow process.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {defaultsDraft && (
-                <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-2">
+                {processAssignments.map((process) => (
                   <AssignmentSelect
-                    label="Planning"
-                    value={defaultsDraft.planning}
+                    key={process.key}
+                    label={process.label}
+                    value={effectiveAssignments[process.key]?.agent_id || ""}
                     agents={agents}
                     onChange={(value) =>
-                      setDefaultsDraft((prev) => (prev ? { ...prev, planning: value } : prev))
+                      setAssignmentsDraft((prev) => ({
+                        ...prev,
+                        [process.key]: { ...prev[process.key], agent_id: value },
+                      }))
                     }
                   />
-                  <AssignmentSelect
-                    label="Execution"
-                    value={defaultsDraft.exec || defaultsDraft.code_gen}
-                    agents={agents}
-                    onChange={(value) =>
-                      setDefaultsDraft((prev) =>
-                        prev ? { ...prev, exec: value, code_gen: prev.code_gen || value } : prev,
-                      )
-                    }
-                  />
-                  <AssignmentSelect
-                    label="QA"
-                    value={defaultsDraft.qa}
-                    agents={agents}
-                    onChange={(value) => setDefaultsDraft((prev) => (prev ? { ...prev, qa: value } : prev))}
-                  />
-                  <AssignmentSelect
-                    label="Discovery"
-                    value={defaultsDraft.discovery}
-                    agents={agents}
-                    onChange={(value) =>
-                      setDefaultsDraft((prev) => (prev ? { ...prev, discovery: value } : prev))
-                    }
-                  />
-                </div>
-              )}
+                ))}
+              </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Prompt Assignments</CardTitle>
-              <CardDescription>Map prompts to workflows or stages.</CardDescription>
+              <CardDescription>Map prompts to each workflow process.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {defaultsDraft && (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {defaultPromptAssignments.map((assignment) => (
-                    <PromptAssignmentSelect
-                      key={assignment.key}
-                      label={assignment.label}
-                      description={assignment.description}
-                      value={defaultsDraft.prompts[assignment.key] || ""}
-                      prompts={promptOptions}
-                      onChange={(value) =>
-                        setDefaultsDraft((prev) =>
-                          prev ? { ...prev, prompts: { ...prev.prompts, [assignment.key]: value } } : prev,
-                        )
-                      }
-                    />
-                  ))}
-                </div>
-              )}
+              <div className="grid gap-4 md:grid-cols-2">
+                {processAssignments.map((assignment) => (
+                  <PromptAssignmentSelect
+                    key={assignment.key}
+                    label={assignment.label}
+                    description={assignment.description}
+                    value={effectiveAssignments[assignment.key]?.prompt_id || ""}
+                    prompts={promptOptions}
+                    onChange={(value) =>
+                      setAssignmentsDraft((prev) => ({
+                        ...prev,
+                        [assignment.key]: { ...prev[assignment.key], prompt_id: value },
+                      }))
+                    }
+                  />
+                ))}
+              </div>
               <div className="flex justify-end">
-                <Button onClick={handleSaveDefaults} disabled={!defaultsDraft}>
+                <Button onClick={handleSaveAssignments} disabled={updateAssignments.isPending || !assignmentsReady}>
                   Save Assignments
                 </Button>
               </div>

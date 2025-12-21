@@ -24,11 +24,12 @@ const labelMap: Record<string, string> = {
   spec: "Specification",
   logs: "Logs",
   artifacts: "Artifacts",
-  sprints: "Sprints",
+  execution: "Execution",
   specifications: "Specifications",
   quality: "Quality",
   agents: "Agents",
-  "sprint-board": "Sprint Board",
+  sprints: "Execution",
+  "sprint-board": "Execution",
 }
 
 export function Breadcrumbs() {

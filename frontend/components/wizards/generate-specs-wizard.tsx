@@ -450,7 +450,7 @@ export function GenerateSpecsWizardModal({ projectId, open, onOpenChange }: Gene
                               <Separator />
                               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <Target className="h-3 w-3" />
-                                <span>Next: Plan → Tasks → Sprint</span>
+                                <span>Next: Plan → Tasks → Execution</span>
                               </div>
                             </CardContent>
                           </Card>
