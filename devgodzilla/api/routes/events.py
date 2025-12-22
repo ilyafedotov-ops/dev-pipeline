@@ -1,22 +1,59 @@
 """
 DevGodzilla Events Endpoint
 
-DB-backed Server-Sent Events (SSE) endpoint for real-time updates.
+DB-backed Server-Sent Events (SSE) and WebSocket endpoints for real-time updates.
 """
 
 import asyncio
 import json
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from devgodzilla.api import schemas
 from devgodzilla.api.dependencies import get_db
 from devgodzilla.db.database import Database
 from devgodzilla.events_catalog import normalize_event_type
+from devgodzilla.logging import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(tags=["Events"])
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[WebSocket, Set[str]] = {}
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[websocket] = set()
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.pop(websocket, None)
+
+    def subscribe(self, websocket: WebSocket, channels: List[str]):
+        if websocket in self.active_connections:
+            self.active_connections[websocket].update(channels)
+
+    def unsubscribe(self, websocket: WebSocket, channels: List[str]):
+        if websocket in self.active_connections:
+            self.active_connections[websocket].difference_update(channels)
+
+    def get_subscriptions(self, websocket: WebSocket) -> Set[str]:
+        return self.active_connections.get(websocket, set())
+
+    async def broadcast(self, channel: str, message: dict):
+        for ws, channels in list(self.active_connections.items()):
+            if channel in channels or "events" in channels:
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    pass
+
+
+ws_manager = ConnectionManager()
 
 
 def _event_to_sse(event: schemas.EventOut) -> str:
@@ -175,7 +212,7 @@ async def recent_events(
 ):
     """
     Get recent events (non-streaming).
-    
+
     Returns the last N events from the DB-backed event store.
     """
     effective_event_types = [event_type or kind] if (event_type or kind) else None
@@ -189,3 +226,131 @@ async def recent_events(
     return {
         "events": [schemas.EventOut.model_validate(e).model_dump() for e in items],
     }
+
+
+# ==================== WebSocket Endpoint ====================
+
+async def _ws_event_pusher(
+    websocket: WebSocket,
+    db: Database,
+    poll_interval: float = 0.5,
+):
+    """Background task to push events to WebSocket client based on subscriptions."""
+    last_id = 0
+    idle_ticks = 0
+
+    while True:
+        try:
+            subscriptions = ws_manager.get_subscriptions(websocket)
+            if not subscriptions:
+                await asyncio.sleep(poll_interval)
+                continue
+
+            protocol_id = None
+            project_id = None
+            for sub in subscriptions:
+                if sub.startswith("protocol:"):
+                    try:
+                        protocol_id = int(sub.split(":")[1])
+                    except (ValueError, IndexError):
+                        pass
+                elif sub.startswith("project:"):
+                    try:
+                        project_id = int(sub.split(":")[1])
+                    except (ValueError, IndexError):
+                        pass
+
+            batch = db.list_events_since_id(
+                since_id=last_id,
+                limit=200,
+                protocol_run_id=protocol_id,
+                project_id=project_id,
+            )
+
+            if batch:
+                idle_ticks = 0
+                for e in batch:
+                    out = schemas.EventOut.model_validate(e)
+                    last_id = max(last_id, out.id)
+
+                    channel = "events"
+                    if out.protocol_run_id:
+                        channel = f"protocol:{out.protocol_run_id}"
+
+                    message = {
+                        "type": "event",
+                        "channel": channel,
+                        "payload": out.model_dump(),
+                        "id": str(out.id),
+                        "ts": out.created_at.isoformat() if out.created_at else None,
+                    }
+                    await websocket.send_json(message)
+            else:
+                idle_ticks += 1
+                if idle_ticks >= int(30 / max(poll_interval, 0.1)):
+                    idle_ticks = 0
+                    await websocket.send_json({"type": "ping"})
+
+            await asyncio.sleep(poll_interval)
+        except WebSocketDisconnect:
+            break
+        except Exception as exc:
+            logger.debug("ws_event_pusher_error", extra={"error": str(exc)})
+            break
+
+
+@router.websocket("/ws/events")
+async def websocket_events(
+    websocket: WebSocket,
+    db: Database = Depends(get_db),
+):
+    """
+    WebSocket endpoint for real-time event updates.
+
+    Clients can subscribe to channels:
+    - "events" - All events
+    - "protocol:{id}" - Events for specific protocol
+    - "project:{id}" - Events for specific project
+    - "agents" - Agent status updates
+
+    Message format:
+    - Subscribe: {"type": "subscribe", "channels": ["events", "protocol:1"]}
+    - Unsubscribe: {"type": "unsubscribe", "channels": ["protocol:1"]}
+    - Ping: {"type": "ping"} -> responds with {"type": "pong"}
+    """
+    await ws_manager.connect(websocket)
+    logger.info("websocket_connected", extra={"client": str(websocket.client)})
+
+    pusher_task = asyncio.create_task(_ws_event_pusher(websocket, db))
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type")
+
+            if msg_type == "subscribe":
+                channels = data.get("channels", [])
+                ws_manager.subscribe(websocket, channels)
+                await websocket.send_json({
+                    "type": "subscribed",
+                    "channels": channels,
+                })
+
+            elif msg_type == "unsubscribe":
+                channels = data.get("channels", [])
+                ws_manager.unsubscribe(websocket, channels)
+                await websocket.send_json({
+                    "type": "unsubscribed",
+                    "channels": channels,
+                })
+
+            elif msg_type == "ping":
+                await websocket.send_json({"type": "pong"})
+
+    except WebSocketDisconnect:
+        logger.info("websocket_disconnected", extra={"client": str(websocket.client)})
+    except Exception as exc:
+        logger.debug("websocket_error", extra={"error": str(exc)})
+    finally:
+        pusher_task.cancel()
+        ws_manager.disconnect(websocket)

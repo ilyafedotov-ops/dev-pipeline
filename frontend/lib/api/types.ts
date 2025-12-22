@@ -713,6 +713,7 @@ export interface Specification {
   project_id: number
   project_name: string
   status: string
+  error_message?: string | null
   created_at: string | null
   worktree_path?: string | null
   branch_name?: string | null

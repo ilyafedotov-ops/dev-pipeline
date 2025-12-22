@@ -31,6 +31,7 @@ class SpecificationOut(BaseModel):
     project_id: int
     project_name: str
     status: str
+    error_message: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     worktree_path: Optional[str] = None

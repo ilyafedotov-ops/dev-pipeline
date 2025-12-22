@@ -149,7 +149,20 @@ class ApiClient {
 
       const text = await response.text()
       if (!text) return {} as T
-      return JSON.parse(text)
+
+      // Check if response is HTML (e.g., nginx error page)
+      if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+        throw new ApiError(
+          `API returned HTML instead of JSON. The backend may be unavailable.`,
+          response.status || 502
+        )
+      }
+
+      try {
+        return JSON.parse(text)
+      } catch {
+        throw new ApiError(`Invalid JSON response: ${text.slice(0, 100)}...`, response.status || 500)
+      }
     } catch (error) {
       if (error instanceof ApiError) throw error
       throw new ApiError(error instanceof Error ? error.message : "Network error", 0)

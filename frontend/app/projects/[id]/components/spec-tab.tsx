@@ -355,8 +355,10 @@ export function SpecTab({ projectId }: SpecTabProps) {
           ) : (
             specs.map((spec) => {
               const isCleaned = spec.status === "cleaned"
+              const isFailed = spec.status === "failed"
+              const specPath = spec.spec_path || spec.path || ""
               return (
-              <div key={spec.id} className="border rounded-lg p-4 space-y-2">
+              <div key={spec.id} className={`border rounded-lg p-4 space-y-2 ${isFailed ? "border-red-500/50 bg-red-500/5" : ""}`}>
                 <div className="flex items-center justify-between">
                   <h4 className="font-medium">{spec.title}</h4>
                   {getStatusBadge(spec)}
@@ -382,18 +384,33 @@ export function SpecTab({ projectId }: SpecTabProps) {
                       </span>
                     )}
                   </div>
+                  {isFailed && spec.error_message && (
+                    <div className="mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-red-600 text-xs">
+                      <span className="font-medium">Error:</span> {spec.error_message}
+                    </div>
+                  )}
+                  {isFailed && spec.protocol_id && (
+                    <div className="mt-1">
+                      <Link
+                        href={`/protocols/${spec.protocol_id}`}
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        View protocol run for details →
+                      </Link>
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2 pt-2">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      if (!spec.spec_path) return
-                      setClarifySpecPath(spec.spec_path)
+                      if (!specPath) return
+                      setClarifySpecPath(specPath)
                       setClarifySpecRunId(spec.spec_run_id ?? null)
                       setClarifyOpen(true)
                     }}
-                    disabled={!spec.spec_path || isCleaned}
+                    disabled={!specPath || isCleaned}
                   >
                     <MessageSquare className="mr-2 h-3.5 w-3.5" />
                     Clarify
@@ -401,8 +418,8 @@ export function SpecTab({ projectId }: SpecTabProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleChecklist(spec.spec_path || "", spec.spec_run_id)}
-                    disabled={!spec.spec_path || isCleaned}
+                    onClick={() => handleChecklist(specPath, spec.spec_run_id)}
+                    disabled={!specPath || isCleaned}
                   >
                     <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
                     Checklist
@@ -411,17 +428,17 @@ export function SpecTab({ projectId }: SpecTabProps) {
                     variant="outline"
                     size="sm"
                     onClick={() =>
-                      handleAnalyze(spec.spec_path || "", spec.plan_path, spec.tasks_path, spec.spec_run_id)
+                      handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
                     }
-                    disabled={!spec.spec_path || isCleaned}
+                    disabled={!specPath || isCleaned}
                   >
                     <FileSearch className="mr-2 h-3.5 w-3.5" />
                     Analyze
                   </Button>
                   <Button
                     size="sm"
-                    onClick={() => handleImplement(spec.spec_path || "", spec.spec_run_id)}
-                    disabled={!spec.spec_path || isCleaned}
+                    onClick={() => handleImplement(specPath, spec.spec_run_id)}
+                    disabled={!specPath || isCleaned}
                   >
                     <PlayCircle className="mr-2 h-3.5 w-3.5" />
                     Implement
@@ -446,15 +463,17 @@ export function SpecTab({ projectId }: SpecTabProps) {
               <p className="text-sm">No spec artifacts available yet.</p>
             </div>
           ) : (
-            status.specs.map((spec) => {
+            status.specs.map((spec, index) => {
               const isCleaned = spec.status === "cleaned"
+              const specPath = spec.spec_path || spec.path || ""
+              const uniqueKey = specPath || spec.name || `spec-${index}`
               return (
-              <div key={spec.path} className="border rounded-lg p-4 space-y-3">
+              <div key={uniqueKey} className="border rounded-lg p-4 space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-3">
                   <div>
                     <p className="font-medium">{spec.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {spec.spec_path || spec.path}
+                      {specPath}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -462,12 +481,12 @@ export function SpecTab({ projectId }: SpecTabProps) {
                       size="sm"
                       variant="outline"
                       onClick={() => {
-                        if (!spec.spec_path) return
-                        setClarifySpecPath(spec.spec_path)
+                        if (!specPath) return
+                        setClarifySpecPath(specPath)
                         setClarifySpecRunId(spec.spec_run_id ?? null)
                         setClarifyOpen(true)
                       }}
-                      disabled={!spec.spec_path || isCleaned}
+                      disabled={!specPath || isCleaned}
                     >
                       <MessageSquare className="mr-2 h-3.5 w-3.5" />
                       Clarify
@@ -475,8 +494,8 @@ export function SpecTab({ projectId }: SpecTabProps) {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => handleChecklist(spec.spec_path || "", spec.spec_run_id)}
-                      disabled={!spec.spec_path || isCleaned}
+                      onClick={() => handleChecklist(specPath, spec.spec_run_id)}
+                      disabled={!specPath || isCleaned}
                     >
                       <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
                       Checklist
@@ -485,9 +504,9 @@ export function SpecTab({ projectId }: SpecTabProps) {
                       size="sm"
                       variant="outline"
                       onClick={() =>
-                        handleAnalyze(spec.spec_path || "", spec.plan_path, spec.tasks_path, spec.spec_run_id)
+                        handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
                       }
-                      disabled={!spec.spec_path || isCleaned}
+                      disabled={!specPath || isCleaned}
                     >
                       <FileSearch className="mr-2 h-3.5 w-3.5" />
                       Analyze
@@ -495,8 +514,8 @@ export function SpecTab({ projectId }: SpecTabProps) {
                     <Button
                       size="sm"
                       variant="default"
-                      onClick={() => handleImplement(spec.spec_path || "", spec.spec_run_id)}
-                      disabled={!spec.spec_path || isCleaned}
+                      onClick={() => handleImplement(specPath, spec.spec_run_id)}
+                      disabled={!specPath || isCleaned}
                     >
                       <PlayCircle className="mr-2 h-3.5 w-3.5" />
                       Implement
