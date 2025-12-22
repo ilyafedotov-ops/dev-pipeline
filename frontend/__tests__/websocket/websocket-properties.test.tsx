@@ -108,11 +108,12 @@ const messageTypeArbitrary = fc.oneof(
   fc.constant('pong' as const)
 )
 
-// Use a constrained date range to avoid invalid dates
-const validDateArbitrary = fc.date({ 
-  min: new Date('2020-01-01'), 
-  max: new Date('2030-12-31') 
-}).map(d => d.toISOString())
+// Use integer timestamps to avoid invalid date issues
+// Generate timestamps between 2020-01-01 and 2030-12-31
+const minTimestamp = new Date('2020-01-01').getTime()
+const maxTimestamp = new Date('2030-12-31').getTime()
+const validDateArbitrary = fc.integer({ min: minTimestamp, max: maxTimestamp })
+  .map(ts => new Date(ts).toISOString())
 
 const payloadArbitrary = fc.oneof(
   fc.record({

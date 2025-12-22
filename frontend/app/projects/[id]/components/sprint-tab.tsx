@@ -242,7 +242,7 @@ export function SprintTab({ projectId }: SprintTabProps) {
               <CardTitle className="text-sm">Execution Burndown</CardTitle>
             </CardHeader>
             <CardContent>
-              {metrics?.burndown ? <BurndownChart points={metrics.burndown} /> : <BurndownChart points={[]} />}
+              {metrics?.burndown ? <BurndownChart data={metrics.burndown} /> : <BurndownChart data={[]} />}
             </CardContent>
           </Card>
         </TabsContent>
