@@ -264,6 +264,22 @@ def project_speckit_specify(
     project = db.get_project(project_id)
     if not project.local_path:
         raise HTTPException(status_code=400, detail="Project has no local path")
+    
+    # Emit start event
+    try:
+        db.append_event(
+            protocol_run_id=None,
+            project_id=project_id,
+            event_type="speckit_specify_started",
+            message=f"Starting spec generation: {request.description[:50]}...",
+            metadata={
+                "feature_name": request.feature_name,
+                "description_preview": request.description[:100],
+            },
+        )
+    except Exception:
+        pass  # Don't fail the request if event emission fails
+    
     result = service.run_specify(
         project.local_path,
         request.description,
@@ -271,6 +287,37 @@ def project_speckit_specify(
         base_branch=request.base_branch,
         project_id=project_id,
     )
+    
+    # Emit result event
+    try:
+        if result.success:
+            db.append_event(
+                protocol_run_id=None,
+                project_id=project_id,
+                event_type="speckit_specify_completed",
+                message=f"Spec generated: {result.feature_name}",
+                metadata={
+                    "spec_number": result.spec_number,
+                    "feature_name": result.feature_name,
+                    "spec_path": result.spec_path,
+                    "spec_run_id": result.spec_run_id,
+                },
+            )
+        else:
+            db.append_event(
+                protocol_run_id=None,
+                project_id=project_id,
+                event_type="speckit_specify_failed",
+                message=f"Spec generation failed: {result.error or 'Unknown error'}",
+                metadata={
+                    "feature_name": request.feature_name,
+                    "error": result.error,
+                    "spec_run_id": result.spec_run_id,
+                },
+            )
+    except Exception:
+        pass  # Don't fail the request if event emission fails
+    
     return SpecifyResponse(
         success=result.success,
         spec_path=result.spec_path,

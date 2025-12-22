@@ -718,6 +718,8 @@ export interface Specification {
   worktree_path?: string | null
   branch_name?: string | null
   base_branch?: string | null
+  feature_name?: string | null
+  spec_number?: number | null
   tasks_generated: boolean
   has_plan?: boolean
   has_tasks?: boolean

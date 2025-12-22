@@ -10,6 +10,7 @@ import {
   useGenerateChecklist,
   useAnalyzeSpec,
   useRunImplement,
+  useGenerateSpec,
 } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -30,6 +31,7 @@ import {
   MessageSquare,
   FileSearch,
   PlayCircle,
+  RotateCcw,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
@@ -48,6 +50,7 @@ export function SpecTab({ projectId }: SpecTabProps) {
   const generateChecklist = useGenerateChecklist()
   const analyzeSpec = useAnalyzeSpec()
   const runImplement = useRunImplement()
+  const generateSpec = useGenerateSpec()
 
   const [clarifyOpen, setClarifyOpen] = useState(false)
   const [clarifySpecPath, setClarifySpecPath] = useState<string | null>(null)
@@ -178,7 +181,29 @@ export function SpecTab({ projectId }: SpecTabProps) {
       toast.error("Implement initialization failed")
     }
   }
-  
+
+  const handleRetry = async (featureName: string, specName?: string | null) => {
+    // Use spec name or feature name as description for retry
+    const description = specName || featureName || "Retry specification"
+    try {
+      toast.info("Retrying specification generation...")
+      const result = await generateSpec.mutateAsync({
+        project_id: projectId,
+        description,
+        feature_name: featureName,
+      })
+      if (result.success) {
+        toast.success(`Spec regenerated: ${result.feature_name}`)
+        refetchSpecs()
+        refetchStatus()
+      } else {
+        toast.error(result.error || "Retry failed")
+      }
+    } catch {
+      toast.error("Retry failed")
+    }
+  }
+
   const handleExport = () => {
     if (!status || !specs) return
 
@@ -358,93 +383,104 @@ export function SpecTab({ projectId }: SpecTabProps) {
               const isFailed = spec.status === "failed"
               const specPath = spec.spec_path || spec.path || ""
               return (
-              <div key={spec.id} className={`border rounded-lg p-4 space-y-2 ${isFailed ? "border-red-500/50 bg-red-500/5" : ""}`}>
-                <div className="flex items-center justify-between">
-                  <h4 className="font-medium">{spec.title}</h4>
-                  {getStatusBadge(spec)}
-                </div>
-                <div className="text-sm text-muted-foreground space-y-1">
-                  <p>
-                    <span className="font-medium">Path:</span>{" "}
-                    <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{spec.path}</code>
-                  </p>
-                  <div className="flex gap-4">
-                    <span>
-                      <span className="font-medium">Plan:</span>{" "}
-                      {spec.has_plan ? "✓" : "—"}
-                    </span>
-                    <span>
-                      <span className="font-medium">Tasks:</span>{" "}
-                      {spec.has_tasks ? "✓" : "—"}
-                    </span>
-                    {spec.linked_tasks > 0 && (
+                <div key={spec.id} className={`border rounded-lg p-4 space-y-2 ${isFailed ? "border-red-500/50 bg-red-500/5" : ""}`}>
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium">{spec.title}</h4>
+                    {getStatusBadge(spec)}
+                  </div>
+                  <div className="text-sm text-muted-foreground space-y-1">
+                    <p>
+                      <span className="font-medium">Path:</span>{" "}
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{spec.path}</code>
+                    </p>
+                    <div className="flex gap-4">
                       <span>
-                        <span className="font-medium">Linked:</span>{" "}
-                        {spec.completed_tasks}/{spec.linked_tasks} tasks
+                        <span className="font-medium">Plan:</span>{" "}
+                        {spec.has_plan ? "✓" : "—"}
                       </span>
+                      <span>
+                        <span className="font-medium">Tasks:</span>{" "}
+                        {spec.has_tasks ? "✓" : "—"}
+                      </span>
+                      {spec.linked_tasks > 0 && (
+                        <span>
+                          <span className="font-medium">Linked:</span>{" "}
+                          {spec.completed_tasks}/{spec.linked_tasks} tasks
+                        </span>
+                      )}
+                    </div>
+                    {isFailed && spec.error_message && (
+                      <div className="mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-red-600 text-xs">
+                        <span className="font-medium">Error:</span> {spec.error_message}
+                      </div>
+                    )}
+                    {isFailed && spec.protocol_id && (
+                      <div className="mt-1">
+                        <Link
+                          href={`/protocols/${spec.protocol_id}`}
+                          className="text-xs text-blue-600 hover:underline"
+                        >
+                          View protocol run for details →
+                        </Link>
+                      </div>
                     )}
                   </div>
-                  {isFailed && spec.error_message && (
-                    <div className="mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-red-600 text-xs">
-                      <span className="font-medium">Error:</span> {spec.error_message}
-                    </div>
-                  )}
-                  {isFailed && spec.protocol_id && (
-                    <div className="mt-1">
-                      <Link
-                        href={`/protocols/${spec.protocol_id}`}
-                        className="text-xs text-blue-600 hover:underline"
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {isFailed && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleRetry(spec.feature_name || spec.title, spec.title)}
+                        disabled={generateSpec.isPending}
                       >
-                        View protocol run for details →
-                      </Link>
-                    </div>
-                  )}
+                        <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                        {generateSpec.isPending ? "Retrying..." : "Retry"}
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (!specPath) return
+                        setClarifySpecPath(specPath)
+                        setClarifySpecRunId(spec.spec_run_id ?? null)
+                        setClarifyOpen(true)
+                      }}
+                      disabled={!specPath || isCleaned || isFailed}
+                    >
+                      <MessageSquare className="mr-2 h-3.5 w-3.5" />
+                      Clarify
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleChecklist(specPath, spec.spec_run_id)}
+                      disabled={!specPath || isCleaned || isFailed}
+                    >
+                      <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
+                      Checklist
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
+                      }
+                      disabled={!specPath || isCleaned || isFailed}
+                    >
+                      <FileSearch className="mr-2 h-3.5 w-3.5" />
+                      Analyze
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => handleImplement(specPath, spec.spec_run_id)}
+                      disabled={!specPath || isCleaned || isFailed}
+                    >
+                      <PlayCircle className="mr-2 h-3.5 w-3.5" />
+                      Implement
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (!specPath) return
-                      setClarifySpecPath(specPath)
-                      setClarifySpecRunId(spec.spec_run_id ?? null)
-                      setClarifyOpen(true)
-                    }}
-                    disabled={!specPath || isCleaned}
-                  >
-                    <MessageSquare className="mr-2 h-3.5 w-3.5" />
-                    Clarify
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleChecklist(specPath, spec.spec_run_id)}
-                    disabled={!specPath || isCleaned}
-                  >
-                    <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
-                    Checklist
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
-                    }
-                    disabled={!specPath || isCleaned}
-                  >
-                    <FileSearch className="mr-2 h-3.5 w-3.5" />
-                    Analyze
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => handleImplement(specPath, spec.spec_run_id)}
-                    disabled={!specPath || isCleaned}
-                  >
-                    <PlayCircle className="mr-2 h-3.5 w-3.5" />
-                    Implement
-                  </Button>
-                </div>
-              </div>
               )
             })
           )}
@@ -468,65 +504,65 @@ export function SpecTab({ projectId }: SpecTabProps) {
               const specPath = spec.spec_path || spec.path || ""
               const uniqueKey = specPath || spec.name || `spec-${index}`
               return (
-              <div key={uniqueKey} className="border rounded-lg p-4 space-y-3">
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <div>
-                    <p className="font-medium">{spec.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {specPath}
-                    </p>
+                <div key={uniqueKey} className="border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                      <p className="font-medium">{spec.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {specPath}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          if (!specPath) return
+                          setClarifySpecPath(specPath)
+                          setClarifySpecRunId(spec.spec_run_id ?? null)
+                          setClarifyOpen(true)
+                        }}
+                        disabled={!specPath || isCleaned}
+                      >
+                        <MessageSquare className="mr-2 h-3.5 w-3.5" />
+                        Clarify
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleChecklist(specPath, spec.spec_run_id)}
+                        disabled={!specPath || isCleaned}
+                      >
+                        <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
+                        Checklist
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
+                        }
+                        disabled={!specPath || isCleaned}
+                      >
+                        <FileSearch className="mr-2 h-3.5 w-3.5" />
+                        Analyze
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={() => handleImplement(specPath, spec.spec_run_id)}
+                        disabled={!specPath || isCleaned}
+                      >
+                        <PlayCircle className="mr-2 h-3.5 w-3.5" />
+                        Implement
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        if (!specPath) return
-                        setClarifySpecPath(specPath)
-                        setClarifySpecRunId(spec.spec_run_id ?? null)
-                        setClarifyOpen(true)
-                      }}
-                      disabled={!specPath || isCleaned}
-                    >
-                      <MessageSquare className="mr-2 h-3.5 w-3.5" />
-                      Clarify
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleChecklist(specPath, spec.spec_run_id)}
-                      disabled={!specPath || isCleaned}
-                    >
-                      <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
-                      Checklist
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
-                      }
-                      disabled={!specPath || isCleaned}
-                    >
-                      <FileSearch className="mr-2 h-3.5 w-3.5" />
-                      Analyze
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="default"
-                      onClick={() => handleImplement(specPath, spec.spec_run_id)}
-                      disabled={!specPath || isCleaned}
-                    >
-                      <PlayCircle className="mr-2 h-3.5 w-3.5" />
-                      Implement
-                    </Button>
+                  <div className="flex gap-4 text-xs text-muted-foreground">
+                    <span>Plan: {spec.has_plan ? "✓" : "—"}</span>
+                    <span>Tasks: {spec.has_tasks ? "✓" : "—"}</span>
                   </div>
                 </div>
-                <div className="flex gap-4 text-xs text-muted-foreground">
-                  <span>Plan: {spec.has_plan ? "✓" : "—"}</span>
-                  <span>Tasks: {spec.has_tasks ? "✓" : "—"}</span>
-                </div>
-              </div>
               )
             })
           )}

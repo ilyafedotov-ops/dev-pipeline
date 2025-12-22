@@ -37,6 +37,8 @@ class SpecificationOut(BaseModel):
     worktree_path: Optional[str] = None
     branch_name: Optional[str] = None
     base_branch: Optional[str] = None
+    feature_name: Optional[str] = None
+    spec_number: Optional[int] = None
     tasks_generated: bool = False
     protocol_id: Optional[int] = None
     sprint_id: Optional[int] = None
@@ -300,6 +302,8 @@ def list_specifications(
                     worktree_path=_spec_value(spec, "worktree_path"),
                     branch_name=_spec_value(spec, "branch_name"),
                     base_branch=_spec_value(spec, "base_branch"),
+                    feature_name=_spec_value(spec, "feature_name"),
+                    spec_number=_spec_value(spec, "spec_number"),
                     tasks_generated=has_tasks_value,
                     linked_tasks=linked_tasks,
                     completed_tasks=completed_tasks,
