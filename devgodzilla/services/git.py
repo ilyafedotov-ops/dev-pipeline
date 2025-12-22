@@ -375,37 +375,103 @@ class GitService(Service):
             FileNotFoundError: If repo doesn't exist and clone_if_missing is False
             GitCommandError: If clone fails
         """
+        repo_name = git_url.rstrip("/").split("/")[-1].removesuffix(".git")
+        self.logger.debug(
+            "resolve_repo_path_start",
+            extra=self.log_extra(
+                project_id=project_id,
+                project_name=project_name,
+                repo_name=repo_name,
+                local_path=local_path,
+                clone_if_missing=clone_if_missing,
+            ),
+        )
         if local_path:
             path = Path(local_path).expanduser()
             if path.exists():
+                self.logger.debug(
+                    "resolve_repo_path_existing",
+                    extra=self.log_extra(
+                        project_id=project_id,
+                        repo_path=str(path),
+                        source="local_path",
+                    ),
+                )
                 return path
 
         # Determine default location
-        projects_dir = Path("projects")
+        projects_dir = self.config.projects_root or Path("projects")
         if project_id:
-            repo_name = git_url.rstrip("/").split("/")[-1].removesuffix(".git")
             default_path = projects_dir / str(project_id) / repo_name
         elif project_name:
             default_path = projects_dir / project_name
         else:
-            repo_name = git_url.rstrip("/").split("/")[-1].removesuffix(".git")
             default_path = projects_dir / repo_name
+        self.logger.debug(
+            "resolve_repo_path_default",
+            extra=self.log_extra(
+                project_id=project_id,
+                projects_root=str(projects_dir),
+                repo_path=str(default_path),
+            ),
+        )
 
         if default_path.exists():
+            self.logger.debug(
+                "resolve_repo_path_existing",
+                extra=self.log_extra(
+                    project_id=project_id,
+                    repo_path=str(default_path),
+                    source="default_path",
+                ),
+            )
             return default_path
 
         if not clone_if_missing:
+            self.logger.debug(
+                "resolve_repo_path_missing",
+                extra=self.log_extra(
+                    project_id=project_id,
+                    repo_path=str(default_path),
+                ),
+            )
             raise FileNotFoundError(f"Repository not found at {default_path}")
 
         # Clone the repository
         default_path.parent.mkdir(parents=True, exist_ok=True)
+        clone_start = time.perf_counter()
+        self.logger.info(
+            "repo_clone_start",
+            extra=self.log_extra(
+                project_id=project_id,
+                repo_path=str(default_path),
+                repo_parent=str(default_path.parent),
+            ),
+        )
         try:
             run_process(
                 ["git", "clone", git_url, default_path.name],
                 cwd=default_path.parent,
             )
         except Exception as exc:
+            self.logger.error(
+                "repo_clone_failed",
+                extra=self.log_extra(
+                    project_id=project_id,
+                    repo_path=str(default_path),
+                    error=str(exc),
+                ),
+            )
             raise GitCommandError(f"Failed to clone {git_url}: {exc}") from exc
+        clone_duration_ms = int((time.perf_counter() - clone_start) * 1000)
+        self.logger.info(
+            "repo_clone_complete",
+            extra=self.log_extra(
+                project_id=project_id,
+                repo_path=str(default_path),
+                duration_ms=clone_duration_ms,
+            ),
+        )
 
         return default_path
 

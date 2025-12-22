@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import uuid4
 
 from devgodzilla.db.database import Database
-from devgodzilla.logging import get_logger
+from devgodzilla.logging import get_logger, log_extra
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.windmill.client import WindmillClient, WindmillConfig
 
@@ -60,9 +61,40 @@ def enqueue_project_onboarding(
 
     client = _build_windmill_client(ctx)
     try:
-        job_id = client.run_script(script_path, payload)
+        logger.debug(
+            "onboarding_enqueue_request",
+            extra=log_extra(
+                project_id=project_id,
+                script_path=script_path,
+                payload=payload,
+                workspace=ctx.config.windmill_workspace,
+            ),
+        )
+        enqueue_start = time.perf_counter()
+        try:
+            job_id = client.run_script(script_path, payload)
+        except Exception as exc:
+            logger.error(
+                "onboarding_enqueue_failed",
+                extra=log_extra(
+                    project_id=project_id,
+                    script_path=script_path,
+                    error=str(exc),
+                ),
+            )
+            raise
+        enqueue_duration_ms = int((time.perf_counter() - enqueue_start) * 1000)
     finally:
         client.close()
+    logger.info(
+        "onboarding_enqueue_response",
+        extra=log_extra(
+            project_id=project_id,
+            script_path=script_path,
+            windmill_job_id=job_id,
+            duration_ms=enqueue_duration_ms,
+        ),
+    )
 
     run_id = str(uuid4())
     db.create_job_run(

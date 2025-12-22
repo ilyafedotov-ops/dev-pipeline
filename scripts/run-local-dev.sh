@@ -112,7 +112,11 @@ run_backend() {
   local py
   py="$(python_bin)"
   log "Starting backend (uvicorn) on :8000"
-  "$py" -m uvicorn devgodzilla.api.app:app --host 0.0.0.0 --port 8000 --reload
+  "$py" -m uvicorn devgodzilla.api.app:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --reload \
+    --reload-dir "$PROJECT_DIR/devgodzilla"
 }
 
 run_frontend() {

@@ -39,6 +39,9 @@ import {
   useRunImplement,
 } from "@/lib/api"
 
+// Minimum character length for description (matches backend validation)
+const MIN_DESCRIPTION_LENGTH = 5
+
 interface GenerateSpecsWizardProps {
   projectId: number
   open: boolean
@@ -108,6 +111,14 @@ export function GenerateSpecsWizardModal({ projectId, open, onOpenChange }: Gene
     return desc
   }
 
+  // Validation state
+  const fullDescription = buildFullDescription()
+  const descriptionLength = fullDescription.length
+  const isDescriptionValid = descriptionLength >= MIN_DESCRIPTION_LENGTH
+  const descriptionError = !isDescriptionValid && formData.featureDescription.length > 0
+    ? `Description must be at least ${MIN_DESCRIPTION_LENGTH} characters (currently ${descriptionLength})`
+    : null
+
   const handleInitialize = async () => {
     try {
       const result = await initSpecKit.mutateAsync({ project_id: projectId })
@@ -135,10 +146,15 @@ export function GenerateSpecsWizardModal({ projectId, open, onOpenChange }: Gene
   }
 
   const handleGenerate = async () => {
+    if (!isDescriptionValid) {
+      toast.error(`Description must be at least ${MIN_DESCRIPTION_LENGTH} characters`)
+      return
+    }
+
     try {
       const result = await generateSpec.mutateAsync({
         project_id: projectId,
-        description: buildFullDescription(),
+        description: fullDescription,
         feature_name: formData.featureName || undefined,
       })
 
@@ -313,9 +329,8 @@ export function GenerateSpecsWizardModal({ projectId, open, onOpenChange }: Gene
                   <div className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-3">
                       <div
-                        className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                          step >= 1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                        }`}
+                        className={`flex items-center justify-center w-8 h-8 rounded-full ${step >= 1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                          }`}
                       >
                         1
                       </div>
@@ -324,9 +339,8 @@ export function GenerateSpecsWizardModal({ projectId, open, onOpenChange }: Gene
                     <Separator className="flex-1 mx-4" />
                     <div className="flex items-center gap-3">
                       <div
-                        className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                          step >= 2 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                        }`}
+                        className={`flex items-center justify-center w-8 h-8 rounded-full ${step >= 2 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                          }`}
                       >
                         2
                       </div>
@@ -335,9 +349,8 @@ export function GenerateSpecsWizardModal({ projectId, open, onOpenChange }: Gene
                     <Separator className="flex-1 mx-4" />
                     <div className="flex items-center gap-3">
                       <div
-                        className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                          step >= 3 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                        }`}
+                        className={`flex items-center justify-center w-8 h-8 rounded-full ${step >= 3 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                          }`}
                       >
                         3
                       </div>
@@ -373,14 +386,26 @@ export function GenerateSpecsWizardModal({ projectId, open, onOpenChange }: Gene
                           <p className="text-xs text-muted-foreground">A short, descriptive name for this feature</p>
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="featureDescription">Description *</Label>
+                          <div className="flex items-center justify-between">
+                            <Label htmlFor="featureDescription">Description *</Label>
+                            <span className={`text-xs ${descriptionError ? 'text-destructive' : 'text-muted-foreground'}`}>
+                              {descriptionLength}/{MIN_DESCRIPTION_LENGTH} min characters
+                            </span>
+                          </div>
                           <Textarea
                             id="featureDescription"
                             placeholder="Describe what this feature should do, who will use it, and what problem it solves..."
                             rows={8}
                             value={formData.featureDescription}
                             onChange={(e) => setFormData({ ...formData, featureDescription: e.target.value })}
+                            className={descriptionError ? 'border-destructive' : ''}
                           />
+                          {descriptionError && (
+                            <p className="text-xs text-destructive">{descriptionError}</p>
+                          )}
+                          <p className="text-xs text-muted-foreground">
+                            Provide a detailed description of the feature. Minimum {MIN_DESCRIPTION_LENGTH} characters required.
+                          </p>
                         </div>
                       </div>
                     )}
@@ -556,12 +581,12 @@ export function GenerateSpecsWizardModal({ projectId, open, onOpenChange }: Gene
               {step === 1 ? "Cancel" : "Back"}
             </Button>
             {step < 3 ? (
-              <Button onClick={handleNext} disabled={!formData.featureName || !formData.featureDescription}>
+              <Button onClick={handleNext} disabled={!formData.featureName || !isDescriptionValid}>
                 Next
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             ) : (
-              <Button onClick={handleGenerate} disabled={generateSpec.isPending || !isInitialized}>
+              <Button onClick={handleGenerate} disabled={generateSpec.isPending || !isInitialized || !isDescriptionValid}>
                 {generateSpec.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

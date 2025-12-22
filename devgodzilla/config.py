@@ -93,6 +93,9 @@ class Config(BaseModel):
     # Git settings
     git_lock_max_retries: int = Field(default=5)
     git_lock_retry_delay: float = Field(default=1.0)
+
+    # Projects
+    projects_root: Path = Field(default=Path("projects"))
     
     # Misc
     spec_audit_interval_seconds: Optional[int] = Field(default=None)
@@ -333,6 +336,9 @@ def load_config() -> Config:
         # Git
         git_lock_max_retries=int(os.environ.get("DEVGODZILLA_GIT_LOCK_MAX_RETRIES", "5")),
         git_lock_retry_delay=float(os.environ.get("DEVGODZILLA_GIT_LOCK_RETRY_DELAY", "1.0")),
+
+        # Projects
+        projects_root=Path(os.environ.get("DEVGODZILLA_PROJECTS_ROOT", "projects")).expanduser(),
         
         # Misc
         spec_audit_interval_seconds=int(v) if (v := os.environ.get("DEVGODZILLA_SPEC_AUDIT_INTERVAL_SECONDS")) else None,

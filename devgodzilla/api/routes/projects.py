@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +11,7 @@ from devgodzilla.api import schemas
 from devgodzilla.api.dependencies import get_db, get_service_context
 from devgodzilla.db.database import Database, _UNSET
 from devgodzilla.events_catalog import normalize_event_type
+from devgodzilla.logging import get_logger, log_extra
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.policy import PolicyService
 from devgodzilla.services.clarifier import ClarifierService
@@ -17,6 +19,7 @@ from devgodzilla.services.specification import SpecificationService
 from pathlib import Path
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 def _policy_location(metadata: Optional[dict]) -> Optional[str]:
     if not metadata:
@@ -98,6 +101,17 @@ def create_project(
     ctx: ServiceContext = Depends(get_service_context),
 ):
     """Create a new project."""
+    logger.debug(
+        "create_project_request",
+        extra=log_extra(
+            project_name=project.name,
+            base_branch=project.base_branch,
+            has_git_url=bool((project.git_url or "").strip()),
+            auto_onboard=bool(project.auto_onboard),
+            auto_discovery=bool(project.auto_discovery),
+            local_path=project.local_path,
+        ),
+    )
     if project.auto_onboard and not (project.git_url or "").strip():
         raise HTTPException(status_code=400, detail="git_url is required for auto onboarding")
     if project.auto_onboard and not getattr(ctx.config, "windmill_enabled", False):
@@ -109,19 +123,51 @@ def create_project(
         base_branch=project.base_branch,
         local_path=project.local_path,
     )
+    logger.info(
+        "project_created",
+        extra=log_extra(
+            project_id=created.id,
+            project_name=created.name,
+            base_branch=created.base_branch,
+            local_path=created.local_path,
+            auto_onboard=bool(project.auto_onboard),
+        ),
+    )
 
     if project.auto_onboard:
         try:
             from devgodzilla.services.onboarding_queue import enqueue_project_onboarding
 
-            enqueue_project_onboarding(
+            logger.debug(
+                "onboarding_enqueue_start",
+                extra=log_extra(
+                    project_id=created.id,
+                    branch=created.base_branch,
+                    run_discovery_agent=bool(project.auto_discovery),
+                ),
+            )
+            enqueue_start = time.perf_counter()
+            result = enqueue_project_onboarding(
                 ctx,
                 db,
                 project_id=created.id,
                 branch=created.base_branch,
                 run_discovery_agent=bool(project.auto_discovery),
             )
+            enqueue_duration_ms = int((time.perf_counter() - enqueue_start) * 1000)
+            logger.info(
+                "onboarding_enqueue_success",
+                extra=log_extra(
+                    project_id=created.id,
+                    windmill_job_id=result.windmill_job_id,
+                    duration_ms=enqueue_duration_ms,
+                ),
+            )
         except Exception as exc:
+            logger.exception(
+                "onboarding_enqueue_exception",
+                extra=log_extra(project_id=created.id, error=str(exc)),
+            )
             _append_project_event(
                 db,
                 project_id=created.id,
@@ -371,6 +417,18 @@ def onboard_project(
     from devgodzilla.services.git import GitService, run_process
     from devgodzilla.services.specification import SpecificationService
 
+    logger.debug(
+        "onboarding_request_received",
+        extra=log_extra(
+            project_id=project_id,
+            branch=request.branch or project.base_branch,
+            clone_if_missing=bool(request.clone_if_missing),
+            run_discovery_agent=bool(request.run_discovery_agent),
+            discovery_pipeline=bool(request.discovery_pipeline),
+            discovery_engine_id=request.discovery_engine_id,
+            discovery_model=request.discovery_model,
+        ),
+    )
     _append_project_event(
         db,
         project_id=project_id,
@@ -383,6 +441,7 @@ def onboard_project(
     )
 
     git = GitService(ctx)
+    repo_resolve_start = time.perf_counter()
     try:
         repo_path = git.resolve_repo_path(
             project.git_url,
@@ -395,6 +454,15 @@ def onboard_project(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Clone failed: {exc}")
+    repo_resolve_duration_ms = int((time.perf_counter() - repo_resolve_start) * 1000)
+    logger.info(
+        "onboarding_repo_resolved",
+        extra=log_extra(
+            project_id=project_id,
+            repo_path=str(repo_path),
+            duration_ms=repo_resolve_duration_ms,
+        ),
+    )
 
     branch = (request.branch or project.base_branch or "main").strip()
     if branch:
@@ -439,10 +507,21 @@ def onboard_project(
             effective_policy = None
 
     spec_service = SpecificationService(ctx, db)
+    spec_init_start = time.perf_counter()
     init_result = spec_service.init_project(
         str(repo_path),
         constitution_content=constitution_content,
         project_id=project_id,
+    )
+    spec_init_duration_ms = int((time.perf_counter() - spec_init_start) * 1000)
+    logger.info(
+        "onboarding_speckit_initialized",
+        extra=log_extra(
+            project_id=project_id,
+            success=bool(init_result.success),
+            duration_ms=spec_init_duration_ms,
+            spec_path=init_result.spec_path,
+        ),
     )
 
     _append_project_event(
@@ -473,6 +552,7 @@ def onboard_project(
     discovery_missing_outputs: List[str] = []
     discovery_error: Optional[str] = None
     if request.run_discovery_agent:
+        discovery_start = time.perf_counter()
         _append_project_event(
             db,
             project_id=project_id,
@@ -509,6 +589,20 @@ def onboard_project(
             discovery_error = str(e)
             discovery_warning = None
             fallback_engine_id = None
+        discovery_duration_ms = int((time.perf_counter() - discovery_start) * 1000)
+        logger.info(
+            "discovery_completed",
+            extra=log_extra(
+                project_id=project_id,
+                success=discovery_success,
+                duration_ms=discovery_duration_ms,
+                log_path=discovery_log_path,
+                missing_outputs=discovery_missing_outputs,
+                error=discovery_error,
+                warning=discovery_warning,
+                fallback_engine_id=fallback_engine_id,
+            ),
+        )
         _append_project_event(
             db,
             project_id=project_id,
@@ -524,6 +618,10 @@ def onboard_project(
             },
         )
     else:
+        logger.debug(
+            "discovery_skipped",
+            extra=log_extra(project_id=project_id, reason="disabled"),
+        )
         _append_project_event(
             db,
             project_id=project_id,
