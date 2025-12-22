@@ -1,158 +1,45 @@
-# CLAUDE.md
+# Repository Guidelines
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Project Structure & Module Organization
+- `devgodzilla/` is the primary backend: FastAPI API, services layer, engines, Windmill integration.
+- `windmill/` contains Windmill scripts/flows/apps exported from this repo (DevGodzilla workspace).
+- `Origins/` contains vendored upstream sources (Windmill, spec-kit, etc); avoid editing unless explicitly required.
+- `scripts/` holds operational CLIs and `scripts/ci/*.sh` hooks for lint/typecheck/tests/build.
+- `tests/` uses `pytest` for DevGodzilla API/service/workflow coverage (`tests/test_devgodzilla_*.py`).
+- `docs/` and `prompts/` contain process guidance and reusable agent prompts; `schemas/` stores JSON Schemas.
 
-## Project Overview
+## Build, Test, and Development Commands
+- Bootstrap env: `scripts/ci/bootstrap.sh` (creates `.venv`, installs `requirements.txt` + `ruff`).
+- Lint: `scripts/ci/lint.sh` (`ruff check devgodzilla windmill scripts tests --select E9,F63,F7,F82`).
+- Typecheck: `scripts/ci/typecheck.sh` (compileall + import smoke for key modules).
+- Tests: `scripts/ci/test.sh` (`pytest -q tests/test_devgodzilla_*.py`).
+- Docker infra stack: `docker compose up --build -d` (nginx + windmill + workers + db). Backend + frontend are intended to run locally on the host for development.
+- Local dev manager (hybrid): `scripts/run-local-dev.sh` starts backend + frontend on the host, and runs infra (db/redis/windmill/nginx/workers) in Docker.
+  - Infra only: `scripts/run-local-dev.sh up`
+  - Backend: `scripts/run-local-dev.sh backend start|stop|restart|status`
+  - Frontend: `scripts/run-local-dev.sh frontend start|stop|restart|status`
+  - Everything: `scripts/run-local-dev.sh dev` (restarts existing host dev servers instead of spawning duplicates)
+- Default Docker routing for local dev uses `nginx.local.conf` (proxies to `host.docker.internal` for backend/frontend).
+- Windmill bootstrap import (one-shot): `scripts/run-local-dev.sh import` (or `docker compose -f docker-compose.devgodzilla.yml up --build -d windmill_import`).
+- Windmill JS transforms: `WINDMILL_FEATURES` defaults to `static_frontend python deno_core` (set `WINDMILL_FEATURES="static_frontend python"` to skip `deno_core`, but flows that use JavaScript `input_transforms` will not work).
 
-DevGodzilla is an AI-powered development platform combining:
-- **SpecKit**: Specification-driven workflow (artifacts in `.specify/`)
-- **Windmill**: Workflow orchestration engine with UI
-- **Multi-Agent Execution**: Headless SWE-agent approach (default: `opencode` engine with `zai-coding-plan/glm-4.6` model)
+## Coding Style & Naming Conventions
+- Python 3.12, PEP8/black-like formatting with 4-space indents; prefer explicit imports and type hints.
+- Module/files: `snake_case.py`; classes: `CamelCase`; functions/vars: `snake_case`; constants/env keys: `UPPER_SNAKE`.
+- Centralize config via `devgodzilla.config.load_config()` and log through `devgodzilla.logging.get_logger()` for structured output.
+- When touching Windmill scripts/flows/apps, mirror existing naming and paths under `windmill/`.
 
-## Architecture
+## Testing Guidelines
+- Add/extend `pytest` cases next to existing patterns (e.g., `tests/test_devgodzilla_windmill_workflows.py`).
+- Prefer small, isolated units; use temp SQLite DBs for API tests and override Windmill via dependency injection for deterministic behavior.
+- Keep golden path + error path assertions; only hit real Windmill in local/manual tests (not CI).
 
-### Core Components
+## Commit & Pull Request Guidelines
+- Follow the repo’s short, typed subject style: `feat:`, `chore:`, `fix:`, `docs:` (see `git log`).
+- Scope commits narrowly and keep messages imperative (`feat: add worker retry backoff`). For protocol work, include the protocol tag (`[protocol-NNNN/YY]`) when relevant.
+- PRs should summarize changes, list test commands run, call out config/env impacts (e.g., new `DEVGODZILLA_*` vars), and include console/API screenshots when UI behavior changes.
 
-1. **DevGodzilla API** (`devgodzilla/api/app.py`): FastAPI backend
-2. **Next.js Console** (`frontend/`): Primary UI at `/console`
-3. **Windmill UI**: Secondary workflow UI at root `/`
-4. **PostgreSQL**: Two databases - `windmill_db` and `devgodzilla_db`
-5. **Redis**: Job queues and caching
-
-### Request Routing (Nginx)
-
-- `/console`, `/_next` → Next.js frontend (port 3000)
-- `/projects`, `/protocols`, `/steps`, `/agents`, `/clarifications`, `/speckit`, `/sprints`, `/tasks`, `/docs` → DevGodzilla API (port 8000)
-- `/` (default) → Windmill UI (port 8000)
-- `/ws/` → LSP server (port 3001)
-
-### Directory Structure
-
-```
-devgodzilla/
-├── api/           # FastAPI routes and app
-├── cli/           # Click-based CLI
-├── services/      # Core business logic
-├── engines/       # AI agent integrations
-├── qa/            # Quality assurance gates
-├── db/            # Database models
-├── windmill/      # Windmill integration
-└── alembic/       # Database migrations
-
-frontend/          # Next.js 16 console (primary UI)
-├── app/           # App Router pages
-├── components/    # UI components
-└── lib/api/       # API client and hooks
-
-windmill/          # Windmill assets
-├── flows/         # Workflow definitions
-├── scripts/       # Script definitions
-└── apps/          # App definitions (including React IIFE bundle)
-
-tests/             # pytest test suite
-└── e2e/           # E2E tests with real agents
-```
-
-## Common Commands
-
-### Docker Compose Stack
-
-```bash
-# Start all services
-docker compose up --build -d
-
-# View logs
-docker compose logs -f
-
-# Rebuild specific service
-docker compose build devgodzilla-api
-docker compose up -d devgodzilla-api
-```
-
-**Access points:**
-- UI: `http://localhost:8080` (or `$DEVGODZILLA_NGINX_PORT`)
-- Next.js Console: `http://localhost:8080/console`
-- API docs: `http://localhost:8080/docs`
-- Health check: `http://localhost:8080/health`
-
-### Development
-
-```bash
-# Lint (focuses on syntax/undefined names)
-scripts/ci/lint.sh
-
-# Tests (requires opencode CLI installed and authenticated)
-scripts/ci/test.sh
-
-# Run single test
-.venv/bin/pytest tests/test_devgodzilla_api_e2e_headless_workflow.py -v
-
-# Run with specific markers
-.venv/bin/pytest -k "not integration" tests/
-
-# E2E tests with real agents (opt-in)
-DEVGODZILLA_RUN_E2E_REAL_AGENT=1 scripts/ci/test_e2e_real_agent.sh
-```
-
-### Frontend Development
-
-```bash
-cd frontend
-
-# Install dependencies
-pnpm install
-
-# Development server (hot reload)
-pnpm dev
-
-# Production build
-pnpm build
-
-# Lint
-pnpm lint
-```
-
-**Note:** Next.js console uses `basePath: "/console"` and runs in standalone mode for Docker deployment.
-
-## Agent-Driven Workflow
-
-DevGodzilla executes code via **headless SWE-agents** that write artifacts to the repository:
-
-1. **Discovery** (optional): Agent writes `tasksgodzilla/DISCOVERY.md`, `ARCHITECTURE.md`, etc.
-2. **Protocol Planning**: Agent generates `.protocols/<protocol_name>/plan.md` + `step-*.md` (auto-generated if missing when `DEVGODZILLA_AUTO_GENERATE_PROTOCOL=true`)
-3. **Step Execution**: Agent runs in protocol worktree; DevGodzilla records artifacts in `.protocols/<protocol_name>/.devgodzilla/steps/<step_run_id>/artifacts/*`
-4. **QA Gates**: Quality checks validate step outputs; empty `"gates": []` skips QA
-
-**Default engine/model:**
-- `DEVGODZILLA_DEFAULT_ENGINE_ID=opencode`
-- `DEVGODZILLA_OPENCODE_MODEL=zai-coding-plan/glm-4.6`
-
-## CLI Commands
-
-Key command groups (via `devgodzilla` CLI):
-
-- `devgodzilla spec`: SpecKit operations (init, specify, plan, tasks)
-- `devgodzilla project`: Project CRUD and discovery
-- `devgodzilla protocol`: Protocol lifecycle (create, plan, worktree)
-- `devgodzilla step`: Step execution and QA
-- `devgodzilla agent`: Agent management
-
-## Testing Requirements
-
-- All tests in `tests/` directory
-- Unit tests use stub opencode (fast, deterministic)
-- E2E tests require real `opencode` CLI installed and authenticated
-- Test command checks for `opencode` availability before running
-
-## Key Documentation
-
-- Architecture: `docs/DevGodzilla/ARCHITECTURE.md`
-- App architecture: `docs/APP_ARCHITECTURE.md`
-- Deployment: `DEPLOYMENT.md`
-- DevGodzilla overview: `devgodzilla/README.md`
-- Current state: `docs/DevGodzilla/CURRENT_STATE.md`
-
-## Legacy Components
-
-TasksGodzilla (archived under `archive/`) is the legacy orchestrator and is not part of the main stack.
-
+## Security & Configuration Tips
+- Never commit real tokens or DB URLs; rely on env vars (`DEVGODZILLA_DB_URL`, `DEVGODZILLA_DB_PATH`, `DEVGODZILLA_WINDMILL_TOKEN`).
+- For local Windmill tokens, use `DEVGODZILLA_WINDMILL_ENV_FILE` (defaults to `windmill/apps/devgodzilla-react-app/.env.development`), which is expected to be local-only.
+- Default agent/engine: `opencode` with model `zai-coding-plan/glm-4.6` (override via `DEVGODZILLA_OPENCODE_MODEL` or agent config YAML).
