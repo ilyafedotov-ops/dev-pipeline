@@ -65,7 +65,7 @@ type Props = {
 export function WebSocketProvider({
   children,
   enabled = true,
-  pathname = "/ws/events",
+  pathname = "/api/v1/ws/events",
   reconnect = true,
   url: customUrl,
 }: Props) {

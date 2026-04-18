@@ -29,7 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const response = await fetch(`${basePath}/api/auth/me`);
+        const response = await fetch(`${basePath}/api/v1/auth/me`);
         if (response.ok) {
           const userData = await response.json();
           setUser(userData);
@@ -70,13 +70,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithSSO = async () => {
     const currentPath = window.location.pathname;
-    window.location.href = `${basePath}/api/auth/login?redirect=${encodeURIComponent(currentPath)}`;
+    window.location.href = `${basePath}/api/v1/auth/login?redirect=${encodeURIComponent(currentPath)}`;
   };
   // </CHANGE>
 
   const logout = async () => {
     try {
-      await fetch(`${basePath}/api/auth/logout`, { method: "POST" });
+      await fetch(`${basePath}/api/v1/auth/logout`, { method: "POST" });
     } catch (error) {
       console.error("[v0] Logout failed:", error);
     }

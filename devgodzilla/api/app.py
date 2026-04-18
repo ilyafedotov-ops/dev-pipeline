@@ -28,6 +28,8 @@ from devgodzilla.api.routes import cli_executions
 from devgodzilla.api.routes import queues
 from devgodzilla.api.routes import reconciliation as reconciliation_routes
 from devgodzilla.api.routes import ws as ws_routes
+from devgodzilla.api.routes import auth as auth_routes
+from devgodzilla.api.routes import users as users_routes
 from devgodzilla.api.dependencies import get_db, get_service_context, require_api_token, require_webhook_token
 from devgodzilla.config import get_config
 from devgodzilla.engines.bootstrap import bootstrap_default_engines
@@ -187,33 +189,55 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routes
+# ---------------------------------------------------------------------------
+# Route registration helper
+# ---------------------------------------------------------------------------
+# All routers are mounted TWICE:
+#   1. Under /api/v1  – the versioned, canonical API (used by frontend)
+#   2. At root level   – backward-compatible, **deprecated** routes so that
+#                        existing clients, CLI tools and tests continue to work.
+# ---------------------------------------------------------------------------
+
 auth_deps = [Depends(require_api_token)]
-app.include_router(projects.router, tags=["Projects"], dependencies=auth_deps)
-app.include_router(brownfield.router, dependencies=auth_deps)
-app.include_router(protocols.router, tags=["Protocols"], dependencies=auth_deps)
-app.include_router(steps.router, tags=["Steps"], dependencies=auth_deps)
-app.include_router(agents.router, tags=["Agents"], dependencies=auth_deps)
-app.include_router(clarifications.router, tags=["Clarifications"], dependencies=auth_deps)
-app.include_router(speckit.router, tags=["SpecKit"], dependencies=auth_deps)
-app.include_router(metrics.router)  # /metrics (optionally unauthenticated)
-app.include_router(webhooks.router, dependencies=[Depends(require_webhook_token)])  # /webhooks/*
-app.include_router(events.router, dependencies=auth_deps)  # /events
-app.include_router(logs.router, dependencies=auth_deps)  # /logs
-app.include_router(windmill_routes.router, dependencies=auth_deps)  # /flows, /jobs (Windmill)
-app.include_router(runs_routes.router, dependencies=auth_deps)  # /runs (Job runs)
-app.include_router(project_speckit_routes.router, dependencies=auth_deps)  # /projects/{id}/speckit/*
-app.include_router(sprints.router, tags=["Sprints"], dependencies=auth_deps)
-app.include_router(tasks.router, tags=["Tasks"], dependencies=auth_deps)
-app.include_router(queues.router, dependencies=auth_deps)  # /queues
-app.include_router(reconciliation_routes.router, dependencies=auth_deps)  # /reconciliation
-app.include_router(policy_packs.router, dependencies=auth_deps)  # /policy_packs
-app.include_router(specifications.router, dependencies=auth_deps)  # /specifications
-app.include_router(quality.router, dependencies=auth_deps)  # /quality
-app.include_router(profile.router, dependencies=auth_deps)  # /profile
-app.include_router(templates.router, dependencies=auth_deps)  # /templates
-app.include_router(cli_executions.router, tags=["CLI Executions"], dependencies=auth_deps)  # /cli-executions
-app.include_router(ws_routes.router)  # /ws/events (WebSocket, no auth)
+
+_router_entries = [
+    (projects.router, ["Projects"], auth_deps),
+    (brownfield.router, [], auth_deps),
+    (protocols.router, ["Protocols"], auth_deps),
+    (steps.router, ["Steps"], auth_deps),
+    (agents.router, ["Agents"], auth_deps),
+    (clarifications.router, ["Clarifications"], auth_deps),
+    (speckit.router, ["SpecKit"], auth_deps),
+    (metrics.router, [], []),                                  # /metrics (optionally unauthenticated)
+    (webhooks.router, [], [Depends(require_webhook_token)]),   # /webhooks/*
+    (events.router, [], auth_deps),                            # /events
+    (logs.router, [], auth_deps),                              # /logs
+    (windmill_routes.router, [], auth_deps),                   # /flows, /jobs (Windmill)
+    (runs_routes.router, [], auth_deps),                       # /runs (Job runs)
+    (project_speckit_routes.router, [], auth_deps),            # /projects/{id}/speckit/*
+    (sprints.router, ["Sprints"], auth_deps),
+    (tasks.router, ["Tasks"], auth_deps),
+    (queues.router, [], auth_deps),                            # /queues
+    (reconciliation_routes.router, [], auth_deps),             # /reconciliation
+    (policy_packs.router, [], auth_deps),                      # /policy_packs
+    (specifications.router, [], auth_deps),                    # /specifications
+    (quality.router, [], auth_deps),                           # /quality
+    (profile.router, [], auth_deps),                           # /profile
+    (templates.router, [], auth_deps),                         # /templates
+    (cli_executions.router, ["CLI Executions"], auth_deps),    # /cli-executions
+    (ws_routes.router, [], []),                                # /ws/events (WebSocket, no auth)
+    (auth_routes.router, [], []),                              # /auth/* (self-authenticated via JWT)
+    (users_routes.router, [], []),                             # /users/* (JWT auth via dependency)
+]
+
+for _router, _tags, _deps in _router_entries:
+    _kw: dict = {"dependencies": _deps}
+    if _tags:
+        _kw["tags"] = _tags
+    # Versioned API (canonical)
+    app.include_router(_router, prefix="/api/v1", **_kw)
+    # Backward-compatible root routes (deprecated)
+    app.include_router(_router, **_kw)
 
 
 @app.get("/health", response_model=schemas.Health)
