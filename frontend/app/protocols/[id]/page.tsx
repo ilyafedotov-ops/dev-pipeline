@@ -43,6 +43,7 @@ import {
   formatProtocolTemplateSource,
 } from "@/lib/protocol-template-display";
 import { getSpecificationReviewPath } from "@/lib/project-routes";
+import { useWebSocketEvent } from "@/lib/websocket/hooks";
 
 import { ArtifactsTab } from "./components/artifacts-tab";
 import { ClarificationsTab } from "./components/clarifications-tab";
@@ -76,6 +77,16 @@ export default function ProtocolDetailPage({ params }: { params: Promise<{ id: s
   const { data: linkedSprint } = useProtocolSprint(linkedSprintProtocolId);
   const syncToSprint = useSyncProtocolToSprint();
   const [activeTab, setActiveTab] = useState("steps");
+
+  // WebSocket real-time updates: listen for protocol & step changes
+  const protocolChannel = `protocol:${protocolId}`;
+  useWebSocketEvent(protocolChannel, ["step_started", "step_completed", "step_failed", "protocol_update"], (qc) => {
+    qc.invalidateQueries({ queryKey: ["protocols", "detail", protocolId] });
+    qc.invalidateQueries({ queryKey: ["protocols", "steps", protocolId] });
+    qc.invalidateQueries({ queryKey: ["protocols", "runs", protocolId] });
+    qc.invalidateQueries({ queryKey: ["protocols", "events", protocolId] });
+    qc.invalidateQueries({ queryKey: ["protocols", "qualitySummary", protocolId] });
+  });
 
   if (protocolLoading) return <LoadingState message="Loading protocol..." />;
   if (!protocol) return <LoadingState message="Protocol not found" />;

@@ -27,6 +27,7 @@ from devgodzilla.api.routes import project_speckit as project_speckit_routes
 from devgodzilla.api.routes import cli_executions
 from devgodzilla.api.routes import queues
 from devgodzilla.api.routes import reconciliation as reconciliation_routes
+from devgodzilla.api.routes import ws as ws_routes
 from devgodzilla.api.dependencies import get_db, get_service_context, require_api_token, require_webhook_token
 from devgodzilla.config import get_config
 from devgodzilla.engines.bootstrap import bootstrap_default_engines
@@ -212,6 +213,7 @@ app.include_router(quality.router, dependencies=auth_deps)  # /quality
 app.include_router(profile.router, dependencies=auth_deps)  # /profile
 app.include_router(templates.router, dependencies=auth_deps)  # /templates
 app.include_router(cli_executions.router, tags=["CLI Executions"], dependencies=auth_deps)  # /cli-executions
+app.include_router(ws_routes.router)  # /ws/events (WebSocket, no auth)
 
 
 @app.get("/health", response_model=schemas.Health)

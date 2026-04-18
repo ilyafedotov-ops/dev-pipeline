@@ -27,6 +27,7 @@ import { useRuns } from "@/lib/api";
 import type { CodexRun, RunFilters } from "@/lib/api/types";
 import { formatCost, formatRelativeTime, formatTokens, truncateHash } from "@/lib/format";
 import { getRunLinkageStats, summarizeRunContext } from "@/lib/run-display";
+import { useWebSocketEvent } from "@/lib/websocket/hooks";
 
 const columns: ColumnDef<CodexRun>[] = [
   {
@@ -129,6 +130,11 @@ export default function RunsPage() {
 
   const { data: runs, isLoading, refetch } = useRuns(filters);
   const linkageStats = getRunLinkageStats(runs ?? []);
+
+  // WebSocket real-time updates: invalidate runs list on run status changes
+  useWebSocketEvent("events", ["run_started", "run_completed", "run_failed"], (qc) => {
+    qc.invalidateQueries({ queryKey: ["runs"] });
+  });
 
   return (
     <div className="container space-y-8 py-8">

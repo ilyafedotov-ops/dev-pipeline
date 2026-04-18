@@ -61,6 +61,7 @@ import type {
 } from "@/lib/api/types";
 import { getProjectExecutionPath } from "@/lib/project-routes";
 import { cn } from "@/lib/utils";
+import { useWebSocketEvent } from "@/lib/websocket/hooks";
 
 export default function ExecutionPage() {
   const { data: sprints, isLoading: sprintsLoading } = useAllSprints();
@@ -76,6 +77,12 @@ export default function ExecutionPage() {
   const [sprintName, setSprintName] = useState("");
   const [sprintStart, setSprintStart] = useState("");
   const [sprintEnd, setSprintEnd] = useState("");
+
+  // WebSocket real-time updates: invalidate task/sprint queries on changes
+  useWebSocketEvent("events", ["task_status_changed", "execution_progress"], (qc) => {
+    qc.invalidateQueries({ queryKey: ["tasks"] });
+    qc.invalidateQueries({ queryKey: ["sprints"] });
+  });
 
   const selectedProjectId = filterProject !== "all" ? Number.parseInt(filterProject, 10) : null;
   const { data: projectProtocols = [] } = useProjectProtocols(selectedProjectId ?? undefined);

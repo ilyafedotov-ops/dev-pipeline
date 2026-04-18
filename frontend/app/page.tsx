@@ -9,11 +9,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useProjects, useProtocols, useRuns } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/format";
+import { useWebSocketEvent } from "@/lib/websocket/hooks";
 
 export default function DashboardPage() {
   const { data: projects } = useProjects();
   const { data: protocols } = useProtocols();
   const { data: runs } = useRuns();
+
+  // WebSocket real-time updates: invalidate queries when events arrive
+  useWebSocketEvent("events", ["protocol_started", "protocol_completed", "run_completed"], (qc) => {
+    qc.invalidateQueries({ queryKey: ["protocols"] });
+    qc.invalidateQueries({ queryKey: ["runs"] });
+    qc.invalidateQueries({ queryKey: ["projects"] });
+  });
 
   const activeProtocols = protocols?.filter((p) => p.status === "running") || [];
   const recentRuns = runs?.slice(0, 5) || [];

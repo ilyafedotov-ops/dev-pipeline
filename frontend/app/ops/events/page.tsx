@@ -20,6 +20,7 @@ import { useProjects,useRecentEvents } from "@/lib/api";
 import type { EventFilters } from "@/lib/api/types";
 import { formatRelativeTime,formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useWebSocketEvent } from "@/lib/websocket/hooks";
 
 const eventTypeColors: Record<string, string> = {
   onboarding_enqueued: "text-blue-500",
@@ -183,6 +184,9 @@ export default function EventsPage() {
     refetch,
   } = useRecentEvents(filters, { refetchIntervalMs: refreshIntervalMs });
   const { data: projects } = useProjects();
+
+  // WebSocket real-time updates: invalidate events list when any event arrives
+  useWebSocketEvent("events", [], ["ops", "recentEvents"]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
