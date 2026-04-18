@@ -505,3 +505,130 @@ def download_step_artifact(
         raise HTTPException(status_code=404, detail="Artifact not found")
 
     return FileResponse(path=str(path), filename=path.name)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Step Feedback endpoints (matching frontend use-feedback.ts expectations)
+# ──────────────────────────────────────────────────────────────────────
+
+class StepFeedbackRequest(BaseModel):
+    action: str
+    message: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+class StepRetryRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class StepEscalateRequest(BaseModel):
+    reason: str
+    assign_to: Optional[str] = None
+
+
+@router.get("/steps/{step_run_id}/feedback", response_model=schemas.FeedbackListOut)
+def list_step_feedback(
+    step_run_id: int,
+    db: Database = Depends(get_db),
+):
+    """List feedback events for a step run."""
+    try:
+        step = db.get_step_run(step_run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Step not found")
+
+    rows = db._fetchall(
+        "SELECT * FROM feedback_events WHERE step_run_id = ? ORDER BY created_at DESC",
+        (step_run_id,),
+    )
+    events = []
+    for row in rows:
+        events.append(schemas.FeedbackEventOut(
+            id=str(row["id"]),
+            action_taken=row["action_taken"],
+            created_at=row["created_at"],
+        ))
+    return schemas.FeedbackListOut(events=events)
+
+
+@router.post("/steps/{step_run_id}/feedback", response_model=schemas.FeedbackEventOut)
+def submit_step_feedback(
+    step_run_id: int,
+    request: StepFeedbackRequest,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """Submit feedback (approve/reject/clarify) for a step run."""
+    try:
+        step = db.get_step_run(step_run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Step not found")
+
+    event = db.append_feedback_event(
+        protocol_run_id=step.protocol_run_id,
+        error_type="user_feedback",
+        action_taken=request.action,
+        attempt_number=0,
+        step_run_id=step_run_id,
+        context={"message": request.message, **(request.metadata or {})},
+    )
+    return schemas.FeedbackEventOut(
+        id=str(event.id),
+        action_taken=event.action_taken,
+        created_at=event.created_at,
+    )
+
+
+@router.post("/steps/{step_run_id}/retry")
+def retry_step(
+    step_run_id: int,
+    request: StepRetryRequest,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """Retry a failed step run."""
+    try:
+        step = db.get_step_run(step_run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Step not found")
+
+    # Log the retry as a feedback event
+    db.append_feedback_event(
+        protocol_run_id=step.protocol_run_id,
+        error_type="retry",
+        action_taken="retry_requested",
+        attempt_number=0,
+        step_run_id=step_run_id,
+        context={"reason": request.reason},
+    )
+
+    # Reset step status to pending so it can be re-executed
+    db.update_step_status(step_run_id, "pending")
+
+    return {"success": True, "message": f"Step {step_run_id} queued for retry"}
+
+
+@router.post("/steps/{step_run_id}/escalate")
+def escalate_step(
+    step_run_id: int,
+    request: StepEscalateRequest,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """Escalate a step that needs human attention."""
+    try:
+        step = db.get_step_run(step_run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Step not found")
+
+    # Log the escalation as a feedback event
+    db.append_feedback_event(
+        protocol_run_id=step.protocol_run_id,
+        error_type="escalation",
+        action_taken="escalated",
+        attempt_number=0,
+        step_run_id=step_run_id,
+        context={"reason": request.reason, "assign_to": request.assign_to},
+    )
+
+    return {"success": True, "message": f"Step {step_run_id} escalated"}
