@@ -48,6 +48,7 @@ const nextConfig = {
         destination: process.env.NEXT_PUBLIC_API_BASE_URL
           ? `${process.env.NEXT_PUBLIC_API_BASE_URL}/:path*`
           : "http://localhost:8080/:path*",
+        basePath: false,
       },
     ];
   },

@@ -129,11 +129,10 @@ class ApiClient {
     const stored = getStoredConfig();
     // In browser, use empty string (relative paths go through nginx)
     // On server, use environment variable for SSR
-    let defaultBaseUrl = "";
-    if (typeof window === "undefined") {
-      // Server-side rendering: use env var or default
-      defaultBaseUrl = process.env?.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
-    }
+    // In browser, use /api path so Next.js rewrites (basePath:false) proxy to backend
+    // On server, use env var or default to localhost:8080
+    const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
+    let defaultBaseUrl = typeof window === "undefined" ? apiBaseUrl : "/api";
     // If user has stored a custom API base, use that (for development)
     this.config = {
       baseUrl: stored?.apiBase || defaultBaseUrl,

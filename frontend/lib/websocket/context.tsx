@@ -39,9 +39,11 @@ function buildWebSocketUrl(pathname: string): string {
   if (typeof window === "undefined") return "";
 
   const { baseUrl } = apiClient.getConfig();
-  const base = baseUrl && baseUrl.length > 0 ? baseUrl : window.location.origin;
-  const url = new URL(base);
+  // Always use window.location.origin for WebSocket base, since WS needs a full URL.
+  // The API baseUrl may be a relative path like "/api" which is not valid for new URL().
+  const url = new URL(window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  // If baseUrl is a full URL (SSR), extract the host; otherwise use current origin
   url.pathname = pathname;
   url.search = "";
   return url.toString();
