@@ -116,9 +116,11 @@ class TestGeminiEngineAvailability:
                 engine = GeminiEngine()
                 assert engine.check_availability() is True
 
+    @patch("os.path.isfile")
     @patch("shutil.which")
-    def test_unavailable_when_not_installed(self, mock_which):
+    def test_unavailable_when_not_installed(self, mock_which, mock_isfile):
         mock_which.return_value = None
+        mock_isfile.return_value = False
         engine = GeminiEngine()
         assert engine.check_availability() is False
 

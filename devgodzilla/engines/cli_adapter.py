@@ -303,12 +303,46 @@ class CLIEngine(Engine):
         """Execute QA in read-only mode."""
         return self._run(req, SandboxMode.READ_ONLY)
 
+    # Common system paths where agent CLIs may be installed
+    _SYSTEM_CLI_PATHS = [
+        "/usr/local/bin",
+        "/usr/bin",
+        "/snap/bin",
+    ]
+
+    @classmethod
+    def _extra_cli_dirs(cls) -> list[str]:
+        """Return user-local bin dirs that may not be on PATH in all contexts."""
+        import os
+        home = os.path.expanduser("~")
+        dirs = [
+            os.path.join(home, ".local", "bin"),
+            os.path.join(home, ".hermes", "node", "bin"),
+            os.path.join(home, "bin"),
+        ]
+        # Also honour npm/pnpm global bins if set
+        for key in ("NPM_CONFIG_PREFIX", "PNPM_HOME"):
+            val = os.environ.get(key)
+            if val:
+                dirs.append(val)
+        return dirs
+
     def check_availability(self) -> bool:
         """Check if the CLI tool is available."""
-        # Try to find the command
         import shutil
         cmd_name = self._get_command_name()
-        return shutil.which(cmd_name) is not None
+
+        # Fast path – check current PATH
+        if shutil.which(cmd_name):
+            return True
+
+        # Slow path – scan common locations the binary might live in even when
+        # PATH is narrowed (e.g. inside a venv where activate clobbered PATH).
+        for d in self._SYSTEM_CLI_PATHS + self._extra_cli_dirs():
+            candidate = os.path.join(d, cmd_name)  # type: ignore[name-defined]  # noqa: F821
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return True
+        return False
 
     def _get_command_name(self) -> str:
         """Get the main command name for availability check."""

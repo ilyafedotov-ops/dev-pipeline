@@ -66,7 +66,7 @@ export function useLogStream({
     if (level) params.set("level", level);
     if (source) params.set("source", source);
 
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
     const streamUrl = `${baseUrl}/logs/stream?${params.toString()}`;
 
     const source$ = new EventSource(streamUrl);

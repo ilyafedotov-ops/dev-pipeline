@@ -24,11 +24,8 @@ services:
       retries: 10
 
   windmill:
-    build:
-      context: ./Origins/Windmill
-      dockerfile: Dockerfile
-      args:
-        features: "${WINDMILL_FEATURES:-static_frontend python deno_core}"
+    image: ghcr.io/windmill-labs/windmill:latest
+    pull_policy: always
     restart: unless-stopped
     expose:
       - "8000"
@@ -61,11 +58,8 @@ services:
       - "host.docker.internal:host-gateway"
 
   windmill_worker:
-    build:
-      context: ./Origins/Windmill
-      dockerfile: Dockerfile
-      args:
-        features: "${WINDMILL_FEATURES:-static_frontend python deno_core}"
+    image: ghcr.io/windmill-labs/windmill:latest
+    pull_policy: always
     restart: unless-stopped
     deploy:
       resources:
@@ -94,11 +88,8 @@ services:
 
   # Native worker for lightweight in-process jobs
   windmill_worker_native:
-    build:
-      context: ./Origins/Windmill
-      dockerfile: Dockerfile
-      args:
-        features: "${WINDMILL_FEATURES:-static_frontend python deno_core}"
+    image: ghcr.io/windmill-labs/windmill:latest
+    pull_policy: always
     restart: unless-stopped
     deploy:
       resources:
@@ -127,11 +118,8 @@ services:
 
   # Full-text job and log search (EE feature, set replicas to 1 to enable)
   windmill_indexer:
-    build:
-      context: ./Origins/Windmill
-      dockerfile: Dockerfile
-      args:
-        features: static_frontend
+    image: ghcr.io/windmill-labs/windmill:latest
+    pull_policy: always
     deploy:
       replicas: 0
     restart: unless-stopped

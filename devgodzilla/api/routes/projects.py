@@ -228,6 +228,76 @@ class CreateBranchRequest(BaseModel):
     push: bool = Field(default=False, description="Push branch to origin and set upstream")
 
 
+def _auto_onboard_project(ctx, db, created, project_req):
+    """Handle auto-onboarding: Windmill queue or synchronous fallback."""
+    import time as _t
+
+    windmill_ok = getattr(ctx.config, "windmill_enabled", False)
+    if windmill_ok:
+        try:
+            from devgodzilla.services.onboarding_queue import enqueue_project_onboarding
+
+            _start = _t.perf_counter()
+            result = enqueue_project_onboarding(
+                ctx, db,
+                project_id=created.id,
+                branch=created.base_branch,
+                run_discovery_agent=bool(project_req.auto_discovery),
+            )
+            _ms = int((_t.perf_counter() - _start) * 1000)
+            logger.info(
+                "onboarding_enqueue_success",
+                extra=log_extra(
+                    project_id=created.id,
+                    windmill_job_id=result.windmill_job_id,
+                    duration_ms=_ms,
+                ),
+            )
+            return  # Windmill enqueued — done
+        except Exception as exc:
+            logger.warning(
+                "onboarding_windmill_failed_fallback_sync",
+                extra=log_extra(project_id=created.id, error=str(exc)),
+            )
+            _append_project_event(
+                db, project_id=created.id,
+                event_type="onboarding_enqueue_failed",
+                message="Windmill unavailable, running onboarding synchronously",
+                metadata={"error": str(exc)},
+            )
+
+    # No Windmill — run onboarding synchronously in-process
+    _append_project_event(
+        db, project_id=created.id,
+        event_type="onboarding_sync_start",
+        message="Starting synchronous onboarding (no Windmill)",
+    )
+    try:
+        from devgodzilla.api.routes.projects import onboard_project as _onboard_ep, ProjectOnboardRequest
+
+        _req = ProjectOnboardRequest(
+            branch=created.base_branch or "main",
+            run_discovery_agent=bool(project_req.auto_discovery),
+            clone_if_missing=True,
+        )
+        _onboard_ep(project_id=created.id, request=_req, db=db, ctx=ctx)
+
+        _append_project_event(
+            db, project_id=created.id,
+            event_type="onboarding_sync_completed",
+            message="Onboarding completed (synchronous, no Windmill)",
+        )
+        logger.info("onboarding_sync_completed", extra=log_extra(project_id=created.id))
+    except Exception as exc:
+        logger.exception("onboarding_sync_failed", extra=log_extra(project_id=created.id, error=str(exc)))
+        _append_project_event(
+            db, project_id=created.id,
+            event_type="onboarding_sync_failed",
+            message=f"Synchronous onboarding failed: {exc}",
+            metadata={"error": str(exc)},
+        )
+
+
 @router.post("/projects", response_model=schemas.ProjectOut)
 def create_project(
     project: schemas.ProjectCreate,
@@ -255,9 +325,6 @@ def create_project(
             status_code=400,
             detail="git_url must be a cloneable Git repository URL for auto onboarding",
         )
-    if project.auto_onboard and not getattr(ctx.config, "windmill_enabled", False):
-        raise HTTPException(status_code=503, detail="Windmill integration not configured")
-
     created = db.create_project(
         name=project.name,
         git_url=project.git_url or "",
@@ -276,48 +343,9 @@ def create_project(
         ),
     )
 
+    # Auto-onboard: try Windmill queue first, fallback to synchronous onboarding
     if project.auto_onboard:
-        try:
-            from devgodzilla.services.onboarding_queue import enqueue_project_onboarding
-
-            logger.debug(
-                "onboarding_enqueue_start",
-                extra=log_extra(
-                    project_id=created.id,
-                    branch=created.base_branch,
-                    run_discovery_agent=bool(project.auto_discovery),
-                ),
-            )
-            enqueue_start = time.perf_counter()
-            result = enqueue_project_onboarding(
-                ctx,
-                db,
-                project_id=created.id,
-                branch=created.base_branch,
-                run_discovery_agent=bool(project.auto_discovery),
-            )
-            enqueue_duration_ms = int((time.perf_counter() - enqueue_start) * 1000)
-            logger.info(
-                "onboarding_enqueue_success",
-                extra=log_extra(
-                    project_id=created.id,
-                    windmill_job_id=result.windmill_job_id,
-                    duration_ms=enqueue_duration_ms,
-                ),
-            )
-        except Exception as exc:
-            logger.exception(
-                "onboarding_enqueue_exception",
-                extra=log_extra(project_id=created.id, error=str(exc)),
-            )
-            _append_project_event(
-                db,
-                project_id=created.id,
-                event_type="onboarding_enqueue_failed",
-                message="Failed to enqueue onboarding",
-                metadata={"error": str(exc)},
-            )
-            raise HTTPException(status_code=502, detail=f"Failed to enqueue onboarding: {exc}")
+        _auto_onboard_project(ctx, db, created, project)
 
     return created
 

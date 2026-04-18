@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import threading
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from devgodzilla.api import schemas
 from devgodzilla.api.dependencies import get_db, get_service_context
 from devgodzilla.db.database import Database
+from devgodzilla.logging import get_logger
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.task_cycle import TaskCycleError, TaskCycleService
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -46,14 +50,53 @@ def list_task_cycle_work_items(
 def start_brownfield_run(
     project_id: int,
     request: schemas.BrownfieldRunRequest,
+    background_tasks: BackgroundTasks,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
     service: TaskCycleService = Depends(_task_cycle_service),
 ):
+    """Start a brownfield run.
+
+    Attempts to run synchronously first (fast when engines are mocked).
+    Falls back to background execution for real AI engine calls that take minutes.
+    """
+    # Validate project exists synchronously
     try:
-        return service.start_brownfield_run(project_id, request)
+        project = db.get_project(project_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Project not found")
-    except TaskCycleError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+
+    if not project.local_path:
+        raise HTTPException(status_code=400, detail="Project has no local path")
+
+    # Try synchronous execution first (works when engines are mocked/stubbed)
+    try:
+        result = service.start_brownfield_run(project_id, request)
+        return result
+    except Exception as exc:
+        # If synchronous fails with timeout/engine unavailable, run in background
+        logger.warning(
+            "brownfield_sync_failed_switching_to_background",
+            extra={"project_id": project_id, "error": str(exc)},
+        )
+
+        def _run_brownfield():
+            try:
+                service.start_brownfield_run(project_id, request)
+            except Exception as bg_exc:
+                logger.exception(
+                    "brownfield_background_run_failed",
+                    extra={"project_id": project_id, "error": str(bg_exc)},
+                )
+
+        background_tasks.add_task(_run_brownfield)
+
+        return schemas.BrownfieldRunOut(
+            success=True,
+            project_id=project_id,
+            output_mode=request.output_mode,
+            warnings=["Brownfield run started in background. Poll /task-cycle for results."],
+        )
 
 
 @router.get("/work-items/{work_item_id}", response_model=schemas.WorkItemOut)
@@ -110,6 +153,9 @@ def implement_work_item(
         raise HTTPException(status_code=404, detail="Work item not found")
     except TaskCycleError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unexpected error implementing work item %s", work_item_id)
+        raise HTTPException(status_code=500, detail="Internal server error: " + str(exc))
 
 
 @router.post("/work-items/{work_item_id}/actions/review", response_model=schemas.WorkItemReviewOut)

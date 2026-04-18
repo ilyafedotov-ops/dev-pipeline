@@ -172,6 +172,42 @@ class TaskCycleService(Service):
                 owner_agent=resolved_owner_agent,
                 helper_agents=request.helper_agents if (request.allow_helper_agents or request.helper_agents) else [],
             )
+
+            # Auto-advance the first pending step when Windmill is not enabled.
+            # Without this, protocol steps created by brownfield run stay in
+            # "pending" forever because nothing dispatches them.
+            if not getattr(self.context.config, "windmill_enabled", False):
+                try:
+                    steps = self.db.list_step_runs(protocol.protocol_run_id)
+                    completed_ids = {s.id for s in steps if s.status == StepStatus.COMPLETED}
+                    pending = [s for s in steps if s.status == StepStatus.PENDING]
+                    first_runnable = next(
+                        (
+                            s
+                            for s in sorted(pending, key=lambda s: (s.priority or 999))
+                            if all(d in completed_ids for d in (s.depends_on or []))
+                        ),
+                        None,
+                    )
+                    if first_runnable is not None:
+                        ExecutionService(self.context, self.db).execute_step(first_runnable.id)
+                        logger.info(
+                            "brownfield_auto_advanced_step",
+                            extra={
+                                "protocol_run_id": protocol.protocol_run_id,
+                                "step_run_id": first_runnable.id,
+                                "step_name": first_runnable.step_name,
+                            },
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "brownfield_auto_advance_failed",
+                        extra={
+                            "protocol_run_id": protocol.protocol_run_id,
+                            "error": str(exc),
+                        },
+                    )
+
             work_items = self.list_work_items(project_id, protocol_run_id=protocol.protocol_run_id)
             next_work_item_id = next((item.id for item in work_items if not item.pr_ready), None)
 
