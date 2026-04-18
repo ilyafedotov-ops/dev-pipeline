@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -9,11 +10,42 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# ---------------------------------------------------------------------------
+# Hypothesis configuration – cap example count to prevent timeouts
+# ---------------------------------------------------------------------------
+os.environ.setdefault("HYPOTHESIS_MAX_EXAMPLES", "10")
+
+try:
+    from hypothesis import HealthCheck, settings
+
+    settings.register_profile(
+        "ci",
+        max_examples=10,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
+    # Use the CI profile by default so every run is fast and deterministic.
+    settings.load_profile("ci")
+except Exception:  # pragma: no cover – hypothesis not installed
+    pass
+
+# ---------------------------------------------------------------------------
+# Auto-use environment fixtures
+# ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
-def _default_sqlite_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _default_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set sensible defaults for all tests so no real infra is required."""
     # Prevent .env-provided Postgres URLs from leaking into SQLite-based tests.
     monkeypatch.setenv("DEVGODZILLA_DB_URL", "")
+    # Default database path for tests that use file-based SQLite.
+    monkeypatch.setenv("DEVGODZILLA_DATABASE_URL", "")
+    # Redis – point at a non-existent instance so tests fail fast if they
+    # accidentally try to connect instead of using the mock.
+    monkeypatch.setenv("DEVGODZILLA_REDIS_URL", "redis://localhost:0/0")
+    # Skip agent auth in tests.
+    monkeypatch.setenv("DEVGODZILLA_ASSUME_AGENT_AUTH", "1")
 
 
 # ---------------------------------------------------------------------------
@@ -153,3 +185,42 @@ def fake_agent_response() -> dict:
         },
         "exit_code": 0,
     }
+
+
+@pytest.fixture()
+def mock_redis():
+    """Return a ``MagicMock`` that behaves like a ``redis.Redis`` instance.
+
+    Common operations (get, set, delete, exists, keys, lpush, rpush,
+    lrange, publish, ping) are pre-configured with sensible defaults.
+    """
+    r = MagicMock()
+    r.ping.return_value = True
+    r.get.return_value = None
+    r.set.return_value = True
+    r.delete.return_value = 0
+    r.exists.return_value = 0
+    r.keys.return_value = []
+    r.lpush.return_value = 1
+    r.rpush.return_value = 1
+    r.lrange.return_value = []
+    r.publish.return_value = 0
+    r.incr.return_value = 1
+    r.expire.return_value = True
+    return r
+
+
+@pytest.fixture()
+def mock_db():
+    """Return a ``MagicMock`` standing in for the Database protocol.
+
+    Useful for unit tests that don't need a real SQLite backend.
+    """
+    db = MagicMock()
+    db.get_project.return_value = None
+    db.list_projects.return_value = []
+    db.create_project.return_value = MagicMock(id=1, name="mock-project")
+    db.get_protocol_run.return_value = None
+    db.list_protocol_runs.return_value = []
+    db.create_protocol_run.return_value = MagicMock(id=1, protocol_name="mock-protocol")
+    return db

@@ -12,6 +12,15 @@ import { apiClient, ApiError } from "../client";
 import { queryKeys } from "../query-keys";
 import type { Event as DevGodzillaEvent } from "../types";
 
+// =============================================================================
+// Types
+// =============================================================================
+
+export interface EventListResponse {
+  events: DevGodzillaEvent[];
+  total: number;
+}
+
 export interface EventStreamFilters {
   protocol_id?: number;
   project_id?: number;
@@ -124,6 +133,28 @@ export function useWebSocketEventStream(
   }, [filters?.protocol_id, filters?.project_id]);
 
   return { events, lastEventId, isConnected };
+}
+
+// =============================================================================
+// Data-fetching hooks
+// =============================================================================
+
+/**
+ * Fetch recent events with optional limit.
+ * GET /api/v1/events?limit=N
+ */
+export function useEvents(limit?: number) {
+  const refetchInterval = useConditionalRefetchInterval(10_000);
+  return useQuery({
+    queryKey: queryKeys.events.list(limit),
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (limit) params.set("limit", String(limit));
+      const qs = params.toString();
+      return apiClient.get<DevGodzillaEvent[]>(`/events${qs ? `?${qs}` : ""}`);
+    },
+    refetchInterval,
+  });
 }
 
 /**

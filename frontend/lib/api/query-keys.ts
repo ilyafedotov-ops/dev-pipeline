@@ -91,6 +91,12 @@ export const queryKeys = {
     metricsSummary: (hours?: number) => ["ops", "metricsSummary", { hours }] as const,
   },
 
+  // Events
+  events: {
+    all: ["events"] as const,
+    list: (limit?: number) => [...queryKeys.events.all, "list", { limit }] as const,
+  },
+
   // Sprints and Tasks for Agile system
   sprints: {
     all: ["sprints"] as const,
@@ -98,6 +104,7 @@ export const queryKeys = {
     detail: (id: number) => ["sprints", "detail", id] as const,
     metrics: (id: number) => ["sprints", "metrics", id] as const,
     velocity: (id: number) => ["sprints", "velocity", id] as const,
+    tasks: (id: number) => ["sprints", "tasks", id] as const,
   },
 
   tasks: {
@@ -120,6 +127,8 @@ export const queryKeys = {
       [...queryKeys.agents.all, "prompts", projectId ?? "global"] as const,
     health: (projectId?: number) =>
       [...queryKeys.agents.all, "health", projectId ?? "global"] as const,
+    healthCheck: (agentId: string) =>
+      [...queryKeys.agents.all, "healthCheck", agentId] as const,
     metrics: (projectId?: number) =>
       [...queryKeys.agents.all, "metrics", projectId ?? "global"] as const,
     project: (projectId: number) => [...queryKeys.agents.all, "project", projectId] as const,

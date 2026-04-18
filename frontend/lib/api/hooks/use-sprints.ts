@@ -40,6 +40,16 @@ export function useSprintMetrics(sprintId?: number | null) {
   });
 }
 
+/**
+ * Fetch tasks for a specific sprint.
+ * GET /api/v1/sprints/{id}/tasks
+ */
+export function useSprintTasks(sprintId?: number | null) {
+  return useSWR<AgileTask[]>(sprintId ? queryKeys.sprints.tasks(sprintId) : null, async () => {
+    return apiClient.get<AgileTask[]>(`/sprints/${sprintId}/tasks`);
+  });
+}
+
 export function useTasks(projectId: number, sprintId?: number | null) {
   return useSWR<AgileTask[]>(queryKeys.tasks.byProject(projectId, sprintId), async () => {
     const params = sprintId ? `?sprint_id=${sprintId}` : "";

@@ -10,6 +10,7 @@ export * from "./adapters";
 export * from "./hooks/use-agent-health";
 export * from "./hooks/use-agents";
 export * from "./hooks/use-clarifications";
+export * from "./hooks/use-cli-executions";
 export * from "./hooks/use-constitution";
 export * from "./hooks/use-events";
 export * from "./hooks/use-feedback";
