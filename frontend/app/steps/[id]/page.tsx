@@ -1,5 +1,5 @@
 "use client";
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 
 import type { ColumnDef } from "@tanstack/react-table";
@@ -13,8 +13,11 @@ import {
   FileBox,
   FileText,
   Image,
+  MessageSquare,
   Play,
   PlayCircle,
+  RotateCcw,
+  Send,
   ShieldCheck,
   XCircle as XCircleIcon,
 } from "lucide-react";
@@ -28,16 +31,23 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import {
+  useEscalateStep,
   useProtocol,
   useProtocolSteps,
   useStepAction,
   useStepArtifacts,
+  useStepFeedbackEvents,
   useStepPolicyFindings,
   useStepQuality,
   useStepRuns,
+  useSubmitStepFeedback,
+  useTriggerRetry,
 } from "@/lib/api";
 import type { CodexRun, PolicyFinding, StepArtifact, StepQuality,StepRun } from "@/lib/api/types";
+import type { FeedbackEvent } from "@/lib/api/hooks/use-feedback";
 import { formatRelativeTime, truncateHash } from "@/lib/format";
 
 export default function StepDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -57,6 +67,12 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
   const { data: artifacts } = useStepArtifacts(stepId);
   const { data: quality } = useStepQuality(stepId);
   const stepAction = useStepAction();
+  const { data: stepFeedback, isLoading: stepFeedbackLoading } = useStepFeedbackEvents(stepId);
+  const submitStepFeedback = useSubmitStepFeedback();
+  const triggerRetry = useTriggerRetry();
+  const escalateStep = useEscalateStep();
+
+  const [stepFeedbackMessage, setStepFeedbackMessage] = useState("");
 
   const step = steps?.find((s) => s.id === stepId);
 
@@ -213,6 +229,14 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="feedback">
+            Feedback
+            {stepFeedback && stepFeedback.length > 0 && (
+              <span className="ml-1 rounded-full bg-purple-500/10 px-2 text-xs text-purple-500">
+                {stepFeedback.length}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="runs">
@@ -226,6 +250,102 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
         </TabsContent>
         <TabsContent value="policy">
           <StepPolicyTab findings={findings} />
+        </TabsContent>
+        <TabsContent value="feedback" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5" />
+                Step Feedback
+              </CardTitle>
+              <CardDescription>
+                {stepFeedback?.length || 0} feedback event(s) for this step
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {stepFeedbackLoading ? (
+                <LoadingState message="Loading feedback..." />
+              ) : !stepFeedback || stepFeedback.length === 0 ? (
+                <EmptyState
+                  icon={MessageSquare}
+                  title="No feedback yet"
+                  description="Submit feedback or trigger a retry for this step."
+                />
+              ) : (
+                <div className="space-y-3">
+                  {stepFeedback.map((fb: FeedbackEvent) => (
+                    <div key={fb.id} className="flex items-start gap-3 rounded-lg border p-3">
+                      <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px]">
+                            {fb.event_type || "info"}
+                          </Badge>
+                          <span className="text-muted-foreground text-xs">
+                            {formatRelativeTime(fb.created_at)}
+                          </span>
+                        </div>
+                        {fb.action_taken && <p className="mt-1 text-sm">{fb.action_taken}</p>}
+                        {fb.error_type && (
+                          <p className="text-destructive text-xs">{fb.error_type}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Submit Feedback</CardTitle>
+              <CardDescription>Provide feedback, retry, or escalate this step.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Textarea
+                id="step-feedback-message"
+                value={stepFeedbackMessage}
+                onChange={(e) => setStepFeedbackMessage(e.target.value)}
+                placeholder="Enter feedback for this step..."
+                rows={2}
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    submitStepFeedback.mutate({
+                      stepRunId: stepId,
+                      action: "clarify",
+                      message: stepFeedbackMessage,
+                    });
+                    setStepFeedbackMessage("");
+                  }}
+                  disabled={submitStepFeedback.isPending || !stepFeedbackMessage.trim()}
+                >
+                  <Send className="mr-2 h-3 w-3" />
+                  {submitStepFeedback.isPending ? "Submitting..." : "Submit Feedback"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => triggerRetry.mutate({ stepRunId: stepId })}
+                  disabled={triggerRetry.isPending}
+                >
+                  <RotateCcw className="mr-2 h-3 w-3" />
+                  {triggerRetry.isPending ? "Retrying..." : "Trigger Retry"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => escalateStep.mutate({ stepRunId: stepId, reason: stepFeedbackMessage || "Manual escalation" })}
+                  disabled={escalateStep.isPending}
+                >
+                  <AlertTriangle className="mr-2 h-3 w-3" />
+                  {escalateStep.isPending ? "Escalating..." : "Escalate"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

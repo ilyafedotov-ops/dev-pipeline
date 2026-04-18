@@ -9,7 +9,8 @@ from typing import Any, List, Optional
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from devgodzilla.api import schemas
@@ -221,6 +222,13 @@ class ProjectOnboardResponse(BaseModel):
     error: Optional[str] = None
 
 
+class OnboardingAcceptedResponse(BaseModel):
+    """Returned when onboarding is deferred to background execution."""
+    project_id: int
+    status: str = "pending"
+    message: str = "Onboarding started in background. Poll GET /projects/{project_id}/onboarding for progress."
+
+
 class CreateBranchRequest(BaseModel):
     name: str = Field(..., description="New branch name (e.g. feature/foo)")
     base_ref: Optional[str] = Field(default=None, description="Base ref (branch/sha), defaults to project.base_branch")
@@ -273,14 +281,23 @@ def _auto_onboard_project(ctx, db, created, project_req):
         message="Starting synchronous onboarding (no Windmill)",
     )
     try:
-        from devgodzilla.api.routes.projects import onboard_project as _onboard_ep, ProjectOnboardRequest
+        from devgodzilla.api.routes.projects import _run_onboarding_work, ProjectOnboardRequest
 
         _req = ProjectOnboardRequest(
             branch=created.base_branch or "main",
             run_discovery_agent=bool(project_req.auto_discovery),
             clone_if_missing=True,
         )
-        _onboard_ep(project_id=created.id, request=_req, db=db, ctx=ctx)
+        _append_project_event(
+            db, project_id=created.id,
+            event_type="onboarding_started",
+            message="Onboarding started",
+            metadata={
+                "branch": created.base_branch or "main",
+                "clone_if_missing": True,
+            },
+        )
+        _run_onboarding_work(project_id=created.id, request=_req, ctx=ctx, db=db)
 
         _append_project_event(
             db, project_id=created.id,
@@ -566,71 +583,38 @@ def get_project_onboarding(
     )
 
 
-@router.post("/projects/{project_id}/actions/onboard", response_model=ProjectOnboardResponse)
-@router.post("/projects/{project_id}/onboarding/actions/start", response_model=ProjectOnboardResponse)
-def onboard_project(
+def _run_onboarding_work(
     project_id: int,
-    request: ProjectOnboardRequest = ProjectOnboardRequest(), # Allow empty body
-    db: Database = Depends(get_db),
-    ctx: ServiceContext = Depends(get_service_context),
-):
+    request: ProjectOnboardRequest,
+    ctx: ServiceContext,
+    db: Optional[Database] = None,
+) -> ProjectOnboardResponse:
+    """Execute the full onboarding pipeline (clone, speckit init, discovery).
+
+    Designed to be called either synchronously or from a BackgroundTask.
+    When *db* is ``None`` a fresh DB session is opened automatically (safe
+    for background threads where the request-scoped DB is already closed).
     """
-    Onboard a project repository for DevGodzilla workflows.
-
-    - Ensures the repo exists locally (clone if missing)
-    - Checks out the requested branch (or project.base_branch)
-    - Initializes `.specify/` via SpecificationService
-    """
-    try:
-        project = db.get_project(project_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    if not project.git_url:
-        raise HTTPException(status_code=400, detail="Project has no git_url")
-
     from devgodzilla.services.git import GitService, run_process
     from devgodzilla.services.specification import SpecificationService
 
-    logger.debug(
-        "onboarding_request_received",
-        extra=log_extra(
-            project_id=project_id,
-            branch=request.branch or project.base_branch,
-            clone_if_missing=bool(request.clone_if_missing),
-            run_discovery_agent=bool(request.run_discovery_agent),
-            discovery_pipeline=bool(request.discovery_pipeline),
-            discovery_engine_id=request.discovery_engine_id,
-            discovery_model=request.discovery_model,
-        ),
-    )
-    _append_project_event(
-        db,
-        project_id=project_id,
-        event_type="onboarding_started",
-        message="Onboarding started",
-        metadata={
-            "branch": request.branch or project.base_branch,
-            "clone_if_missing": bool(request.clone_if_missing),
-        },
-    )
+    if db is None:
+        from devgodzilla.cli.main import get_db as _get_db
+        db = _get_db()
+
+    project = db.get_project(project_id)
 
     git = GitService(ctx)
     github_token = ((project.secrets or {}).get("github_token") or "").strip() or None
     repo_resolve_start = time.perf_counter()
-    try:
-        repo_path = git.resolve_repo_path(
-            project.git_url,
-            project.name,
-            project.local_path,
-            project_id=project.id,
-            clone_if_missing=bool(request.clone_if_missing),
-            github_token=github_token,
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Clone failed: {exc}")
+    repo_path = git.resolve_repo_path(
+        project.git_url,
+        project.name,
+        project.local_path,
+        project_id=project.id,
+        clone_if_missing=bool(request.clone_if_missing),
+        github_token=github_token,
+    )
     repo_resolve_duration_ms = int((time.perf_counter() - repo_resolve_start) * 1000)
     logger.info(
         "onboarding_repo_resolved",
@@ -812,6 +796,14 @@ def onboard_project(
             message="Discovery skipped",
             metadata={"reason": "disabled"},
         )
+
+    _append_project_event(
+        db,
+        project_id=project_id,
+        event_type="onboarding_completed",
+        message="Onboarding completed" if init_result.success else "Onboarding finished with errors",
+    )
+
     updated_project = db.get_project(project_id)
 
     return ProjectOnboardResponse(
@@ -827,6 +819,126 @@ def onboard_project(
         discovery_missing_outputs=discovery_missing_outputs,
         discovery_error=discovery_error,
         error=init_result.error,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/actions/onboard",
+    response_model=ProjectOnboardResponse,
+    responses={202: {"model": OnboardingAcceptedResponse}},
+)
+@router.post(
+    "/projects/{project_id}/onboarding/actions/start",
+    response_model=ProjectOnboardResponse,
+    responses={202: {"model": OnboardingAcceptedResponse}},
+)
+def onboard_project(
+    project_id: int,
+    request: ProjectOnboardRequest = ProjectOnboardRequest(),  # Allow empty body
+    background_tasks: BackgroundTasks = None,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """
+    Onboard a project repository for DevGodzilla workflows.
+
+    Returns **200** with full results when onboarding completes quickly (e.g.
+    mocked engines in tests).  Returns **202 Accepted** when the work is
+    deferred to a background task — the caller should poll
+    ``GET /projects/{project_id}/onboarding`` for progress.
+
+    - Ensures the repo exists locally (clone if missing)
+    - Checks out the requested branch (or project.base_branch)
+    - Initializes `.specify/` via SpecificationService
+    - Optionally runs the discovery agent
+    """
+    try:
+        project = db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not project.git_url:
+        raise HTTPException(status_code=400, detail="Project has no git_url")
+
+    logger.debug(
+        "onboarding_request_received",
+        extra=log_extra(
+            project_id=project_id,
+            branch=request.branch or project.base_branch,
+            clone_if_missing=bool(request.clone_if_missing),
+            run_discovery_agent=bool(request.run_discovery_agent),
+            discovery_pipeline=bool(request.discovery_pipeline),
+            discovery_engine_id=request.discovery_engine_id,
+            discovery_model=request.discovery_model,
+        ),
+    )
+
+    # Record the initial onboarding event synchronously so status is visible
+    # immediately via GET /onboarding even if we hand off to background.
+    _append_project_event(
+        db,
+        project_id=project_id,
+        event_type="onboarding_started",
+        message="Onboarding started",
+        metadata={
+            "branch": request.branch or project.base_branch,
+            "clone_if_missing": bool(request.clone_if_missing),
+        },
+    )
+
+    # --- Try synchronous execution first (fast with mocked engines) --------
+    try:
+        result = _run_onboarding_work(project_id, request, ctx, db=db)
+        return result
+    except Exception as exc:
+        # Synchronous path failed (likely slow engine / real AI call).
+        # Delegate to background so the API responds immediately.
+        logger.warning(
+            "onboarding_sync_failed_switching_to_background",
+            extra=log_extra(project_id=project_id, error=str(exc)),
+        )
+        _append_project_event(
+            db,
+            project_id=project_id,
+            event_type="onboarding_deferred_background",
+            message="Onboarding deferred to background (sync attempt failed)",
+            metadata={"error": str(exc)},
+        )
+
+    # --- Background path ---------------------------------------------------
+    if background_tasks is None:
+        # No BackgroundTasks available (e.g. direct function call from
+        # _auto_onboard_project).  Re-raise the original error so callers
+        # that invoked us synchronously still see the failure.
+        raise
+
+    def _run_in_background() -> None:
+        try:
+            _run_onboarding_work(project_id, request, ctx)
+        except Exception as bg_exc:
+            from devgodzilla.cli.main import get_db as _get_db
+
+            logger.exception(
+                "onboarding_background_failed",
+                extra=log_extra(project_id=project_id, error=str(bg_exc)),
+            )
+            try:
+                _bg_db = _get_db()
+                _append_project_event(
+                    _bg_db,
+                    project_id=project_id,
+                    event_type="onboarding_failed",
+                    message=f"Onboarding failed in background: {bg_exc}",
+                    metadata={"error": str(bg_exc)},
+                )
+            except Exception:
+                pass
+
+    background_tasks.add_task(_run_in_background)
+
+    return JSONResponse(
+        status_code=202,
+        content=OnboardingAcceptedResponse(project_id=project_id).model_dump(),
     )
 
 

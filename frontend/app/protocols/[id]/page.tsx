@@ -30,6 +30,8 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useCreateProtocolFlow,
+  useFeedbackAnswerClarification,
+  useFeedbackEvents,
   useProject,
   useProtocol,
   useProtocolAction,
@@ -77,6 +79,10 @@ export default function ProtocolDetailPage({ params }: { params: Promise<{ id: s
   const { data: linkedSprint } = useProtocolSprint(linkedSprintProtocolId);
   const syncToSprint = useSyncProtocolToSprint();
   const [activeTab, setActiveTab] = useState("steps");
+
+  // Feedback events for the protocol (real-time feedback log)
+  const { data: feedbackEventData } = useFeedbackEvents(protocolId);
+  const answerClarification = useFeedbackAnswerClarification();
 
   // WebSocket real-time updates: listen for protocol & step changes
   const protocolChannel = `protocol:${protocolId}`;
@@ -343,6 +349,14 @@ export default function ProtocolDetailPage({ params }: { params: Promise<{ id: s
           </CardHeader>
           <CardContent>
             <p className="font-medium">{formatRelativeTime(protocol.created_at)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Feedback Events</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="font-medium">{feedbackEventData?.total ?? feedbackEventData?.events?.length ?? 0}</p>
           </CardContent>
         </Card>
       </div>

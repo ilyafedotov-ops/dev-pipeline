@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { LoadingState } from "@/components/ui/loading-state";
 import {
   Select,
@@ -18,7 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useProtocolFeedback, useSubmitProtocolFeedback } from "@/lib/api";
+import { useFeedbackAnswerClarification, useProtocolFeedback, useSubmitProtocolFeedback } from "@/lib/api";
 import type { FeedbackCreate } from "@/lib/api/types";
 import { formatRelativeTime } from "@/lib/format";
 
@@ -38,8 +40,11 @@ type FeedbackAction = keyof typeof feedbackActionConfig;
 export function FeedbackTab({ protocolId }: FeedbackTabProps) {
   const { data: feedback, isLoading } = useProtocolFeedback(protocolId);
   const submitFeedback = useSubmitProtocolFeedback();
+  const answerClarification = useFeedbackAnswerClarification();
   const [action, setAction] = useState<FeedbackAction>("approve");
   const [message, setMessage] = useState("");
+  const [clarificationId, setClarificationId] = useState("");
+  const [clarificationAnswer, setClarificationAnswer] = useState("");
 
   const handleSubmit = async () => {
     if (!message.trim()) {
@@ -152,6 +157,57 @@ export function FeedbackTab({ protocolId }: FeedbackTabProps) {
               })}
             </div>
           )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <HelpCircle className="h-5 w-5" />
+            Answer Clarification
+          </CardTitle>
+          <CardDescription>
+            Resolve open clarification questions via feedback
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="clarification-id">Clarification ID</Label>
+              <Input
+                id="clarification-id"
+                type="number"
+                value={clarificationId}
+                onChange={(e) => setClarificationId(e.target.value)}
+                placeholder="Enter clarification ID"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="clarification-answer">Answer</Label>
+              <Input
+                id="clarification-answer"
+                value={clarificationAnswer}
+                onChange={(e) => setClarificationAnswer(e.target.value)}
+                placeholder="Enter your answer"
+              />
+            </div>
+          </div>
+          <Button
+            onClick={() => {
+              answerClarification.mutate({
+                clarificationId: Number(clarificationId),
+                answer: clarificationAnswer,
+              });
+              setClarificationAnswer("");
+            }}
+            disabled={
+              answerClarification.isPending ||
+              !clarificationId ||
+              !clarificationAnswer.trim()
+            }
+          >
+            <Send className="mr-2 h-4 w-4" />
+            {answerClarification.isPending ? "Submitting..." : "Submit Answer"}
+          </Button>
         </CardContent>
       </Card>
     </div>

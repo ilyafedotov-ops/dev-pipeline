@@ -45,19 +45,23 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   useAgentAssignments,
+  useAgentDefaults,
   useAgentHealth,
+  useAgentHealthCheck,
   useAgentMetrics,
   useAgentPrompts,
   useAgents,
   useProjects,
   useUpdateAgentAssignments,
   useUpdateAgentConfig,
+  useUpdateAgentDefaults,
   useUpdateAgentPrompt,
   useTestAgentSetup,
 } from "@/lib/api";
 import type {
   Agent,
   AgentAssignments,
+  AgentDefaults as AgentDefaultsType,
   AgentPromptTemplate,
   AgentTestResult,
   AgentUpdate,
@@ -158,6 +162,11 @@ export default function AgentsPage() {
   const updateAssignments = useUpdateAgentAssignments();
   const updatePrompt = useUpdateAgentPrompt();
   const testAgentSetup = useTestAgentSetup();
+
+  // Agent defaults panel
+  const { data: agentDefaults, isLoading: defaultsLoading } = useAgentDefaults(projectId);
+  const updateAgentDefaults = useUpdateAgentDefaults();
+  const [defaultsDraft, setDefaultsDraft] = useState<AgentDefaultsType | null>(null);
 
   const [selectedAgent, setSelectedAgent] = useState<AgentDraft | null>(null);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
@@ -527,10 +536,11 @@ export default function AgentsPage() {
       </div>
 
       <Tabs defaultValue="agents" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="agents">Agents</TabsTrigger>
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
           <TabsTrigger value="prompts">Prompts</TabsTrigger>
+          <TabsTrigger value="defaults">Defaults</TabsTrigger>
         </TabsList>
 
         <TabsContent value="agents" className="mt-4 space-y-6">
@@ -575,72 +585,12 @@ export default function AgentsPage() {
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {agents.map((agent) => (
-              <Card
+              <AgentCardWithHealth
                 key={agent.id}
-                className="relative overflow-hidden transition-shadow hover:shadow-lg"
-              >
-                <div
-                  className={`absolute top-0 left-0 h-full w-1 ${statusColors[agent.healthStatus].bg}`}
-                />
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <Bot className="h-5 w-5 text-blue-500" />
-                      <CardTitle className="text-base">{agent.name}</CardTitle>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <Circle
-                        className={`h-2 w-2 fill-current ${statusColors[agent.healthStatus].bg.replace("bg-", "text-")}`}
-                      />
-                      <span className="text-muted-foreground text-xs">
-                        {statusColors[agent.healthStatus].text}
-                      </span>
-                    </div>
-                  </div>
-                  <CardDescription className="text-xs">{agent.kind}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Model</span>
-                      <span className="max-w-[140px] truncate font-mono text-xs">
-                        {agent.default_model || "-"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Command / Endpoint</span>
-                      <span className="max-w-[140px] truncate text-xs">
-                        {agent.command || agent.endpoint || "-"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Active Steps</span>
-                      <Badge
-                        variant={agent.activeSteps > 0 ? "default" : "secondary"}
-                        className="text-xs"
-                      >
-                        {agent.activeSteps}
-                      </Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Capabilities</span>
-                      <span className="text-xs">{agent.capabilities?.length || 0}</span>
-                    </div>
-                    {agent.healthDetail && (
-                      <p className="text-muted-foreground truncate text-xs">{agent.healthDetail}</p>
-                    )}
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full bg-transparent"
-                    onClick={() => openAgentConfig(agent)}
-                  >
-                    <Settings className="mr-2 h-3 w-3" />
-                    Configure
-                  </Button>
-                </CardContent>
-              </Card>
+                agent={agent}
+                statusColors={statusColors}
+                onConfigure={openAgentConfig}
+              />
             ))}
           </div>
         </TabsContent>
@@ -773,6 +723,68 @@ export default function AgentsPage() {
               ))
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="defaults" className="mt-4 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Agent Defaults</CardTitle>
+              <CardDescription>
+                Configure default agents for each workflow process.
+                {projectId ? " Editing project-level defaults." : " Editing global defaults."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {defaultsLoading ? (
+                <LoadingState message="Loading defaults..." />
+              ) : (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {(Object.entries(agentDefaults || {}) as [string, string | null | undefined | Record<string, string | null>][]).map(
+                      ([key, value]) =>
+                        key !== "prompts" ? (
+                          <div key={key} className="space-y-2">
+                            <Label>{key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</Label>
+                            <Input
+                              value={
+                                defaultsDraft?.[key as keyof AgentDefaultsType] as string ?? (value as string) ?? ""
+                              }
+                              onChange={(e) =>
+                                setDefaultsDraft((prev) => ({
+                                  ...(prev || agentDefaults || {}),
+                                  [key]: e.target.value || null,
+                                }))
+                              }
+                              placeholder={`Default ${key} agent`}
+                            />
+                          </div>
+                        ) : null
+                    )}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={() => {
+                        const payload = defaultsDraft || agentDefaults || {};
+                        updateAgentDefaults.mutate(
+                          { projectId, defaults: payload as AgentDefaultsType },
+                          {
+                            onSuccess: () => {
+                              toast.success("Defaults saved");
+                              setDefaultsDraft(null);
+                            },
+                            onError: (err) => toast.error(err.message || "Failed to save defaults"),
+                          }
+                        );
+                      }}
+                      disabled={updateAgentDefaults.isPending}
+                    >
+                      {updateAgentDefaults.isPending ? "Saving..." : "Save Defaults"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
@@ -1174,6 +1186,104 @@ export default function AgentsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+const statusColors: Record<
+  AgentCard["healthStatus"],
+  { bg: string; text: string }
+> = {
+  available: { bg: "bg-green-500", text: "Available" },
+  unavailable: { bg: "bg-red-500", text: "Unavailable" },
+  unknown: { bg: "bg-gray-400", text: "Unknown" },
+  disabled: { bg: "bg-gray-300", text: "Disabled" },
+  configured: { bg: "bg-blue-500", text: "Configured" },
+  not_installed: { bg: "bg-amber-500", text: "Not Installed" },
+};
+
+/** Per-agent card with individual health polling via useAgentHealthCheck */
+function AgentCardWithHealth({
+  agent,
+  statusColors: colors,
+  onConfigure,
+}: {
+  agent: AgentCard;
+  statusColors: typeof statusColors;
+  onConfigure: (agent: AgentCard) => void;
+}) {
+  const { data: healthCheck } = useAgentHealthCheck(agent.id);
+
+  return (
+    <Card className="relative overflow-hidden transition-shadow hover:shadow-lg">
+      <div
+        className={`absolute top-0 left-0 h-full w-1 ${colors[agent.healthStatus].bg}`}
+      />
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-2">
+            <Bot className="h-5 w-5 text-blue-500" />
+            <CardTitle className="text-base">{agent.name}</CardTitle>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Circle
+              className={`h-2 w-2 fill-current ${colors[agent.healthStatus].bg.replace("bg-", "text-")}`}
+            />
+            <span className="text-muted-foreground text-xs">
+              {healthCheck
+                ? healthCheck.available
+                  ? `Up (${Math.round(healthCheck.responseTimeMs)}ms)`
+                  : "Down"
+                : colors[agent.healthStatus].text}
+            </span>
+          </div>
+        </div>
+        <CardDescription className="text-xs">{agent.kind}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Model</span>
+            <span className="max-w-[140px] truncate font-mono text-xs">
+              {agent.default_model || "-"}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Command / Endpoint</span>
+            <span className="max-w-[140px] truncate text-xs">
+              {agent.command || agent.endpoint || "-"}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Active Steps</span>
+            <Badge
+              variant={agent.activeSteps > 0 ? "default" : "secondary"}
+              className="text-xs"
+            >
+              {agent.activeSteps}
+            </Badge>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Capabilities</span>
+            <span className="text-xs">{agent.capabilities?.length || 0}</span>
+          </div>
+          {agent.healthDetail && (
+            <p className="text-muted-foreground truncate text-xs">{agent.healthDetail}</p>
+          )}
+          {healthCheck?.version && (
+            <p className="text-muted-foreground truncate text-xs">v{healthCheck.version}</p>
+          )}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full bg-transparent"
+          onClick={() => onConfigure(agent)}
+        >
+          <Settings className="mr-2 h-3 w-3" />
+          Configure
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
