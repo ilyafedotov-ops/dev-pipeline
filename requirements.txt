@@ -31,3 +31,6 @@ opentelemetry-instrumentation-fastapi==0.48b0
 opentelemetry-instrumentation-httpx==0.48b0
 opentelemetry-instrumentation-redis==0.48b0
 opentelemetry-instrumentation-requests==0.48b0
+
+# Sentry error tracking (optional)
+# sentry-sdk[fastapi]>=2.0.0

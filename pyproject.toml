@@ -61,6 +61,11 @@ otel = [
     "opentelemetry-instrumentation-requests==0.48b0",
 ]
 
+# Sentry error tracking (optional)
+sentry = [
+    "sentry-sdk[fastapi]>=2.0.0",
+]
+
 # Development & testing tools
 dev = [
     "pytest==9.0.2",
@@ -70,9 +75,9 @@ dev = [
     "mypy>=1.10",
 ]
 
-# Convenience: install everything (otel + dev)
+# Convenience: install everything (otel + sentry + dev)
 all = [
-    "devgodzilla[otel,dev]",
+    "devgodzilla[otel,sentry,dev]",
 ]
 
 # ── Hatch build configuration ────────────────────────────────────────────────

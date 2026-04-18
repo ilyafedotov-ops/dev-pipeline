@@ -2,16 +2,34 @@
 
 import { useState } from "react";
 
-import { Bell, CheckCircle2, Globe, SettingsIcon, Shield,XCircle } from "lucide-react";
+import {
+  Bell,
+  CheckCircle2,
+  Copy,
+  Globe,
+  Key,
+  Link,
+  Save,
+  SettingsIcon,
+  Shield,
+  User,
+  XCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  useChangePassword,
+  useUpdateProfile,
+  useUserProfile,
+} from "@/lib/api/hooks/use-profile";
 import { apiClient, useHealth } from "@/lib/api";
 
 export default function SettingsPage() {
@@ -35,27 +53,28 @@ export default function SettingsPage() {
         <p className="text-muted-foreground">Manage your console configuration and preferences.</p>
       </div>
 
-      <Tabs defaultValue="api" className="space-y-6">
+      <Tabs defaultValue="general" className="space-y-6">
         <TabsList>
-          <TabsTrigger value="api">
-            <Globe className="mr-2 h-4 w-4" />
-            API
-          </TabsTrigger>
-          <TabsTrigger value="preferences">
+          <TabsTrigger value="general">
             <SettingsIcon className="mr-2 h-4 w-4" />
-            Preferences
+            General
+          </TabsTrigger>
+          <TabsTrigger value="account">
+            <User className="mr-2 h-4 w-4" />
+            Account
+          </TabsTrigger>
+          <TabsTrigger value="integrations">
+            <Link className="mr-2 h-4 w-4" />
+            Integrations
           </TabsTrigger>
           <TabsTrigger value="notifications">
             <Bell className="mr-2 h-4 w-4" />
             Notifications
           </TabsTrigger>
-          <TabsTrigger value="security">
-            <Shield className="mr-2 h-4 w-4" />
-            Security
-          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="api" className="space-y-6">
+        {/* ─── Tab 1: General ─── */}
+        <TabsContent value="general" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>API Configuration</CardTitle>
@@ -128,9 +147,7 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        <TabsContent value="preferences" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Display Preferences</CardTitle>
@@ -145,14 +162,20 @@ export default function SettingsPage() {
                 <Switch defaultChecked />
               </div>
               <Separator />
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Compact View</p>
-                  <p className="text-muted-foreground text-sm">
-                    Show more items in tables and lists
-                  </p>
-                </div>
-                <Switch />
+              <div className="space-y-2">
+                <Label>Language</Label>
+                <Select defaultValue="en">
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="Select language" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="en">English</SelectItem>
+                    <SelectItem value="es">Español</SelectItem>
+                    <SelectItem value="fr">Français</SelectItem>
+                    <SelectItem value="de">Deutsch</SelectItem>
+                    <SelectItem value="ja">日本語</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <Separator />
               <div className="flex items-center justify-between">
@@ -166,28 +189,157 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ─── Tab 2: Account ─── */}
+        <TabsContent value="account" className="space-y-6">
+          <AccountSettings />
+        </TabsContent>
+
+        {/* ─── Tab 3: Integrations ─── */}
+        <TabsContent value="integrations" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>GitHub Integration</CardTitle>
+              <CardDescription>Connect your GitHub account for repository access.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">GitHub Connection</p>
+                  <p className="text-muted-foreground text-sm">
+                    Connect to GitHub for pull request and branch management
+                  </p>
+                </div>
+                <Button variant="outline">Connect GitHub</Button>
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">Status</p>
+                  <p className="text-muted-foreground text-sm">Not connected</p>
+                </div>
+                <XCircle className="h-5 w-5 text-muted-foreground" />
+              </div>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Timezone</CardTitle>
-              <CardDescription>
-                Set your preferred timezone for displaying dates and times.
-              </CardDescription>
+              <CardTitle>Windmill Integration</CardTitle>
+              <CardDescription>Windmill workflow engine connection status.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">Windmill Server</p>
+                  <p className="text-muted-foreground text-sm">
+                    Connection to the Windmill automation engine
+                  </p>
+                </div>
+                <Button variant="outline" onClick={() => refetch()}>
+                  Test Connection
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>API Access</CardTitle>
+              <CardDescription>Manage your API token and webhook configuration.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="timezone">Timezone</Label>
-                <Input id="timezone" placeholder="UTC" />
+                <Label>API Token</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    value={apiClient.getConfig().token || "No token configured"}
+                    readOnly
+                    className="font-mono text-sm"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      const t = apiClient.getConfig().token;
+                      if (t) {
+                        navigator.clipboard.writeText(t);
+                        toast.success("API token copied to clipboard");
+                      } else {
+                        toast.error("No API token configured");
+                      }
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <Separator />
+              <div className="space-y-2">
+                <Label>Webhook URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    readOnly
+                    value={`${window.location.origin}/api/v1/webhooks/events`}
+                    className="font-mono text-sm"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      navigator.clipboard.writeText(
+                        `${window.location.origin}/api/v1/webhooks/events`
+                      );
+                      toast.success("Webhook URL copied to clipboard");
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  Use this URL to receive webhook events from external services
+                </p>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="notifications">
+        {/* ─── Tab 4: Notifications ─── */}
+        <TabsContent value="notifications" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Notification Settings</CardTitle>
-              <CardDescription>Choose when and how you want to be notified.</CardDescription>
+              <CardTitle>Notification Channels</CardTitle>
+              <CardDescription>Choose how you want to receive notifications.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">Email Notifications</p>
+                  <p className="text-muted-foreground text-sm">
+                    Receive notifications via email
+                  </p>
+                </div>
+                <Switch defaultChecked />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">Webhook Notifications</p>
+                  <p className="text-muted-foreground text-sm">
+                    Send notifications to an external webhook endpoint
+                  </p>
+                </div>
+                <Switch />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Event Notifications</CardTitle>
+              <CardDescription>Choose which events trigger notifications.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
@@ -223,50 +375,198 @@ export default function SettingsPage() {
                 </div>
                 <Switch defaultChecked />
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="security">
-          <Card>
-            <CardHeader>
-              <CardTitle>Security Settings</CardTitle>
-              <CardDescription>Manage security and access control settings.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+              <Separator />
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium">Require Authentication</p>
+                  <p className="font-medium">Work Item Updates</p>
                   <p className="text-muted-foreground text-sm">
-                    Require API token for all requests
+                    Notify on work item status changes
+                  </p>
+                </div>
+                <Switch defaultChecked />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">Agent Activity</p>
+                  <p className="text-muted-foreground text-sm">
+                    Notify when agents start or complete tasks
                   </p>
                 </div>
                 <Switch />
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Session Timeout</p>
-                  <p className="text-muted-foreground text-sm">
-                    Auto-logout after 30 minutes of inactivity
-                  </p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Audit Logging</p>
-                  <p className="text-muted-foreground text-sm">
-                    Log all API requests for audit trail
-                  </p>
-                </div>
-                <Switch defaultChecked />
               </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ─── Account Settings Sub-component ───
+
+function AccountSettings() {
+  const { data: user, isLoading } = useUserProfile();
+  const updateProfile = useUpdateProfile();
+  const changePassword = useChangePassword();
+
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [initialized, setInitialized] = useState(false);
+
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  // Sync user data to local state once loaded
+  if (user && !initialized) {
+    setDisplayName(user.name || "");
+    setEmail(user.email || "");
+    setInitialized(true);
+  }
+
+  const handleSaveProfile = () => {
+    updateProfile.mutate({ name: displayName, email });
+  };
+
+  const handleChangePassword = () => {
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+    changePassword.mutate(
+      { old_password: oldPassword, new_password: newPassword },
+      {
+        onSuccess: () => {
+          setOldPassword("");
+          setNewPassword("");
+          setConfirmPassword("");
+        },
+      }
+    );
+  };
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Profile Information</CardTitle>
+          <CardDescription>
+            Manage your display name, email, and other account details.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {isLoading ? (
+            <p className="text-muted-foreground text-sm">Loading profile...</p>
+          ) : user ? (
+            <div className="rounded-lg border p-4 space-y-2">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">User ID</span>
+                  <p className="font-mono">{user.id}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Role</span>
+                  <p className="capitalize">{user.role}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Member Since</span>
+                  <p>{user.created_at ? new Date(user.created_at).toLocaleDateString() : "N/A"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Company</span>
+                  <p>{user.company || "N/A"}</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              Unable to load profile. Ensure you are logged in.
+            </p>
+          )}
+
+          <Separator />
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="displayName">Display Name</Label>
+              <Input
+                id="displayName"
+                placeholder="Your display name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="accountEmail">Email</Label>
+              <Input
+                id="accountEmail"
+                type="email"
+                placeholder="your@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <Button
+              onClick={handleSaveProfile}
+              disabled={updateProfile.isPending}
+            >
+              <Save className="mr-2 h-4 w-4" />
+              {updateProfile.isPending ? "Saving..." : "Save Profile"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Change Password</CardTitle>
+          <CardDescription>Update your account password.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="oldPassword">Current Password</Label>
+            <Input
+              id="oldPassword"
+              type="password"
+              placeholder="Enter current password"
+              value={oldPassword}
+              onChange={(e) => setOldPassword(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="newPassword">New Password</Label>
+            <Input
+              id="newPassword"
+              type="password"
+              placeholder="Enter new password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword">Confirm New Password</Label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              placeholder="Confirm new password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+          </div>
+          <Button
+            onClick={handleChangePassword}
+            disabled={changePassword.isPending || !oldPassword || !newPassword}
+          >
+            <Key className="mr-2 h-4 w-4" />
+            {changePassword.isPending ? "Changing..." : "Change Password"}
+          </Button>
+        </CardContent>
+      </Card>
+    </>
   );
 }

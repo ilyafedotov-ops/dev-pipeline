@@ -12,6 +12,7 @@ except ImportError:
     SLOWAPI_AVAILABLE = False
 
 from devgodzilla.api import schemas
+from devgodzilla.api.sentry import init_sentry
 from devgodzilla.services.telemetry import (
     TelemetryConfig,
     get_telemetry,
@@ -45,6 +46,9 @@ get_log_buffer()
 
 # Resolve config at module level so routes / lifespan can use it.
 config = get_config()
+
+# Initialise Sentry error tracking (no-op when DSN is not configured).
+init_sentry()
 
 
 @asynccontextmanager
