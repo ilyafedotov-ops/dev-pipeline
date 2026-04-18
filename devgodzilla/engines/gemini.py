@@ -4,153 +4,114 @@ DevGodzilla Gemini CLI Engine
 Engine adapter for Google Gemini CLI tool.
 """
 
-import subprocess
-import tempfile
+import os
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from devgodzilla.engines.interface import (
-    EngineInterface,
+    EngineKind,
     EngineMetadata,
     EngineRequest,
     EngineResult,
-    EngineCapability,
+    SandboxMode,
 )
+from devgodzilla.engines.cli_adapter import CLIEngine
+from devgodzilla.engines.registry import register_engine
 
 
-class GeminiEngine(EngineInterface):
+class GeminiEngine(CLIEngine):
     """
-    Engine adapter for Gemini CLI.
-    
+    Engine adapter for the Google Gemini CLI.
+
     Uses the `gemini` CLI tool to execute coding tasks.
     Supports multimodal inputs and long context.
+
+    Example:
+        engine = GeminiEngine(default_model="gemini-2.5-pro")
+        result = engine.execute(request)
     """
-    
+
     def __init__(
         self,
-        model: str = "gemini-2.5-pro",
-        timeout: int = 300,
-        command: str = "gemini",
+        *,
+        default_timeout: int = 300,
+        default_model: Optional[str] = None,
     ) -> None:
-        self._model = model
-        self._timeout = timeout
-        self._command = command
-    
+        super().__init__(
+            default_timeout=default_timeout,
+            default_model=default_model or os.environ.get(
+                "DEVGODZILLA_GEMINI_MODEL", "gemini-2.5-pro"
+            ),
+        )
+
     @property
     def metadata(self) -> EngineMetadata:
         return EngineMetadata(
-            engine_id="gemini-cli",
-            name="Gemini CLI",
-            version="1.0.0",
+            id="gemini-cli",
+            display_name="Gemini CLI",
+            kind=EngineKind.CLI,
+            default_model=self._default_model,
+            description="Google Gemini CLI for code generation and review",
             capabilities=[
-                EngineCapability.CODE_GENERATION,
-                EngineCapability.CODE_REVIEW,
-                EngineCapability.MULTIMODAL,
-                EngineCapability.LONG_CONTEXT,
-            ],
-            default_model=self._model,
-            supported_models=[
-                "gemini-2.5-pro",
-                "gemini-2.5-flash",
-                "gemini-2.0-flash",
+                "plan", "execute", "qa", "multi-file",
+                "multimodal", "long-context",
             ],
         )
-    
-    def execute(self, request: EngineRequest) -> EngineResult:
-        """Execute a coding task using Gemini CLI."""
-        try:
-            # Build command
-            cmd = [self._command]
-            
-            # Add model if specified
-            if request.model:
-                cmd.extend(["--model", request.model])
-            
-            # Write prompt to temp file if long
-            prompt = self._build_prompt(request)
-            
-            if len(prompt) > 1000:
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".md", delete=False
-                ) as f:
-                    f.write(prompt)
-                    prompt_file = f.name
-                cmd.extend(["--prompt-file", prompt_file])
-            else:
-                cmd.extend(["--prompt", prompt])
-            
-            # Set working directory
-            cwd = request.workspace_path or "."
-            
-            # Execute
-            result = subprocess.run(
-                cmd,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=self._timeout,
-            )
-            
-            if result.returncode == 0:
-                return EngineResult(
-                    success=True,
-                    output=result.stdout,
-                    files_modified=[],  # Parse from output if available
-                    metadata={
-                        "model": request.model or self._model,
-                        "engine": "gemini-cli",
-                    },
-                )
-            else:
-                return EngineResult(
-                    success=False,
-                    output=result.stdout,
-                    error=result.stderr or "Gemini CLI returned non-zero exit code",
-                    metadata={"returncode": result.returncode},
-                )
-                
-        except subprocess.TimeoutExpired:
-            return EngineResult(
-                success=False,
-                error=f"Gemini CLI timed out after {self._timeout}s",
-            )
-        except FileNotFoundError:
-            return EngineResult(
-                success=False,
-                error=f"Gemini CLI not found. Install with: pip install gemini-cli",
-            )
-        except Exception as e:
-            return EngineResult(
-                success=False,
-                error=f"Gemini CLI error: {e}",
-            )
-    
+
+    def _get_command_name(self) -> str:
+        return "gemini"
+
+    def _build_command(
+        self,
+        req: EngineRequest,
+        sandbox: SandboxMode,
+    ) -> List[str]:
+        """Build gemini CLI command."""
+        model = self._get_model(req)
+        cwd = Path(req.working_dir)
+
+        cmd = [
+            "gemini",
+        ]
+
+        if model:
+            cmd.extend(["--model", model])
+
+        # Sandbox mapping – gemini CLI may not have direct equivalents,
+        # but we pass a sandbox-hint flag if supported by the tool.
+        extra = req.extra or {}
+
+        if extra.get("gemini_flags"):
+            cmd.extend(extra["gemini_flags"])
+
+        # Read prompt from stdin
+        cmd.append("-")
+
+        return cmd
+
     def check_availability(self) -> bool:
         """Check if Gemini CLI is available."""
-        try:
-            result = subprocess.run(
-                [self._command, "--version"],
-                capture_output=True,
-                timeout=10,
-            )
-            return result.returncode == 0
-        except Exception:
+        if not super().check_availability():
             return False
-    
-    def _build_prompt(self, request: EngineRequest) -> str:
-        """Build the prompt from request."""
-        parts = []
-        
-        if request.system_prompt:
-            parts.append(f"## System Instructions\n{request.system_prompt}\n")
-        
-        parts.append(f"## Task\n{request.prompt}\n")
-        
-        if request.context:
-            parts.append(f"## Context\n{request.context}\n")
-        
-        if request.constraints:
-            constraints = "\n".join(f"- {c}" for c in request.constraints)
-            parts.append(f"## Constraints\n{constraints}\n")
-        
-        return "\n".join(parts)
+
+        if os.environ.get("DEVGODZILLA_ASSUME_AGENT_AUTH", "").lower() in (
+            "1", "true", "yes", "on",
+        ):
+            return True
+
+        # Gemini CLI typically requires GOOGLE_API_KEY or similar auth
+        return bool(
+            os.environ.get("GOOGLE_API_KEY")
+            or os.environ.get("GEMINI_API_KEY")
+        )
+
+
+def register_gemini_engine(*, default: bool = False) -> GeminiEngine:
+    """
+    Register GeminiEngine in the global registry.
+
+    Returns the registered engine instance.
+    """
+    engine = GeminiEngine()
+    register_engine(engine, default=default)
+    return engine

@@ -24,9 +24,11 @@ from devgodzilla.engines.cli_adapter import CLIEngine, run_cli_command
 from devgodzilla.engines.ide import IDEEngine, IDECommand, IDECommandFile
 from devgodzilla.engines.api_engine import APIEngine, APIRequestConfig, APIResponse
 from devgodzilla.engines.codex import CodexEngine, register_codex_engine
+from devgodzilla.engines.gemini import GeminiEngine, register_gemini_engine
 from devgodzilla.engines.claude_code import ClaudeCodeEngine, register_claude_code_engine
 from devgodzilla.engines.opencode import OpenCodeEngine, register_opencode_engine
 from devgodzilla.engines.cursor import CursorEngine, register_cursor_engine
+from devgodzilla.engines.windsurf import WindsurfEngine, register_windsurf_engine
 from devgodzilla.engines.copilot import (
     CopilotEngine,
     CopilotAPIEngine,
@@ -81,12 +83,16 @@ __all__ = [
     # Engine implementations
     "CodexEngine",
     "register_codex_engine",
+    "GeminiEngine",
+    "register_gemini_engine",
     "ClaudeCodeEngine",
     "register_claude_code_engine",
     "OpenCodeEngine",
     "register_opencode_engine",
     "CursorEngine",
     "register_cursor_engine",
+    "WindsurfEngine",
+    "register_windsurf_engine",
     "CopilotEngine",
     "CopilotAPIEngine",
     "register_copilot_engine",

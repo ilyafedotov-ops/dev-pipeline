@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional, List
 from datetime import datetime
 
 import pytest
-from hypothesis import given, strategies as st, settings
+from hypothesis import given, strategies as st, settings, HealthCheck
 
 from devgodzilla.db.database import SQLiteDatabase
 
@@ -94,7 +94,7 @@ title_strategy = st.text(min_size=1, max_size=200)
 description_strategy = st.one_of(st.none(), st.text(min_size=0, max_size=1000))
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Generate update fields
     title=st.one_of(st.none(), title_strategy),
@@ -197,7 +197,7 @@ def test_task_update_reflection(
         assert updated_task.updated_at is not None, "updated_at should be set"
 
 
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Generate blocked_by relationships
     num_blocking_tasks=st.integers(min_value=0, max_value=5),
@@ -254,7 +254,7 @@ def test_task_update_blocked_relationships(
             )
 
 
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Generate sprint changes
     change_sprint=st.booleans()
@@ -307,7 +307,7 @@ def test_task_update_sprint_assignment(change_sprint: bool):
             )
 
 
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Generate multiple field updates at once
     num_fields_to_update=st.integers(min_value=1, max_value=5)

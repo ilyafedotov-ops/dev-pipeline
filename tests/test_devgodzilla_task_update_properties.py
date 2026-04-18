@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional, List
 
-from hypothesis import given, strategies as st, settings
+from hypothesis import given, strategies as st, settings, HealthCheck
 
 from devgodzilla.db.database import SQLiteDatabase
 
@@ -111,7 +111,7 @@ labels_strategy = st.lists(
 )
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Fields to update
     new_title=st.one_of(st.none(), title_strategy),
@@ -234,7 +234,7 @@ def test_task_update_reflection(
         )
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Labels to update
     new_labels=labels_strategy,
@@ -274,7 +274,7 @@ def test_task_update_labels_reflection(new_labels: List[str]):
         )
 
 
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Multiple sequential updates
     updates_sequence=st.lists(

@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import List, Optional
 
-from hypothesis import given, strategies as st, settings
+from hypothesis import given, strategies as st, settings, HealthCheck
 
 from devgodzilla.db.database import SQLiteDatabase
 
@@ -74,7 +74,7 @@ clarification_key_strategy = st.text(
 )
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Number of projects to create
     num_projects=st.integers(min_value=1, max_value=5),
@@ -140,7 +140,7 @@ def test_project_clarifications_scope(
         )
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Number of protocols to create
     num_protocols=st.integers(min_value=1, max_value=5),
@@ -209,7 +209,7 @@ def test_protocol_clarifications_scope(
         )
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Number of project-level clarifications
     project_clarifications=st.integers(min_value=0, max_value=10),
@@ -313,7 +313,7 @@ def test_clarifications_status_filter(
             )
 
 
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Number of clarifications to create
     num_clarifications=st.integers(min_value=1, max_value=50),

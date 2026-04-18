@@ -57,10 +57,6 @@ class FeatureSpec(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
 
 class TechnicalContext(BaseModel):
@@ -92,10 +88,6 @@ class ImplementationPlan(BaseModel):
     risks: List[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
 
 class Task(BaseModel):
@@ -133,10 +125,6 @@ class TaskList(BaseModel):
             if task.parallelizable
         )
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
 
 class Entity(BaseModel):
@@ -185,10 +173,6 @@ class SpecMetadata(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
 
 class SpecKitProjectStatus(BaseModel):

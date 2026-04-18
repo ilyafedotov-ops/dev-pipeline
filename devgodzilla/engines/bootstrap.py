@@ -11,7 +11,9 @@ from devgodzilla.engines.registry import get_registry
 from devgodzilla.engines.claude_code import ClaudeCodeEngine
 from devgodzilla.engines.codex import CodexEngine
 from devgodzilla.engines.dummy import DummyEngine
+from devgodzilla.engines.gemini import GeminiEngine
 from devgodzilla.engines.opencode import OpenCodeEngine
+from devgodzilla.engines.windsurf import WindsurfEngine
 from devgodzilla.logging import get_logger
 from devgodzilla.services.agent_config import AgentConfigService
 from devgodzilla.services.base import ServiceContext
@@ -33,6 +35,8 @@ def _register_from_agent_config(*, replace: bool) -> None:
         "opencode": OpenCodeEngine,
         "codex": CodexEngine,
         "claude-code": ClaudeCodeEngine,
+        "gemini-cli": GeminiEngine,
+        "windsurf": WindsurfEngine,
     }
 
     for agent in agents:

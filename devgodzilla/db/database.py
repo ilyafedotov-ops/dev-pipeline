@@ -14,6 +14,13 @@ from typing import Any, Dict, Iterable, List, Optional, Protocol, Union
 
 from devgodzilla.events_catalog import event_type_variants, infer_event_category, normalize_event_type
 from devgodzilla.logging import get_logger
+
+# Try to import the SQLite tracing wrapper
+try:
+    from devgodzilla.db.tracing import TracedConnection, OTEL_AVAILABLE as _DB_TRACING_AVAILABLE
+except ImportError:
+    _DB_TRACING_AVAILABLE = False
+    TracedConnection = None  # type: ignore
 from devgodzilla.models.domain import (
     AgileTask,
     Clarification,
@@ -370,9 +377,11 @@ class SQLiteDatabase:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def _connect(self) -> sqlite3.Connection:
+    def _connect(self):
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        if _DB_TRACING_AVAILABLE and TracedConnection is not None:
+            return TracedConnection(conn)
         return conn
 
     @contextmanager

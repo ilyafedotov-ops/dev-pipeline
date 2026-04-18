@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -38,10 +40,131 @@ logger = get_logger(__name__)
 
 get_log_buffer()
 
+# Resolve config at module level so routes / lifespan can use it.
+config = get_config()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- Startup ---
+
+    # bootstrap_engines
+    bootstrap_default_engines()
+
+    # bootstrap_database
+    from devgodzilla.cli.main import get_db as cli_get_db
+    from devgodzilla.cli.main import get_service_context as cli_get_service_context
+
+    db = cli_get_db()
+    db.init_schema()
+    try:
+        from devgodzilla.services.event_persistence import install_db_event_sink
+
+        install_db_event_sink(db_provider=cli_get_db)
+    except Exception:
+        pass
+    try:
+        from devgodzilla.services.agent_config import AgentConfigService
+
+        ctx = cli_get_service_context()
+        cfg = AgentConfigService(ctx, db=db)
+        cfg.migrate_yaml_defaults_to_db()
+    except Exception as exc:
+        logger.error(
+            "agent_defaults_migration_failed",
+            extra={"error": str(exc)},
+        )
+
+    # recover_protocol_runs
+    try:
+        ctx = cli_get_service_context()
+        db = cli_get_db()
+        windmill_client = None
+        mode = OrchestratorMode.LOCAL
+        if getattr(ctx.config, "windmill_enabled", False):
+            windmill_client = WindmillClient(
+                WindmillConfig(
+                    base_url=ctx.config.windmill_url or "http://localhost:8000",
+                    token=ctx.config.windmill_token or "",
+                    workspace=getattr(ctx.config, "windmill_workspace", "devgodzilla"),
+                )
+            )
+            mode = OrchestratorMode.WINDMILL
+
+        orchestrator = OrchestratorService(
+            context=ctx,
+            db=db,
+            windmill_client=windmill_client,
+            mode=mode,
+        )
+        recovered = orchestrator.recover_stuck_protocols()
+        if recovered:
+            logger.warning(
+                "protocol_recovery_actions",
+                extra={"recovered_count": len(recovered)},
+            )
+    except Exception as exc:
+        logger.error(
+            "protocol_recovery_failed",
+            extra={"error": str(exc)},
+        )
+
+    # bootstrap_sprint_integration
+    try:
+        from devgodzilla.services.sprint_event_handlers import register_sprint_event_handlers
+        register_sprint_event_handlers()
+    except Exception as e:
+        logger.error("sprint_event_handlers_registration_failed", extra={"error": str(e)})
+
+    # validate_path_contract_startup
+    report = validate_path_contract(config)
+    for warning in report.warnings:
+        logger.warning("path_contract_warning", extra={"warning": warning})
+    if not report.is_valid:
+        logger.error("path_contract_invalid", extra={"errors": report.errors})
+        joined = "; ".join(report.errors)
+        raise RuntimeError(f"Path contract validation failed: {joined}")
+
+    # initialize_telemetry
+    import os
+
+    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    sample_rate = float(os.environ.get("OTEL_SAMPLE_RATE", "1.0"))
+    enable_console = os.environ.get("OTEL_CONSOLE_EXPORT", "").lower() in ("1", "true", "yes")
+
+    telemetry_config = TelemetryConfig(
+        service_name="devgodzilla-api",
+        service_version=app.version,
+        environment=os.environ.get("DEVGODZILLA_ENV", "development"),
+        otlp_endpoint=otlp_endpoint,
+        sample_rate=sample_rate,
+        enable_console_export=enable_console,
+    )
+
+    if init_telemetry(telemetry_config):
+        get_telemetry().instrument_fastapi(app)
+        logger.info(
+            "telemetry_enabled",
+            extra={
+                "otlp_endpoint": otlp_endpoint or "none",
+                "sample_rate": sample_rate,
+                "console_export": enable_console,
+            },
+        )
+    else:
+        logger.info("telemetry_disabled", extra={"reason": "not available"})
+
+    yield  # App is running
+
+    # --- Shutdown ---
+    shutdown_telemetry()
+
+
 app = FastAPI(
     title="DevGodzilla API",
     description="REST API for DevGodzilla AI Development Pipeline",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Rate Limiting
@@ -55,7 +178,6 @@ else:
     logger.warning("rate_limiting_disabled", extra={"reason": "slowapi not installed"})
 
 # CORS
-config = get_config()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.cors_allow_origins or [],
@@ -90,151 +212,6 @@ app.include_router(quality.router, dependencies=auth_deps)  # /quality
 app.include_router(profile.router, dependencies=auth_deps)  # /profile
 app.include_router(templates.router, dependencies=auth_deps)  # /templates
 app.include_router(cli_executions.router, tags=["CLI Executions"], dependencies=auth_deps)  # /cli-executions
-
-
-@app.on_event("startup")
-def bootstrap_engines() -> None:
-    """
-    Register engines for API execution.
-
-    The docker dev stack frequently runs without any real agent CLI installed.
-    We always register a DummyEngine as the default so UI/flow integration can
-    be tested end-to-end.
-    """
-    bootstrap_default_engines()
-
-
-@app.on_event("startup")
-def bootstrap_database() -> None:
-    """
-    Ensure DB schema exists.
-
-    This is safe to run multiple times (CREATE TABLE IF NOT EXISTS).
-    """
-    from devgodzilla.cli.main import get_db as cli_get_db
-    from devgodzilla.cli.main import get_service_context as cli_get_service_context
-
-    db = cli_get_db()
-    db.init_schema()
-    try:
-        from devgodzilla.services.event_persistence import install_db_event_sink
-
-        install_db_event_sink(db_provider=cli_get_db)
-    except Exception:
-        pass
-    try:
-        from devgodzilla.services.agent_config import AgentConfigService
-
-        ctx = cli_get_service_context()
-        cfg = AgentConfigService(ctx, db=db)
-        cfg.migrate_yaml_defaults_to_db()
-    except Exception as exc:
-        logger.error(
-            "agent_defaults_migration_failed",
-            extra={"error": str(exc)},
-        )
-
-
-@app.on_event("startup")
-def recover_protocol_runs() -> None:
-    """Recover protocols stuck in RUNNING without active steps."""
-    try:
-        from devgodzilla.cli.main import get_db as cli_get_db
-        from devgodzilla.cli.main import get_service_context as cli_get_service_context
-
-        ctx = cli_get_service_context()
-        db = cli_get_db()
-        windmill_client = None
-        mode = OrchestratorMode.LOCAL
-        if getattr(ctx.config, "windmill_enabled", False):
-            windmill_client = WindmillClient(
-                WindmillConfig(
-                    base_url=ctx.config.windmill_url or "http://localhost:8000",
-                    token=ctx.config.windmill_token or "",
-                    workspace=getattr(ctx.config, "windmill_workspace", "devgodzilla"),
-                )
-            )
-            mode = OrchestratorMode.WINDMILL
-
-        orchestrator = OrchestratorService(
-            context=ctx,
-            db=db,
-            windmill_client=windmill_client,
-            mode=mode,
-        )
-        recovered = orchestrator.recover_stuck_protocols()
-        if recovered:
-            logger.warning(
-                "protocol_recovery_actions",
-                extra={"recovered_count": len(recovered)},
-            )
-    except Exception as exc:
-        logger.error(
-            "protocol_recovery_failed",
-            extra={"error": str(exc)},
-        )
-
-
-@app.on_event("startup")
-def bootstrap_sprint_integration() -> None:
-    """Register sprint event handlers."""
-    try:
-        from devgodzilla.services.sprint_event_handlers import register_sprint_event_handlers
-        register_sprint_event_handlers()
-    except Exception as e:
-        logger.error("sprint_event_handlers_registration_failed", extra={"error": str(e)})
-
-
-@app.on_event("startup")
-def validate_path_contract_startup() -> None:
-    """Fail fast when core folder/file path contracts are invalid."""
-    report = validate_path_contract(config)
-    for warning in report.warnings:
-        logger.warning("path_contract_warning", extra={"warning": warning})
-    if report.is_valid:
-        return
-
-    logger.error("path_contract_invalid", extra={"errors": report.errors})
-    joined = "; ".join(report.errors)
-    raise RuntimeError(f"Path contract validation failed: {joined}")
-
-
-@app.on_event("startup")
-def initialize_telemetry() -> None:
-    """Initialize OpenTelemetry distributed tracing."""
-    import os
-
-    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-    sample_rate = float(os.environ.get("OTEL_SAMPLE_RATE", "1.0"))
-    enable_console = os.environ.get("OTEL_CONSOLE_EXPORT", "").lower() in ("1", "true", "yes")
-
-    telemetry_config = TelemetryConfig(
-        service_name="devgodzilla-api",
-        service_version=app.version,
-        environment=os.environ.get("DEVGODZILLA_ENV", "development"),
-        otlp_endpoint=otlp_endpoint,
-        sample_rate=sample_rate,
-        enable_console_export=enable_console,
-    )
-
-    if init_telemetry(telemetry_config):
-        get_telemetry().instrument_fastapi(app)
-        logger.info(
-            "telemetry_enabled",
-            extra={
-                "otlp_endpoint": otlp_endpoint or "none",
-                "sample_rate": sample_rate,
-                "console_export": enable_console,
-            },
-        )
-    else:
-        logger.info("telemetry_disabled", extra={"reason": "not available"})
-
-
-@app.on_event("shutdown")
-def shutdown_telemetry_on_exit() -> None:
-    """Shutdown OpenTelemetry on application exit."""
-    shutdown_telemetry()
 
 
 @app.get("/health", response_model=schemas.Health)

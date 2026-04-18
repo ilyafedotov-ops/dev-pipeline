@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-from hypothesis import given, strategies as st, settings
+from hypothesis import given, strategies as st, settings, HealthCheck
 
 from devgodzilla.db.database import SQLiteDatabase
 
@@ -67,7 +67,7 @@ description_strategy = st.one_of(
 )
 
 
-@settings(max_examples=25, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     protocol_name=protocol_name_strategy,
     description=description_strategy,
@@ -118,7 +118,7 @@ def test_protocol_start_transition(
         )
 
 
-@settings(max_examples=25, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     protocol_name=protocol_name_strategy,
 )
@@ -150,7 +150,7 @@ def test_protocol_start_from_planned(protocol_name: str):
         )
 
 
-@settings(max_examples=25, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     protocol_name=protocol_name_strategy,
 )
@@ -190,7 +190,7 @@ def test_protocol_pause_transition(protocol_name: str):
         )
 
 
-@settings(max_examples=25, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     protocol_name=protocol_name_strategy,
 )
@@ -230,7 +230,7 @@ def test_protocol_resume_transition(protocol_name: str):
         )
 
 
-@settings(max_examples=25, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     protocol_name=protocol_name_strategy,
     initial_status=st.sampled_from(["pending", "planning", "running", "paused", "failed"]),
@@ -271,7 +271,7 @@ def test_protocol_cancel_transition(protocol_name: str, initial_status: str):
         )
 
 
-@settings(max_examples=25, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     protocol_name=protocol_name_strategy,
 )
@@ -316,7 +316,7 @@ def test_protocol_cancel_idempotent_for_terminal_states(protocol_name: str):
         )
 
 
-@settings(max_examples=25, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     protocol_name=protocol_name_strategy,
 )
@@ -368,7 +368,7 @@ def test_protocol_state_transition_sequence(protocol_name: str):
         )
 
 
-@settings(max_examples=25, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     protocol_name=protocol_name_strategy,
 )

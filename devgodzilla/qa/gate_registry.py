@@ -261,7 +261,103 @@ def create_default_registry(
         ChecklistGate,
         FormatGate,
         CoverageGate,
+        SecurityGate,
+        IntegrationTestGate,
     )
+    
+    # Import ChecklistValidator and wrap it as a gate
+    from devgodzilla.qa.checklist_validator import ChecklistValidator
+    from devgodzilla.qa.gates.interface import Gate, GateContext, GateResult, GateVerdict, Finding
+    
+    class ChecklistValidatorGate(Gate):
+        """Gate adapter that delegates to ChecklistValidator."""
+        
+        __test__ = False
+        
+        def __init__(self, validator: ChecklistValidator) -> None:
+            self._validator = validator
+        
+        @property
+        def gate_id(self) -> str:
+            return "checklist_validator"
+        
+        @property
+        def gate_name(self) -> str:
+            return "Checklist Validator Gate"
+        
+        def run(self, context: GateContext) -> GateResult:
+            import time as _time
+            from pathlib import Path as _Path
+            
+            start = _time.time()
+            workspace = _Path(context.workspace_root)
+            
+            # Collect checklist files from workspace
+            checklist_files = list(workspace.glob("**/*checklist*.md")) + \
+                              list(workspace.glob("**/*CHECKLIST*"))
+            
+            if not checklist_files:
+                return self.skip("No checklist files found")
+            
+            # Collect artifact files
+            artifacts = [
+                p for p in workspace.rglob("*")
+                if p.is_file() and p.suffix in (".py", ".js", ".ts", ".md")
+                and ".venv" not in str(p) and "node_modules" not in str(p)
+            ][:100]
+            
+            all_findings: list[Finding] = []
+            total_items = 0
+            passed_items = 0
+            
+            for checklist_file in checklist_files:
+                try:
+                    content = checklist_file.read_text()
+                    items = self._validator.parse_checklist(content)
+                    total_items += len(items)
+                    
+                    results = self._validator.validate_all(items, artifacts)
+                    for r in results:
+                        if r.passed:
+                            passed_items += 1
+                        else:
+                            all_findings.append(Finding(
+                                gate_id=self.gate_id,
+                                severity="warning",
+                                message=f"Checklist item not satisfied: {r.item_id}",
+                                metadata={
+                                    "reasoning": r.reasoning,
+                                    "confidence": r.confidence,
+                                },
+                            ))
+                except Exception as e:
+                    all_findings.append(Finding(
+                        gate_id=self.gate_id,
+                        severity="warning",
+                        message=f"Failed to process {checklist_file.name}: {e}",
+                    ))
+            
+            duration = _time.time() - start
+            
+            if total_items == 0:
+                return self.skip("No checklist items found")
+            
+            verdict = GateVerdict.PASS if passed_items == total_items else GateVerdict.WARN
+            
+            return GateResult(
+                gate_id=self.gate_id,
+                gate_name=self.gate_name,
+                verdict=verdict,
+                findings=all_findings,
+                duration_seconds=duration,
+                metadata={
+                    "total_items": total_items,
+                    "passed_items": passed_items,
+                    "checklist_files": [str(f) for f in checklist_files],
+                },
+            )
+    
+    _checklist_validator_gate = ChecklistValidatorGate(ChecklistValidator())
     
     # Standard gates with their categories
     default_gates = [
@@ -271,6 +367,9 @@ def create_default_registry(
         (ChecklistGate(), "validation"),
         (FormatGate(), "code_quality"),
         (CoverageGate(), "testing"),
+        (SecurityGate(), "security"),
+        (IntegrationTestGate(), "testing"),
+        (_checklist_validator_gate, "validation"),
     ]
     
     for gate, category in default_gates:

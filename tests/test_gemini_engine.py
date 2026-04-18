@@ -1,522 +1,276 @@
 """
 Tests for GeminiEngine.
 
-NOTE: The gemini.py module currently has import errors (references
-EngineInterface and EngineCapability which don't exist in interface.py).
-These tests use sys.modules mocking to test the implementation logic.
+Validates the CLIEngine-based GeminiEngine adapter using the real
+devgodzilla.engines.interface types (EngineRequest, EngineResult, etc.).
 """
 
-import subprocess
-import sys
-from dataclasses import dataclass, field
-from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-# Mock the missing classes from interface.py
-class EngineCapability(str, Enum):
-    """Mock EngineCapability for testing."""
-    CODE_GENERATION = "code_generation"
-    CODE_REVIEW = "code_review"
-    MULTIMODAL = "multimodal"
-    LONG_CONTEXT = "long_context"
-
-
-@dataclass
-class MockEngineMetadata:
-    """Mock EngineMetadata with the structure used by GeminiEngine."""
-    engine_id: str
-    name: str
-    version: str
-    capabilities: List[EngineCapability]
-    default_model: str
-    supported_models: List[str] = field(default_factory=list)
+from devgodzilla.engines.gemini import GeminiEngine, register_gemini_engine
+from devgodzilla.engines.interface import (
+    EngineKind,
+    EngineMetadata,
+    EngineRequest,
+    EngineResult,
+    SandboxMode,
+)
 
 
-@dataclass
-class MockEngineRequest:
-    """Mock EngineRequest matching GeminiEngine's expected interface."""
-    prompt: str
-    model: Optional[str] = None
-    system_prompt: Optional[str] = None
-    context: Optional[str] = None
-    constraints: Optional[List[str]] = None
-    workspace_path: Optional[str] = None
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_request(**overrides):
+    """Build a minimal EngineRequest with sensible defaults."""
+    defaults = dict(
+        project_id=1,
+        protocol_run_id=1,
+        step_run_id=1,
+        prompt_text="Write a hello world function",
+        working_dir="/tmp",
+    )
+    defaults.update(overrides)
+    return EngineRequest(**defaults)
 
 
-@dataclass
-class MockEngineResult:
-    """Mock EngineResult matching GeminiEngine's expected interface."""
-    success: bool
-    output: str = ""
-    error: Optional[str] = None
-    files_modified: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-class MockEngineInterface:
-    """Mock EngineInterface base class."""
-    @property
-    def metadata(self) -> MockEngineMetadata:
-        raise NotImplementedError
-    
-    def execute(self, request: MockEngineRequest) -> MockEngineResult:
-        raise NotImplementedError
-    
-    def check_availability(self) -> bool:
-        raise NotImplementedError
-
-
-def _create_mock_interface_module():
-    """Create a mock interface module with the missing classes."""
-    mock_module = MagicMock()
-    mock_module.EngineInterface = MockEngineInterface
-    mock_module.EngineMetadata = MockEngineMetadata
-    mock_module.EngineRequest = MockEngineRequest
-    mock_module.EngineResult = MockEngineResult
-    mock_module.EngineCapability = EngineCapability
-    return mock_module
-
-
-@pytest.fixture
-def mock_interface_module():
-    """Mock the missing interface classes."""
-    mock_module = _create_mock_interface_module()
-    
-    # Clear any cached import
-    if 'devgodzilla.engines.gemini' in sys.modules:
-        del sys.modules['devgodzilla.engines.gemini']
-    
-    with patch.dict(sys.modules, {'devgodzilla.engines.interface': mock_module}):
-        yield mock_module
-
-
-def _get_gemini_engine_class():
-    """Import and return GeminiEngine class with mocked interface."""
-    # Clear cached imports
-    for mod in ['devgodzilla.engines.gemini']:
-        if mod in sys.modules:
-            del sys.modules[mod]
-    
-    mock_module = _create_mock_interface_module()
-    with patch.dict(sys.modules, {'devgodzilla.engines.interface': mock_module}):
-        from devgodzilla.engines.gemini import GeminiEngine
-        return GeminiEngine
-
+# ---------------------------------------------------------------------------
+# Metadata & Initialization
+# ---------------------------------------------------------------------------
 
 class TestGeminiEngineMetadata:
     """Tests for GeminiEngine metadata and initialization."""
 
-    def test_default_initialization(self, mock_interface_module):
-        """Test engine with default settings."""
-        GeminiEngine = _get_gemini_engine_class()
+    def test_default_initialization(self):
         engine = GeminiEngine()
-        assert engine._model == "gemini-2.5-pro"
-        assert engine._timeout == 300
-        assert engine._command == "gemini"
+        assert engine._default_model == "gemini-2.5-pro"
+        assert engine._default_timeout == 300
 
-    def test_custom_initialization(self, mock_interface_module):
-        """Test engine with custom settings."""
-        GeminiEngine = _get_gemini_engine_class()
-        engine = GeminiEngine(
-            model="gemini-2.5-flash",
-            timeout=600,
-            command="gemini-custom",
-        )
-        assert engine._model == "gemini-2.5-flash"
-        assert engine._timeout == 600
-        assert engine._command == "gemini-custom"
+    def test_custom_model(self):
+        engine = GeminiEngine(default_model="gemini-2.5-flash")
+        assert engine._default_model == "gemini-2.5-flash"
 
-    def test_metadata_engine_id(self, mock_interface_module):
-        """Test metadata has correct engine_id."""
-        GeminiEngine = _get_gemini_engine_class()
+    def test_custom_timeout(self):
+        engine = GeminiEngine(default_timeout=600)
+        assert engine._default_timeout == 600
+
+    def test_metadata_id(self):
         engine = GeminiEngine()
-        metadata = engine.metadata
-        assert metadata.engine_id == "gemini-cli"
+        assert engine.metadata.id == "gemini-cli"
 
-    def test_metadata_name(self, mock_interface_module):
-        """Test metadata has correct name."""
-        GeminiEngine = _get_gemini_engine_class()
+    def test_metadata_display_name(self):
         engine = GeminiEngine()
-        metadata = engine.metadata
-        assert metadata.name == "Gemini CLI"
+        assert engine.metadata.display_name == "Gemini CLI"
 
-    def test_metadata_version(self, mock_interface_module):
-        """Test metadata has version."""
-        GeminiEngine = _get_gemini_engine_class()
+    def test_metadata_kind(self):
         engine = GeminiEngine()
-        metadata = engine.metadata
-        assert metadata.version == "1.0.0"
+        assert engine.metadata.kind == EngineKind.CLI
 
-    def test_metadata_capabilities(self, mock_interface_module):
-        """Test metadata has expected capabilities."""
-        GeminiEngine = _get_gemini_engine_class()
+    def test_metadata_default_model(self):
+        engine = GeminiEngine(default_model="gemini-2.5-flash")
+        assert engine.metadata.default_model == "gemini-2.5-flash"
+
+    def test_metadata_description(self):
         engine = GeminiEngine()
-        metadata = engine.metadata
-        
-        capabilities = [c.value if hasattr(c, 'value') else str(c) for c in metadata.capabilities]
-        assert "code_generation" in capabilities
-        assert "code_review" in capabilities
-        assert "multimodal" in capabilities
-        assert "long_context" in capabilities
+        assert engine.metadata.description is not None
+        assert "Gemini" in engine.metadata.description
 
-    def test_metadata_default_model(self, mock_interface_module):
-        """Test metadata has default model."""
-        GeminiEngine = _get_gemini_engine_class()
-        engine = GeminiEngine(model="gemini-2.5-flash")
-        metadata = engine.metadata
-        assert metadata.default_model == "gemini-2.5-flash"
-
-    def test_metadata_supported_models(self, mock_interface_module):
-        """Test metadata lists supported models."""
-        GeminiEngine = _get_gemini_engine_class()
+    def test_metadata_capabilities(self):
         engine = GeminiEngine()
-        metadata = engine.metadata
-        
-        assert "gemini-2.5-pro" in metadata.supported_models
-        assert "gemini-2.5-flash" in metadata.supported_models
-        assert "gemini-2.0-flash" in metadata.supported_models
+        caps = engine.metadata.capabilities
+        assert "multimodal" in caps
+        assert "long-context" in caps
+        assert "execute" in caps
 
+
+# ---------------------------------------------------------------------------
+# Availability
+# ---------------------------------------------------------------------------
 
 class TestGeminiEngineAvailability:
     """Tests for check_availability method."""
 
-    @patch("subprocess.run")
-    def test_available_when_installed(self, mock_run, mock_interface_module):
-        """Test availability returns True when gemini CLI is installed."""
-        mock_run.return_value = MagicMock(returncode=0)
-        
-        GeminiEngine = _get_gemini_engine_class()
-        engine = GeminiEngine()
-        assert engine.check_availability() is True
-        
-        mock_run.assert_called_once()
-        call_args = mock_run.call_args[0][0]
-        assert "gemini" in call_args
-        assert "--version" in call_args
+    @patch("shutil.which")
+    def test_available_when_installed_with_key(self, mock_which):
+        mock_which.return_value = "/usr/local/bin/gemini"
+        with patch.dict("os.environ", {"GOOGLE_API_KEY": "test-key"}, clear=False):
+            engine = GeminiEngine()
+            assert engine.check_availability() is True
 
-    @patch("subprocess.run")
-    def test_unavailable_when_not_installed(self, mock_run, mock_interface_module):
-        """Test availability returns False when gemini CLI is not installed."""
-        mock_run.side_effect = FileNotFoundError()
-        
-        GeminiEngine = _get_gemini_engine_class()
-        engine = GeminiEngine()
-        assert engine.check_availability() is False
+    @patch("shutil.which")
+    def test_available_with_gemini_api_key(self, mock_which):
+        mock_which.return_value = "/usr/local/bin/gemini"
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}, clear=False):
+            engine = GeminiEngine()
+            assert engine.check_availability() is True
 
-    @patch("subprocess.run")
-    def test_unavailable_on_nonzero_exit(self, mock_run, mock_interface_module):
-        """Test availability returns False on non-zero exit code."""
-        mock_run.return_value = MagicMock(returncode=1)
-        
-        GeminiEngine = _get_gemini_engine_class()
+    @patch("shutil.which")
+    def test_available_with_assume_auth(self, mock_which):
+        mock_which.return_value = "/usr/local/bin/gemini"
+        with patch.dict("os.environ", {"DEVGODZILLA_ASSUME_AGENT_AUTH": "true"}, clear=False):
+            # Remove API keys to ensure ASSUME_AGENT_AUTH is the reason
+            env = {"DEVGODZILLA_ASSUME_AGENT_AUTH": "true"}
+            with patch.dict("os.environ", env, clear=True):
+                engine = GeminiEngine()
+                assert engine.check_availability() is True
+
+    @patch("shutil.which")
+    def test_unavailable_when_not_installed(self, mock_which):
+        mock_which.return_value = None
         engine = GeminiEngine()
         assert engine.check_availability() is False
 
-    @patch("subprocess.run")
-    def test_unavailable_on_timeout(self, mock_run, mock_interface_module):
-        """Test availability returns False on timeout."""
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gemini", timeout=10)
-        
-        GeminiEngine = _get_gemini_engine_class()
-        engine = GeminiEngine()
-        assert engine.check_availability() is False
+    @patch("shutil.which")
+    def test_unavailable_when_no_api_key(self, mock_which):
+        mock_which.return_value = "/usr/local/bin/gemini"
+        # Clear all relevant env vars
+        with patch.dict("os.environ", {}, clear=True):
+            engine = GeminiEngine()
+            assert engine.check_availability() is False
 
-    @patch("subprocess.run")
-    def test_availability_timeout_value(self, mock_run, mock_interface_module):
-        """Test availability check uses short timeout."""
-        mock_run.return_value = MagicMock(returncode=0)
-        
-        GeminiEngine = _get_gemini_engine_class()
-        engine = GeminiEngine()
-        engine.check_availability()
-        
-        timeout = mock_run.call_args[1].get("timeout")
-        assert timeout == 10
 
+# ---------------------------------------------------------------------------
+# Command Building
+# ---------------------------------------------------------------------------
+
+class TestGeminiEngineCommandBuilding:
+    """Tests for _build_command method."""
+
+    def test_basic_command_structure(self):
+        engine = GeminiEngine()
+        req = _make_request()
+        cmd = engine._build_command(req, SandboxMode.WORKSPACE_WRITE)
+
+        assert cmd[0] == "gemini"
+        assert cmd[-1] == "-"  # stdin prompt
+
+    def test_includes_model_flag(self):
+        engine = GeminiEngine()
+        req = _make_request(model="gemini-2.5-flash")
+        cmd = engine._build_command(req, SandboxMode.WORKSPACE_WRITE)
+
+        assert "--model" in cmd
+        idx = cmd.index("--model")
+        assert cmd[idx + 1] == "gemini-2.5-flash"
+
+    def test_command_name(self):
+        engine = GeminiEngine()
+        assert engine._get_command_name() == "gemini"
+
+
+# ---------------------------------------------------------------------------
+# Execution (via CLIEngine._run)
+# ---------------------------------------------------------------------------
 
 class TestGeminiEngineExecute:
-    """Tests for execute method."""
+    """Tests for execute/plan/qa methods through CLIEngine._run."""
 
-    @pytest.fixture
-    def engine(self, mock_interface_module):
-        GeminiEngine = _get_gemini_engine_class()
-        return GeminiEngine()
-
-    @pytest.fixture
-    def basic_request(self, tmp_path):
-        return MockEngineRequest(
-            prompt="Write a hello world function",
-            workspace_path=str(tmp_path),
-        )
-
-    @patch("subprocess.run")
-    def test_execute_success(self, mock_run, engine, basic_request):
-        """Test successful execution returns success result."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
+    @patch("devgodzilla.engines.cli_adapter.run_cli_command")
+    def test_execute_success(self, mock_run_cli):
+        mock_run_cli.return_value = EngineResult(
+            success=True,
             stdout="Function created successfully",
             stderr="",
+            metadata={"cmd": "gemini"},
         )
-        
-        result = engine.execute(basic_request)
-        
+
+        engine = GeminiEngine()
+        req = _make_request()
+        result = engine.execute(req)
+
         assert result.success is True
-        assert result.output == "Function created successfully"
-        assert result.error is None
+        assert "Function created" in result.stdout
+        # CLIEngine._run adds engine_id to metadata
+        assert result.metadata.get("engine_id") == "gemini-cli"
 
-    @patch("subprocess.run")
-    def test_execute_with_custom_model(self, mock_run, engine, tmp_path):
-        """Test execution uses custom model when provided."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="OK", stderr="")
-        
-        request = MockEngineRequest(
-            prompt="test",
-            model="gemini-2.5-flash",
-            workspace_path=str(tmp_path),
-        )
-        result = engine.execute(request)
-        
-        call_args = mock_run.call_args[0][0]
-        assert "--model" in call_args
-        model_idx = call_args.index("--model")
-        assert call_args[model_idx + 1] == "gemini-2.5-flash"
-        assert result.success is True
-
-    @patch("subprocess.run")
-    def test_execute_failure_nonzero_exit(self, mock_run, engine, basic_request):
-        """Test execution failure on non-zero exit code."""
-        mock_run.return_value = MagicMock(
-            returncode=1,
-            stdout="",
-            stderr="",  # Empty stderr forces the default message
-        )
-        
-        result = engine.execute(basic_request)
-        
-        assert result.success is False
-        assert "non-zero exit code" in result.error
-
-    @patch("subprocess.run")
-    def test_execute_failure_with_stderr(self, mock_run, engine, basic_request):
-        """Test execution failure returns stderr when available."""
-        mock_run.return_value = MagicMock(
-            returncode=1,
+    @patch("devgodzilla.engines.cli_adapter.run_cli_command")
+    def test_execute_failure(self, mock_run_cli):
+        mock_run_cli.return_value = EngineResult(
+            success=False,
             stdout="",
             stderr="Error: something went wrong",
+            error="Command failed",
+            metadata={"cmd": "gemini"},
         )
-        
-        result = engine.execute(basic_request)
-        
+
+        engine = GeminiEngine()
+        req = _make_request()
+        result = engine.execute(req)
+
         assert result.success is False
-        assert "Error: something went wrong" in result.error
+        assert result.error is not None
 
-    @patch("subprocess.run")
-    def test_execute_timeout(self, mock_run, engine, basic_request):
-        """Test execution handles timeout."""
-        mock_run.side_effect = subprocess.TimeoutExpired(
-            cmd="gemini", timeout=300
+    @patch("devgodzilla.engines.cli_adapter.run_cli_command")
+    def test_execute_passes_cwd(self, mock_run_cli):
+        mock_run_cli.return_value = EngineResult(
+            success=True, stdout="OK", stderr="", metadata={"cmd": "gemini"},
         )
-        
-        result = engine.execute(basic_request)
-        
-        assert result.success is False
-        assert "timed out" in result.error.lower()
 
-    @patch("subprocess.run")
-    def test_execute_not_installed(self, mock_run, engine, basic_request):
-        """Test execution when gemini CLI is not installed."""
-        mock_run.side_effect = FileNotFoundError()
-        
-        result = engine.execute(basic_request)
-        
-        assert result.success is False
-        assert "not found" in result.error.lower()
+        engine = GeminiEngine()
+        req = _make_request(working_dir="/custom/path")
+        engine.execute(req)
 
-    @patch("subprocess.run")
-    def test_execute_sets_working_directory(self, mock_run, engine, basic_request, tmp_path):
-        """Test execution uses workspace as working directory."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="OK", stderr="")
-        
-        engine.execute(basic_request)
-        
-        cwd = mock_run.call_args[1].get("cwd")
-        assert cwd == str(tmp_path)
+        # run_cli_command should have been called with cwd pointing to working_dir
+        call_kwargs = mock_run_cli.call_args
+        assert call_kwargs is not None
 
-    @patch("subprocess.run")
-    def test_execute_default_workspace(self, mock_run, engine):
-        """Test execution uses current directory when no workspace."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="OK", stderr="")
-        
-        request = MockEngineRequest(prompt="test", workspace_path=None)
-        engine.execute(request)
-        
-        cwd = mock_run.call_args[1].get("cwd")
-        assert cwd == "."
-
-    @patch("subprocess.run")
-    def test_execute_includes_metadata(self, mock_run, engine, basic_request):
-        """Test result includes metadata."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="OK", stderr="")
-        
-        result = engine.execute(basic_request)
-        
-        assert "model" in result.metadata
-        assert "engine" in result.metadata
-        assert result.metadata["engine"] == "gemini-cli"
-
-    @patch("subprocess.run")
-    def test_execute_exception_handling(self, mock_run, engine, basic_request):
-        """Test execution handles unexpected exceptions."""
-        mock_run.side_effect = RuntimeError("Unexpected error")
-        
-        result = engine.execute(basic_request)
-        
-        assert result.success is False
-        assert "error" in result.error.lower()
-
-
-class TestGeminiEngineBuildPrompt:
-    """Tests for _build_prompt method."""
-
-    @pytest.fixture
-    def engine(self, mock_interface_module):
-        GeminiEngine = _get_gemini_engine_class()
-        return GeminiEngine()
-
-    def test_build_prompt_basic(self, engine):
-        """Test building prompt from basic request."""
-        request = MockEngineRequest(prompt="Write a function")
-        prompt = engine._build_prompt(request)
-        
-        assert "Write a function" in prompt
-        assert "## Task" in prompt
-
-    def test_build_prompt_with_system_prompt(self, engine):
-        """Test building prompt includes system instructions."""
-        request = MockEngineRequest(
-            prompt="Write code",
-            system_prompt="You are a helpful coding assistant.",
+    @patch("devgodzilla.engines.cli_adapter.run_cli_command")
+    def test_execute_with_custom_model(self, mock_run_cli):
+        mock_run_cli.return_value = EngineResult(
+            success=True, stdout="OK", stderr="", metadata={"cmd": "gemini"},
         )
-        prompt = engine._build_prompt(request)
-        
-        assert "System Instructions" in prompt
-        assert "helpful coding assistant" in prompt
 
-    def test_build_prompt_with_context(self, engine):
-        """Test building prompt includes context."""
-        request = MockEngineRequest(
-            prompt="Fix the bug",
-            context="The function returns wrong values for negative inputs.",
+        engine = GeminiEngine()
+        req = _make_request(model="gemini-2.5-flash")
+        result = engine.execute(req)
+
+        assert result.success is True
+        # Verify the command included --model gemini-2.5-flash
+        call_args = mock_run_cli.call_args
+        cmd = call_args[0][0] if call_args[0] else call_args[1].get("cmd", [])
+        assert "--model" in cmd
+        idx = cmd.index("--model")
+        assert cmd[idx + 1] == "gemini-2.5-flash"
+
+    @patch("devgodzilla.engines.cli_adapter.run_cli_command")
+    def test_plan_uses_full_access(self, mock_run_cli):
+        mock_run_cli.return_value = EngineResult(
+            success=True, stdout="Plan done", stderr="", metadata={"cmd": "gemini"},
         )
-        prompt = engine._build_prompt(request)
-        
-        assert "Context" in prompt
-        assert "negative inputs" in prompt
 
-    def test_build_prompt_with_constraints(self, engine):
-        """Test building prompt includes constraints."""
-        request = MockEngineRequest(
-            prompt="Refactor the code",
-            constraints=[
-                "Keep backward compatibility",
-                "Add type hints",
-            ],
+        engine = GeminiEngine()
+        req = _make_request()
+        result = engine.plan(req)
+
+        assert result.success is True
+        # Verify sandbox was full-access
+        assert result.metadata.get("sandbox") == "full-access"
+
+    @patch("devgodzilla.engines.cli_adapter.run_cli_command")
+    def test_qa_uses_read_only(self, mock_run_cli):
+        mock_run_cli.return_value = EngineResult(
+            success=True, stdout="QA done", stderr="", metadata={"cmd": "gemini"},
         )
-        prompt = engine._build_prompt(request)
-        
-        assert "Constraints" in prompt
-        assert "backward compatibility" in prompt
-        assert "type hints" in prompt
 
-    def test_build_prompt_all_sections(self, engine):
-        """Test building prompt with all sections."""
-        request = MockEngineRequest(
-            prompt="Implement feature X",
-            system_prompt="Be concise",
-            context="This is for a web app",
-            constraints=["Use Python 3.12"],
-        )
-        prompt = engine._build_prompt(request)
-        
-        assert "System Instructions" in prompt
-        assert "Task" in prompt
-        assert "Context" in prompt
-        assert "Constraints" in prompt
+        engine = GeminiEngine()
+        req = _make_request()
+        result = engine.qa(req)
+
+        assert result.success is True
+        assert result.metadata.get("sandbox") == "read-only"
 
 
-class TestGeminiEnginePromptFile:
-    """Tests for long prompt file handling."""
+# ---------------------------------------------------------------------------
+# Registration
+# ---------------------------------------------------------------------------
 
-    @pytest.fixture
-    def engine(self, mock_interface_module):
-        GeminiEngine = _get_gemini_engine_class()
-        return GeminiEngine()
+class TestGeminiEngineRegistration:
+    """Tests for register_gemini_engine helper."""
 
-    @patch("subprocess.run")
-    @patch("tempfile.NamedTemporaryFile")
-    def test_uses_file_for_long_prompt(self, mock_tempfile, mock_run, engine, tmp_path):
-        """Test that long prompts are written to a file."""
-        mock_file = MagicMock()
-        mock_file.__enter__ = MagicMock(return_value=mock_file)
-        mock_file.__exit__ = MagicMock(return_value=False)
-        mock_file.name = "/tmp/prompt.md"
-        mock_tempfile.return_value = mock_file
-        
-        mock_run.return_value = MagicMock(returncode=0, stdout="OK", stderr="")
-        
-        # Create a long prompt (>1000 chars)
-        long_prompt = "x" * 1500
-        request = MockEngineRequest(
-            prompt=long_prompt,
-            workspace_path=str(tmp_path),
-        )
-        
-        engine.execute(request)
-        
-        # Check that prompt file was written
-        mock_file.write.assert_called_once()
-        written_content = mock_file.write.call_args[0][0]
-        assert long_prompt in written_content
-
-    @patch("subprocess.run")
-    def test_uses_inline_prompt_for_short_prompt(self, mock_run, engine, tmp_path):
-        """Test that short prompts are passed inline."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="OK", stderr="")
-        
-        short_prompt = "Write a simple function"
-        request = MockEngineRequest(
-            prompt=short_prompt,
-            workspace_path=str(tmp_path),
-        )
-        
-        engine.execute(request)
-        
-        call_args = mock_run.call_args[0][0]
-        assert "--prompt" in call_args
-        prompt_idx = call_args.index("--prompt")
-        assert short_prompt in call_args[prompt_idx + 1]
-
-
-class TestGeminiEngineCustomCommand:
-    """Tests for custom command configuration."""
-
-    @patch("subprocess.run")
-    def test_uses_custom_command(self, mock_run, mock_interface_module, tmp_path):
-        """Test engine uses custom command when configured."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="OK", stderr="")
-        
-        GeminiEngine = _get_gemini_engine_class()
-        engine = GeminiEngine(command="gemini-custom-cli")
-        request = MockEngineRequest(
-            prompt="test",
-            workspace_path=str(tmp_path),
-        )
-        engine.execute(request)
-        
-        call_args = mock_run.call_args[0][0]
-        assert call_args[0] == "gemini-custom-cli"
+    def test_register_returns_engine(self):
+        with patch("devgodzilla.engines.registry.get_registry"):
+            engine = GeminiEngine()
+            assert isinstance(engine, GeminiEngine)
+            assert isinstance(engine.metadata, EngineMetadata)

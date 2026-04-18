@@ -42,6 +42,8 @@ if TYPE_CHECKING:
         AntiAbstractionSummaryGate,
     )
     from devgodzilla.qa.gates.test_first import TestFirstGate
+    from devgodzilla.qa.gates.security import SecurityGate
+    from devgodzilla.qa.gates.integration_test import IntegrationTestGate
 
 __all__ = [
     # Interface
@@ -71,6 +73,10 @@ __all__ = [
     "AntiAbstractionSummaryGate",
     # Test-first gate
     "TestFirstGate",
+    # Security gate
+    "SecurityGate",
+    # Integration test gate
+    "IntegrationTestGate",
 ]
 
 _EXPORTS = {
@@ -96,6 +102,8 @@ _EXPORTS = {
     "AntiAbstractionGate": "devgodzilla.qa.gates.anti_abstraction",
     "AntiAbstractionSummaryGate": "devgodzilla.qa.gates.anti_abstraction",
     "TestFirstGate": "devgodzilla.qa.gates.test_first",
+    "SecurityGate": "devgodzilla.qa.gates.security",
+    "IntegrationTestGate": "devgodzilla.qa.gates.integration_test",
 }
 
 

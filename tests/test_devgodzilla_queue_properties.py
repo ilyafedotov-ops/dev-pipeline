@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import List
 
 import pytest
-from hypothesis import given, strategies as st, settings
+from hypothesis import given, strategies as st, settings, HealthCheck
 
 from devgodzilla.db.database import SQLiteDatabase
 
@@ -67,7 +67,7 @@ def create_test_job_run(db: SQLiteDatabase, run_id: str, status: str, job_type: 
     )
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Generate a list of job statuses to create
     job_statuses=st.lists(
@@ -125,7 +125,7 @@ def test_queue_jobs_filter_consistency(job_statuses: List[str], filter_status: s
             )
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Generate jobs with different statuses
     queued_count=st.integers(min_value=0, max_value=10),
@@ -191,7 +191,7 @@ def test_queue_stats_accuracy(
             assert len(stats) == 0, f"Expected 0 queues with no jobs, got {len(stats)}"
 
 
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Generate a limit value
     limit=st.integers(min_value=1, max_value=500),

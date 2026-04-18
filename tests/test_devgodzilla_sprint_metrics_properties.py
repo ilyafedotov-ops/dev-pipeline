@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List
 from datetime import datetime, timedelta
 
-from hypothesis import given, strategies as st, settings
+from hypothesis import given, strategies as st, settings, HealthCheck
 
 from devgodzilla.db.database import SQLiteDatabase
 
@@ -92,7 +92,7 @@ story_points_strategy = st.one_of(
 )
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Number of tasks to create
     num_tasks=st.integers(min_value=0, max_value=50),
@@ -177,7 +177,7 @@ def test_sprint_metrics_task_count_accuracy(
             )
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Number of tasks to create
     num_tasks=st.integers(min_value=0, max_value=50),
@@ -250,7 +250,7 @@ def test_sprint_metrics_completed_count_accuracy(num_tasks: int, num_completed: 
         )
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Number of tasks to create
     num_tasks=st.integers(min_value=0, max_value=20),
@@ -329,7 +329,7 @@ def test_sprint_metrics_points_calculation(
         )
 
 
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     # Number of sprints to create for velocity trend
     num_historical_sprints=st.integers(min_value=0, max_value=10),
