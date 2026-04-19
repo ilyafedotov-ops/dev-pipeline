@@ -83,18 +83,21 @@ def start_brownfield_run(
     import threading
     _sync_result = [None]
     _sync_exc = [None]
+    _sync_done = threading.Event()
 
     def _do_sync():
         try:
             _sync_result[0] = service.start_brownfield_run(project_id, request)
         except Exception as e:
             _sync_exc[0] = e
+        finally:
+            _sync_done.set()
 
     t = threading.Thread(target=_do_sync, daemon=True)
     t.start()
-    t.join(timeout=_SYNC_TIMEOUT)
+    completed = _sync_done.wait(timeout=_SYNC_TIMEOUT)
 
-    if not t.is_alive():
+    if completed:
         if _sync_exc[0]:
             # Re-raise validation errors directly (HTTPExceptions + domain errors)
             from fastapi import HTTPException
@@ -122,6 +125,15 @@ def start_brownfield_run(
 
     def _run_brownfield():
         try:
+            # Wait for sync thread to finish before starting background work
+            _sync_done.wait(timeout=120)
+            # Guard: if sync thread already completed successfully, skip
+            if _sync_result[0] is not None and _sync_result[0].success:
+                logger.info(
+                    "brownfield_bg_skipped_sync_succeeded",
+                    extra={"project_id": project_id},
+                )
+                return
             service.start_brownfield_run(project_id, request)
         except Exception as bg_exc:
             logger.exception(

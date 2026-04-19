@@ -194,6 +194,7 @@ def test_windmill_worker_entrypoints_plan_and_update_status(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     _write_stub_cli(bin_dir, "codex")
+    _write_stub_cli(bin_dir, "opencode")
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.setenv("DEVGODZILLA_ASSUME_AGENT_AUTH", "true")
 
