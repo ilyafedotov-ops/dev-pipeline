@@ -54,7 +54,7 @@ agents:
     - code_review
     - reasoning
     command: opencode
-    default_model: kimi-for-coding/kimi-k2-thinking
+    default_model: zai-coding-plan/glm-4.6
     enabled: true
     format: default
     kind: cli

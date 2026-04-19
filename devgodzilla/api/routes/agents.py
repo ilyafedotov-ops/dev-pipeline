@@ -1,4 +1,6 @@
+import os
 from typing import Dict, List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from devgodzilla.api import schemas
@@ -65,16 +67,30 @@ def check_all_agents_health(
     """Check health for all enabled agents."""
     cfg = AgentConfigService(ctx, db=db)
     results = cfg.check_all_health()
-    return [
-        schemas.AgentHealthOut(
-            agent_id=r.agent_id,
-            available=r.available,
-            version=r.version,
-            error=r.error,
-            response_time_ms=r.response_time_ms,
+    out = []
+    for r in results:
+        warnings: list[str] = []
+        # Check for engine-specific warnings (e.g. missing API keys)
+        agent_cfg = cfg.get_agent(r.agent_id)
+        if agent_cfg and r.available:
+            aid = agent_cfg.id
+            if aid == "gemini-cli":
+                if not (
+                    os.environ.get("GOOGLE_API_KEY")
+                    or os.environ.get("GEMINI_API_KEY")
+                ):
+                    warnings.append("GOOGLE_API_KEY not set")
+        out.append(
+            schemas.AgentHealthOut(
+                agent_id=r.agent_id,
+                available=r.available,
+                version=r.version,
+                error=r.error,
+                response_time_ms=r.response_time_ms,
+                warnings=warnings,
+            )
         )
-        for r in results
-    ]
+    return out
 
 
 @router.get("/agents/metrics", response_model=List[schemas.AgentMetricsOut])
@@ -429,6 +445,59 @@ def get_agent(
     raise HTTPException(status_code=404, detail="Agent not found")
 
 
+@router.put("/agents/{agent_id}", response_model=schemas.AgentInfo)
+def update_agent(
+    agent_id: str,
+    config: schemas.AgentConfigUpdate,
+    project_id: Optional[int] = Query(default=None),
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
+    """Update agent configuration by ID.
+
+    Accepts JSON body with config overrides (model, temperature, max_tokens, etc).
+    Delegates to the same AgentConfigService.update_config used by /config.
+    """
+    cfg = AgentConfigService(ctx, db=db)
+    try:
+        updated_agent = cfg.update_config(
+            agent_id=agent_id,
+            enabled=config.enabled,
+            default_model=config.default_model,
+            capabilities=config.capabilities,
+            command_dir=config.command_dir,
+            name=config.name,
+            kind=config.kind,
+            command=config.command,
+            endpoint=config.endpoint,
+            sandbox=config.sandbox,
+            format=config.format,
+            timeout_seconds=config.timeout_seconds,
+            max_retries=config.max_retries,
+            project_id=project_id,
+        )
+        return schemas.AgentInfo(
+            id=updated_agent.id,
+            name=updated_agent.name,
+            kind=updated_agent.kind,
+            capabilities=updated_agent.capabilities,
+            status="configured" if updated_agent.enabled else "disabled",
+            default_model=updated_agent.default_model,
+            command_dir=updated_agent.command_dir,
+            enabled=updated_agent.enabled,
+            command=updated_agent.command,
+            endpoint=updated_agent.endpoint,
+            sandbox=updated_agent.sandbox,
+            format=updated_agent.format,
+            timeout_seconds=updated_agent.timeout_seconds,
+            max_retries=updated_agent.max_retries,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update agent: {str(e)}")
+
+
 @router.get("/agents/{agent_id}/health")
 def check_agent_health(
     agent_id: str,
@@ -440,7 +509,32 @@ def check_agent_health(
     res = cfg.check_health(agent_id)
     if res.error == "Agent not found":
         raise HTTPException(status_code=404, detail="Agent not found")
-    return {"status": "available" if res.available else "unavailable"}
+
+    warnings: list[str] = []
+
+    # Check if agent is a CLI engine that reports available only via assume_auth
+    agent_cfg = cfg.get_agent(agent_id)
+    if agent_cfg and agent_cfg.is_cli:
+        assume_auth = os.environ.get("DEVGODZILLA_ASSUME_AGENT_AUTH", "").lower() in (
+            "1", "true", "yes", "on",
+        )
+        if assume_auth:
+            # Check whether the real API key is present for known engines
+            has_real_key = False
+            aid = agent_cfg.id
+            if aid == "gemini-cli":
+                has_real_key = bool(
+                    os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+                )
+            if not has_real_key:
+                warnings.append(
+                    "API key not set — agent available via assume_auth only"
+                )
+
+    return {
+        "status": "available" if res.available else "unavailable",
+        "warnings": warnings,
+    }
 
 
 @router.post("/agents/{agent_id}/test", response_model=schemas.AgentTestOut)

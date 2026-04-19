@@ -5,18 +5,28 @@ REST endpoints for SpecKit integration: initialization, spec generation,
 planning, and task management.
 """
 
+import concurrent.futures
+import threading
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from devgodzilla.api.routes import project_speckit as project_speckit_routes
 from devgodzilla.api.routes._speckit_common import get_local_project_or_400, get_project_or_404
 from devgodzilla.api.dependencies import get_db, get_service_context
 from devgodzilla.db.database import Database
+from devgodzilla.logging import get_logger
+
+# Timeout for synchronous attempt before falling back to background (seconds)
+_SYNC_TIMEOUT = 2.0
+from devgodzilla.models.domain import SpecRunStatus
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.specification import SpecificationService
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/speckit", tags=["SpecKit"])
 
@@ -171,6 +181,22 @@ class SpecRunCleanupResponse(BaseModel):
     error: Optional[str] = None
 
 
+class SpecRunStopResponse(BaseModel):
+    success: bool
+    spec_run_id: Optional[int] = None
+    previous_status: Optional[str] = None
+    status: Optional[str] = None
+    error: Optional[str] = None
+
+
+class AsyncAcceptedResponse(BaseModel):
+    """Returned when a SpecKit operation is deferred to background execution."""
+    spec_run_id: Optional[int] = None
+    status: str = "pending"
+    message: str = "Operation started in background. Poll status via spec-runs endpoint."
+    poll_url: Optional[str] = None
+
+
 class ConstitutionRequest(BaseModel):
     content: str = Field(..., min_length=10)
 
@@ -259,63 +285,263 @@ def save_constitution(
     return SpecKitResponse(**response.model_dump())
 
 
-@router.post("/specify", response_model=SpecifyResponse)
+@router.post(
+    "/specify",
+    response_model=SpecifyResponse,
+    responses={202: {"model": AsyncAcceptedResponse}},
+)
 def run_specify(
     request: SpecifyRequest,
+    background_tasks: BackgroundTasks = None,
     db: Database = Depends(get_db),
     service: SpecificationService = Depends(get_specification_service),
 ):
-    """Compatibility wrapper around the project-scoped specify route."""
-    response = project_speckit_routes.project_speckit_specify(
-        project_id=request.project_id,
-        request=project_speckit_routes.SpecifyRequest(
-            description=request.description,
-            feature_name=request.feature_name,
-            base_branch=request.base_branch,
-        ),
-        db=db,
-        service=service,
+    """Compatibility wrapper around the project-scoped specify route.
+
+    Tries synchronous execution first (fast with mocked engines in tests).
+    Falls back to background execution on timeout or slow engine, returning
+    202 Accepted with a status polling URL.
+    """
+    # --- Try synchronous execution first (fast with mocked engines) --------
+    import threading
+    _sync_result = [None]
+    _sync_exc = [None]
+
+    def _do_sync():
+        try:
+            _sync_result[0] = project_speckit_routes.project_speckit_specify(
+                project_id=request.project_id,
+                request=project_speckit_routes.SpecifyRequest(
+                    description=request.description,
+                    feature_name=request.feature_name,
+                    base_branch=request.base_branch,
+                ),
+                db=db,
+                service=service,
+            )
+        except Exception as e:
+            _sync_exc[0] = e
+
+    t = threading.Thread(target=_do_sync, daemon=True)
+    t.start()
+    t.join(timeout=_SYNC_TIMEOUT)
+
+    if not t.is_alive():
+        if _sync_exc[0]:
+            raise _sync_exc[0]
+        if _sync_result[0] is not None:
+            return SpecifyResponse(**_sync_result[0].model_dump())
+
+    logger.info(
+        "speckit_specify_sync_timeout_switching_to_background",
+        extra={"project_id": request.project_id},
     )
-    return SpecifyResponse(**response.model_dump())
+
+    # --- Background path ---------------------------------------------------
+    if background_tasks is None:
+        raise
+
+    def _run_in_background() -> None:
+        try:
+            from devgodzilla.cli.main import get_db as _get_db
+            _bg_db = _get_db()
+            _bg_ctx = get_service_context()
+            _bg_service = SpecificationService(_bg_ctx, _bg_db)
+            project_speckit_routes.project_speckit_specify(
+                project_id=request.project_id,
+                request=project_speckit_routes.SpecifyRequest(
+                    description=request.description,
+                    feature_name=request.feature_name,
+                    base_branch=request.base_branch,
+                ),
+                db=_bg_db,
+                service=_bg_service,
+            )
+        except Exception as bg_exc:
+            logger.exception(
+                "speckit_specify_background_failed",
+                extra={"project_id": request.project_id, "error": str(bg_exc)},
+            )
+
+    background_tasks.add_task(_run_in_background)
+
+    return JSONResponse(
+        status_code=202,
+        content=AsyncAcceptedResponse(
+            status="specifying",
+            message="Specification generation deferred to background.",
+        ).model_dump(),
+    )
 
 
-@router.post("/plan", response_model=PlanResponse)
+@router.post(
+    "/plan",
+    response_model=PlanResponse,
+    responses={202: {"model": AsyncAcceptedResponse}},
+)
 def run_plan(
     request: PlanRequest,
+    background_tasks: BackgroundTasks = None,
     db: Database = Depends(get_db),
     service: SpecificationService = Depends(get_specification_service),
 ):
-    """Compatibility wrapper around the project-scoped plan route."""
-    response = project_speckit_routes.project_speckit_plan(
-        project_id=request.project_id,
-        request=project_speckit_routes.PlanRequest(
-            spec_path=request.spec_path,
-            spec_run_id=request.spec_run_id,
-            context=request.context,
-        ),
-        db=db,
-        service=service,
+    """Compatibility wrapper around the project-scoped plan route.
+
+    Tries synchronous execution first; falls back to 202 on timeout/slow engine.
+    """
+    import threading
+    _sync_result = [None]
+    _sync_exc = [None]
+
+    def _do_sync():
+        try:
+            _sync_result[0] = project_speckit_routes.project_speckit_plan(
+                project_id=request.project_id,
+                request=project_speckit_routes.PlanRequest(
+                    spec_path=request.spec_path,
+                    spec_run_id=request.spec_run_id,
+                    context=request.context,
+                ),
+                db=db,
+                service=service,
+            )
+        except Exception as e:
+            _sync_exc[0] = e
+
+    t = threading.Thread(target=_do_sync, daemon=True)
+    t.start()
+    t.join(timeout=_SYNC_TIMEOUT)
+
+    if not t.is_alive():
+        if _sync_exc[0]:
+            raise _sync_exc[0]
+        if _sync_result[0] is not None:
+            return PlanResponse(**_sync_result[0].model_dump())
+
+    logger.info(
+        "speckit_plan_sync_timeout_switching_to_background",
+        extra={"project_id": request.project_id},
     )
-    return PlanResponse(**response.model_dump())
+
+    if background_tasks is None:
+        raise
+
+    def _run_in_background() -> None:
+        try:
+            from devgodzilla.cli.main import get_db as _get_db
+            _bg_db = _get_db()
+            _bg_ctx = get_service_context()
+            _bg_service = SpecificationService(_bg_ctx, _bg_db)
+            project_speckit_routes.project_speckit_plan(
+                project_id=request.project_id,
+                request=project_speckit_routes.PlanRequest(
+                    spec_path=request.spec_path,
+                    spec_run_id=request.spec_run_id,
+                    context=request.context,
+                ),
+                db=_bg_db,
+                service=_bg_service,
+            )
+        except Exception as bg_exc:
+            logger.exception(
+                "speckit_plan_background_failed",
+                extra={"project_id": request.project_id, "error": str(bg_exc)},
+            )
+
+    background_tasks.add_task(_run_in_background)
+
+    return JSONResponse(
+        status_code=202,
+        content=AsyncAcceptedResponse(
+            spec_run_id=request.spec_run_id,
+            status="planning",
+            message="Plan generation deferred to background.",
+        ).model_dump(),
+    )
 
 
-@router.post("/tasks", response_model=TasksResponse)
+@router.post(
+    "/tasks",
+    response_model=TasksResponse,
+    responses={202: {"model": AsyncAcceptedResponse}},
+)
 def run_tasks(
     request: TasksRequest,
+    background_tasks: BackgroundTasks = None,
     db: Database = Depends(get_db),
     service: SpecificationService = Depends(get_specification_service),
 ):
-    """Compatibility wrapper around the project-scoped tasks route."""
-    response = project_speckit_routes.project_speckit_tasks(
-        project_id=request.project_id,
-        request=project_speckit_routes.TasksRequest(
-            plan_path=request.plan_path,
-            spec_run_id=request.spec_run_id,
-        ),
-        db=db,
-        service=service,
+    """Compatibility wrapper around the project-scoped tasks route.
+
+    Tries synchronous execution first; falls back to 202 on timeout/slow engine.
+    """
+    import threading
+    _sync_result = [None]
+    _sync_exc = [None]
+
+    def _do_sync():
+        try:
+            _sync_result[0] = project_speckit_routes.project_speckit_tasks(
+                project_id=request.project_id,
+                request=project_speckit_routes.TasksRequest(
+                    plan_path=request.plan_path,
+                    spec_run_id=request.spec_run_id,
+                ),
+                db=db,
+                service=service,
+            )
+        except Exception as e:
+            _sync_exc[0] = e
+
+    t = threading.Thread(target=_do_sync, daemon=True)
+    t.start()
+    t.join(timeout=_SYNC_TIMEOUT)
+
+    if not t.is_alive():
+        if _sync_exc[0]:
+            raise _sync_exc[0]
+        if _sync_result[0] is not None:
+            return TasksResponse(**_sync_result[0].model_dump())
+
+    logger.info(
+        "speckit_tasks_sync_timeout_switching_to_background",
+        extra={"project_id": request.project_id},
     )
-    return TasksResponse(**response.model_dump())
+
+    if background_tasks is None:
+        raise
+
+    def _run_in_background() -> None:
+        try:
+            from devgodzilla.cli.main import get_db as _get_db
+            _bg_db = _get_db()
+            _bg_ctx = get_service_context()
+            _bg_service = SpecificationService(_bg_ctx, _bg_db)
+            project_speckit_routes.project_speckit_tasks(
+                project_id=request.project_id,
+                request=project_speckit_routes.TasksRequest(
+                    plan_path=request.plan_path,
+                    spec_run_id=request.spec_run_id,
+                ),
+                db=_bg_db,
+                service=_bg_service,
+            )
+        except Exception as bg_exc:
+            logger.exception(
+                "speckit_tasks_background_failed",
+                extra={"project_id": request.project_id, "error": str(bg_exc)},
+            )
+
+    background_tasks.add_task(_run_in_background)
+
+    return JSONResponse(
+        status_code=202,
+        content=AsyncAcceptedResponse(
+            spec_run_id=request.spec_run_id,
+            status="tasks",
+            message="Tasks generation deferred to background.",
+        ).model_dump(),
+    )
 
 
 @router.post("/clarify", response_model=ClarifyResponse)
@@ -361,25 +587,92 @@ def run_checklist(
     return ChecklistResponse(**response.model_dump())
 
 
-@router.post("/analyze", response_model=AnalyzeResponse)
+@router.post(
+    "/analyze",
+    response_model=AnalyzeResponse,
+    responses={202: {"model": AsyncAcceptedResponse}},
+)
 def run_analyze(
     request: AnalyzeRequest,
+    background_tasks: BackgroundTasks = None,
     db: Database = Depends(get_db),
     service: SpecificationService = Depends(get_specification_service),
 ):
-    """Compatibility wrapper around the project-scoped analyze route."""
-    response = project_speckit_routes.project_speckit_analyze(
-        project_id=request.project_id,
-        request=project_speckit_routes.AnalyzeRequest(
-            spec_path=request.spec_path,
-            plan_path=request.plan_path,
-            tasks_path=request.tasks_path,
-            spec_run_id=request.spec_run_id,
-        ),
-        db=db,
-        service=service,
+    """Compatibility wrapper around the project-scoped analyze route.
+
+    Tries synchronous execution first; falls back to 202 on timeout/slow engine.
+    """
+    import threading
+    _sync_result = [None]
+    _sync_exc = [None]
+
+    def _do_sync():
+        try:
+            _sync_result[0] = project_speckit_routes.project_speckit_analyze(
+                project_id=request.project_id,
+                request=project_speckit_routes.AnalyzeRequest(
+                    spec_path=request.spec_path,
+                    plan_path=request.plan_path,
+                    tasks_path=request.tasks_path,
+                    spec_run_id=request.spec_run_id,
+                ),
+                db=db,
+                service=service,
+            )
+        except Exception as e:
+            _sync_exc[0] = e
+
+    t = threading.Thread(target=_do_sync, daemon=True)
+    t.start()
+    t.join(timeout=_SYNC_TIMEOUT)
+
+    if not t.is_alive():
+        if _sync_exc[0]:
+            raise _sync_exc[0]
+        if _sync_result[0] is not None:
+            return AnalyzeResponse(**_sync_result[0].model_dump())
+
+    logger.info(
+        "speckit_analyze_sync_timeout_switching_to_background",
+        extra={"project_id": request.project_id},
     )
-    return AnalyzeResponse(**response.model_dump())
+
+    if background_tasks is None:
+        raise
+
+    def _run_in_background() -> None:
+        try:
+            from devgodzilla.cli.main import get_db as _get_db
+            _bg_db = _get_db()
+            _bg_ctx = get_service_context()
+            _bg_service = SpecificationService(_bg_ctx, _bg_db)
+            project_speckit_routes.project_speckit_analyze(
+                project_id=request.project_id,
+                request=project_speckit_routes.AnalyzeRequest(
+                    spec_path=request.spec_path,
+                    plan_path=request.plan_path,
+                    tasks_path=request.tasks_path,
+                    spec_run_id=request.spec_run_id,
+                ),
+                db=_bg_db,
+                service=_bg_service,
+            )
+        except Exception as bg_exc:
+            logger.exception(
+                "speckit_analyze_background_failed",
+                extra={"project_id": request.project_id, "error": str(bg_exc)},
+            )
+
+    background_tasks.add_task(_run_in_background)
+
+    return JSONResponse(
+        status_code=202,
+        content=AsyncAcceptedResponse(
+            spec_run_id=request.spec_run_id,
+            status="analyzed",
+            message="Analysis deferred to background.",
+        ).model_dump(),
+    )
 
 
 @router.post("/implement", response_model=ImplementResponse)
@@ -472,6 +765,57 @@ def cleanup_spec_run(
     )
 
 
+@router.post("/spec-runs/{spec_run_id}/stop", response_model=SpecRunStopResponse)
+def stop_spec_run(
+    spec_run_id: int,
+    db: Database = Depends(get_db),
+):
+    """
+    Stop a stuck SpecRun by setting its status to 'stopped'.
+
+    This allows cleanup of spec runs that are stuck in transitional states
+    like 'specifying', 'planning', etc.
+    """
+    try:
+        spec_run = db.get_spec_run(spec_run_id)
+    except (KeyError, Exception):
+        raise HTTPException(status_code=404, detail="SpecRun not found")
+
+    terminal_statuses = {
+        SpecRunStatus.FAILED,
+        SpecRunStatus.CLEANED,
+        "stopped",
+        "completed",
+    }
+    if spec_run.status in terminal_statuses:
+        return SpecRunStopResponse(
+            success=False,
+            spec_run_id=spec_run_id,
+            previous_status=spec_run.status,
+            status=spec_run.status,
+            error=f"SpecRun is already in terminal state: {spec_run.status}",
+        )
+
+    previous_status = spec_run.status
+    try:
+        db.update_spec_run(spec_run_id, status="stopped")
+    except Exception as exc:
+        return SpecRunStopResponse(
+            success=False,
+            spec_run_id=spec_run_id,
+            previous_status=previous_status,
+            status=previous_status,
+            error=f"Failed to stop SpecRun: {exc}",
+        )
+
+    return SpecRunStopResponse(
+        success=True,
+        spec_run_id=spec_run_id,
+        previous_status=previous_status,
+        status="stopped",
+    )
+
+
 # =============================================================================
 # Workflow Orchestration
 # =============================================================================
@@ -514,25 +858,12 @@ class WorkflowResponse(BaseModel):
     error: Optional[str] = None
 
 
-@router.post("/workflow", response_model=WorkflowResponse)
-def run_workflow(
+def _execute_workflow(
     request: WorkflowRequest,
-    db: Database = Depends(get_db),
-    service: SpecificationService = Depends(get_specification_service),
-):
-    """
-    Run the full SpecKit workflow: spec → plan → tasks.
-    
-    This endpoint orchestrates the full specification pipeline:
-    1. Generate feature specification from description
-    2. Generate implementation plan from spec
-    3. Generate task list from plan
-    
-    Use `stop_after` to run partial pipelines:
-    - "spec": Only generate the specification
-    - "plan": Generate spec and plan
-    - None: Run the full pipeline (default)
-    """
+    db: Database,
+    service: SpecificationService,
+) -> WorkflowResponse:
+    """Core workflow logic extracted for reuse in sync/background paths."""
     project = get_local_project_or_400(db, request.project_id)
 
     steps: List[WorkflowStepResult] = []
@@ -553,7 +884,7 @@ def run_workflow(
             base_branch=request.base_branch,
             project_id=request.project_id,
         )
-        
+
         if not spec_result.success:
             steps.append(WorkflowStepResult(
                 step="spec",
@@ -565,7 +896,7 @@ def run_workflow(
                 steps=steps,
                 error=f"Specification generation failed: {spec_result.error}",
             )
-        
+
         spec_path = spec_result.spec_path
         spec_run_id = spec_result.spec_run_id
         worktree_path = spec_result.worktree_path
@@ -574,7 +905,7 @@ def run_workflow(
             success=True,
             path=spec_path,
         ))
-        
+
         if request.stop_after == "spec":
             return WorkflowResponse(
                 success=True,
@@ -604,7 +935,7 @@ def run_workflow(
             spec_run_id=spec_run_id,
             project_id=request.project_id,
         )
-        
+
         if not plan_result.success:
             steps.append(WorkflowStepResult(
                 step="plan",
@@ -617,14 +948,14 @@ def run_workflow(
                 steps=steps,
                 error=f"Plan generation failed: {plan_result.error}",
             )
-        
+
         plan_path = plan_result.plan_path
         steps.append(WorkflowStepResult(
             step="plan",
             success=True,
             path=plan_path,
         ))
-        
+
         if request.stop_after == "plan":
             return WorkflowResponse(
                 success=True,
@@ -656,7 +987,7 @@ def run_workflow(
             spec_run_id=spec_run_id,
             project_id=request.project_id,
         )
-        
+
         if not tasks_result.success:
             steps.append(WorkflowStepResult(
                 step="tasks",
@@ -670,11 +1001,11 @@ def run_workflow(
                 steps=steps,
                 error=f"Tasks generation failed: {tasks_result.error}",
             )
-        
+
         tasks_path = tasks_result.tasks_path
         task_count = tasks_result.task_count
         parallelizable_count = tasks_result.parallelizable_count
-        
+
         steps.append(WorkflowStepResult(
             step="tasks",
             success=True,
@@ -704,4 +1035,83 @@ def run_workflow(
         spec_run_id=spec_run_id,
         worktree_path=worktree_path,
         steps=steps,
+    )
+
+
+@router.post(
+    "/workflow",
+    response_model=WorkflowResponse,
+    responses={202: {"model": AsyncAcceptedResponse}},
+)
+def run_workflow(
+    request: WorkflowRequest,
+    background_tasks: BackgroundTasks = None,
+    db: Database = Depends(get_db),
+    service: SpecificationService = Depends(get_specification_service),
+):
+    """
+    Run the full SpecKit workflow: spec → plan → tasks.
+
+    This endpoint orchestrates the full specification pipeline:
+    1. Generate feature specification from description
+    2. Generate implementation plan from spec
+    3. Generate task list from plan
+
+    Use `stop_after` to run partial pipelines:
+    - "spec": Only generate the specification
+    - "plan": Generate spec and plan
+    - None: Run the full pipeline (default)
+
+    Tries synchronous execution first; falls back to 202 on timeout/slow engine.
+    """
+    import threading
+    _sync_result = [None]
+    _sync_exc = [None]
+
+    def _do_sync():
+        try:
+            _sync_result[0] = _execute_workflow(request, db, service)
+        except Exception as e:
+            _sync_exc[0] = e
+
+    t = threading.Thread(target=_do_sync, daemon=True)
+    t.start()
+    t.join(timeout=_SYNC_TIMEOUT)
+
+    if not t.is_alive():
+        if _sync_exc[0]:
+            raise _sync_exc[0]
+        if _sync_result[0] is not None:
+            return _sync_result[0]
+
+    logger.info(
+        "speckit_workflow_sync_timeout_switching_to_background",
+        extra={"project_id": request.project_id},
+    )
+
+    if background_tasks is None:
+        raise
+
+    def _run_in_background() -> None:
+        try:
+            from devgodzilla.cli.main import get_db as _get_db
+            _bg_db = _get_db()
+            _bg_ctx = get_service_context()
+            _bg_service = SpecificationService(_bg_ctx, _bg_db)
+            _execute_workflow(request, _bg_db, _bg_service)
+        except Exception as bg_exc:
+            logger.exception(
+                "speckit_workflow_background_failed",
+                extra={"project_id": request.project_id, "error": str(bg_exc)},
+            )
+
+    background_tasks.add_task(_run_in_background)
+
+    return JSONResponse(
+        status_code=202,
+        content=AsyncAcceptedResponse(
+            spec_run_id=None,
+            status="workflow",
+            message="Workflow deferred to background.",
+        ).model_dump(),
     )

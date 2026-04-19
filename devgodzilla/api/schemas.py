@@ -254,6 +254,7 @@ class AgentConfigUpdate(BaseModel):
     kind: Optional[str] = None
     enabled: Optional[bool] = None
     default_model: Optional[str] = None
+    temperature: Optional[float] = None
     capabilities: Optional[List[str]] = None
     command_dir: Optional[str] = None
     command: Optional[str] = None
@@ -322,6 +323,7 @@ class AgentHealthOut(BaseModel):
     version: Optional[str] = None
     error: Optional[str] = None
     response_time_ms: Optional[float] = None
+    warnings: List[str] = Field(default_factory=list)
 
 
 class AgentTestCheckOut(BaseModel):

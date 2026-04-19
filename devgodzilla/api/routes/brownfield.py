@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import concurrent.futures
 import threading
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from devgodzilla.api import schemas
+
+# Timeout for synchronous attempt before falling back to background (seconds)
+_SYNC_TIMEOUT = 2.0
 from devgodzilla.api.dependencies import get_db, get_service_context
 from devgodzilla.db.database import Database
 from devgodzilla.logging import get_logger
@@ -46,7 +51,11 @@ def list_task_cycle_work_items(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.post("/projects/{project_id}/brownfield/run", response_model=schemas.BrownfieldRunOut)
+@router.post(
+    "/projects/{project_id}/brownfield/run",
+    response_model=schemas.BrownfieldRunOut,
+    responses={202: {"model": schemas.BrownfieldRunOut}},
+)
 def start_brownfield_run(
     project_id: int,
     request: schemas.BrownfieldRunRequest,
@@ -58,7 +67,8 @@ def start_brownfield_run(
     """Start a brownfield run.
 
     Attempts to run synchronously first (fast when engines are mocked).
-    Falls back to background execution for real AI engine calls that take minutes.
+    Falls back to background execution for real AI engine calls that take minutes,
+    returning 202 Accepted with a background task.
     """
     # Validate project exists synchronously
     try:
@@ -70,33 +80,66 @@ def start_brownfield_run(
         raise HTTPException(status_code=400, detail="Project has no local path")
 
     # Try synchronous execution first (works when engines are mocked/stubbed)
-    try:
-        result = service.start_brownfield_run(project_id, request)
-        return result
-    except Exception as exc:
-        # If synchronous fails with timeout/engine unavailable, run in background
-        logger.warning(
-            "brownfield_sync_failed_switching_to_background",
-            extra={"project_id": project_id, "error": str(exc)},
+    import threading
+    _sync_result = [None]
+    _sync_exc = [None]
+
+    def _do_sync():
+        try:
+            _sync_result[0] = service.start_brownfield_run(project_id, request)
+        except Exception as e:
+            _sync_exc[0] = e
+
+    t = threading.Thread(target=_do_sync, daemon=True)
+    t.start()
+    t.join(timeout=_SYNC_TIMEOUT)
+
+    if not t.is_alive():
+        if _sync_exc[0]:
+            # Re-raise validation errors directly (HTTPExceptions + domain errors)
+            from fastapi import HTTPException
+            from devgodzilla.services.task_cycle import TaskCycleError
+            if isinstance(_sync_exc[0], (HTTPException, TaskCycleError)):
+                if isinstance(_sync_exc[0], TaskCycleError):
+                    raise HTTPException(status_code=400, detail=str(_sync_exc[0]))
+                raise _sync_exc[0]
+            # For other errors, log and fall through to background
+            logger.warning(
+                "brownfield_sync_error_switching_to_background",
+                extra={"project_id": project_id, "error": str(_sync_exc[0])},
+            )
+        else:
+            return _sync_result[0]
+
+    # Thread is still alive (slow AI call) — fall through to background
+    logger.info(
+            "brownfield_sync_timeout_switching_to_background",
+            extra={"project_id": project_id},
         )
 
-        def _run_brownfield():
-            try:
-                service.start_brownfield_run(project_id, request)
-            except Exception as bg_exc:
-                logger.exception(
-                    "brownfield_background_run_failed",
-                    extra={"project_id": project_id, "error": str(bg_exc)},
-                )
+    if background_tasks is None:
+        raise RuntimeError("Background tasks not available")
 
-        background_tasks.add_task(_run_brownfield)
+    def _run_brownfield():
+        try:
+            service.start_brownfield_run(project_id, request)
+        except Exception as bg_exc:
+            logger.exception(
+                "brownfield_background_run_failed",
+                extra={"project_id": project_id, "error": str(bg_exc)},
+            )
 
-        return schemas.BrownfieldRunOut(
+    background_tasks.add_task(_run_brownfield)
+
+    return JSONResponse(
+        status_code=202,
+        content=schemas.BrownfieldRunOut(
             success=True,
             project_id=project_id,
             output_mode=request.output_mode,
             warnings=["Brownfield run started in background. Poll /task-cycle for results."],
-        )
+        ).model_dump(),
+    )
 
 
 @router.get("/work-items/{work_item_id}", response_model=schemas.WorkItemOut)

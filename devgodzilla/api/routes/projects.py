@@ -275,6 +275,14 @@ def _auto_onboard_project(ctx, db, created, project_req):
             )
 
     # No Windmill — run onboarding synchronously in-process
+    if not (created.git_url or "").strip():
+        _append_project_event(
+            db, project_id=created.id,
+            event_type="onboarding_failed",
+            message="git_url is required for onboarding",
+        )
+        raise HTTPException(status_code=400, detail="git_url is required for onboarding")
+
     _append_project_event(
         db, project_id=created.id,
         event_type="onboarding_sync_start",
@@ -858,7 +866,7 @@ def onboard_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
     if not project.git_url:
-        raise HTTPException(status_code=400, detail="Project has no git_url")
+        raise HTTPException(status_code=400, detail="Project must have a git_url before onboarding")
 
     logger.debug(
         "onboarding_request_received",
