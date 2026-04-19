@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 try:
     from dotenv import load_dotenv
@@ -29,7 +29,7 @@ class Config(BaseModel):
     Pydantic-backed configuration loaded from environment variables.
 
     Key env vars:
-    - DEVGODZILLA_DB_URL (preferred) or DEVGODZILLA_DB_PATH for SQLite fallback.
+    - Exactly one of DEVGODZILLA_DB_URL or DEVGODZILLA_DB_PATH.
     - DEVGODZILLA_ENV (default: local)
     - DEVGODZILLA_API_TOKEN (optional bearer token)
     - DEVGODZILLA_LOG_LEVEL (default: INFO)
@@ -40,7 +40,7 @@ class Config(BaseModel):
 
     # Database
     db_url: Optional[str] = Field(default=None)
-    db_path: Path = Field(default=Path(".devgodzilla.sqlite"))
+    db_path: Optional[Path] = Field(default=None)
     db_pool_size: int = Field(default=20)
     
     # Environment
@@ -117,6 +117,29 @@ class Config(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    @model_validator(mode="after")
+    def validate_database_configuration(self) -> "Config":
+        """Require one explicit database backend and reject ambiguous settings."""
+        db_url = (self.db_url or "").strip() or None
+        db_path = self.db_path
+        if db_path is not None:
+            db_path = Path(db_path).expanduser()
+
+        self.db_url = db_url
+        self.db_path = db_path
+
+        if db_url and db_path:
+            raise ValueError(
+                "Configure exactly one database backend: set either "
+                "DEVGODZILLA_DB_URL or DEVGODZILLA_DB_PATH, not both."
+            )
+        if not db_url and not db_path:
+            raise ValueError(
+                "Database is not configured. Set exactly one of "
+                "DEVGODZILLA_DB_URL or DEVGODZILLA_DB_PATH."
+            )
+        return self
+
     @property
     def default_models(self) -> Dict[str, str]:
         """Return model defaults per stage."""
@@ -181,6 +204,14 @@ def _parse_csv(value: Optional[str]) -> List[str]:
 def _normalize_path(value: str) -> Path:
     """Expand and resolve a path without requiring existence."""
     return Path(value).expanduser().resolve(strict=False)
+
+
+def _normalize_env_value(value: Optional[str]) -> Optional[str]:
+    """Treat blank environment values as unset."""
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 def _read_simple_env_file(path: Path) -> Dict[str, str]:
@@ -292,8 +323,8 @@ def load_config() -> Config:
     windmill_env_file = os.environ.get("DEVGODZILLA_WINDMILL_ENV_FILE")
     return Config(
         # Database
-        db_url=os.environ.get("DEVGODZILLA_DB_URL"),
-        db_path=Path(os.environ.get("DEVGODZILLA_DB_PATH", ".devgodzilla.sqlite")).expanduser(),
+        db_url=_normalize_env_value(os.environ.get("DEVGODZILLA_DB_URL")),
+        db_path=Path(db_path).expanduser() if (db_path := _normalize_env_value(os.environ.get("DEVGODZILLA_DB_PATH"))) else None,
         db_pool_size=int(os.environ.get("DEVGODZILLA_DB_POOL_SIZE", "20")),
         
         # Environment

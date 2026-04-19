@@ -5135,11 +5135,23 @@ def get_database(db_url: Optional[str] = None, db_path: Optional[Path] = None, p
     Returns:
         Either SQLiteDatabase or PostgresDatabase instance
     """
-    if db_url and db_url.startswith("postgres"):
-        return PostgresDatabase(db_url, pool_size=pool_size)
+    normalized_db_url = (db_url or "").strip() or None
+    normalized_db_path = Path(db_path).expanduser() if db_path is not None else None
+
+    if normalized_db_url and normalized_db_path:
+        raise ValueError(
+            "Configure exactly one database backend: pass either db_url or db_path, not both."
+        )
+
+    if normalized_db_url:
+        if normalized_db_url.startswith("postgres"):
+            return PostgresDatabase(normalized_db_url, pool_size=pool_size)
+        raise ValueError(
+            "Unsupported db_url scheme. Use DEVGODZILLA_DB_URL for PostgreSQL "
+            "or DEVGODZILLA_DB_PATH for SQLite."
+        )
     
-    if db_path:
-        return SQLiteDatabase(db_path)
-    
-    # Default to SQLite with default path
-    return SQLiteDatabase(Path(".devgodzilla.sqlite"))
+    if normalized_db_path:
+        return SQLiteDatabase(normalized_db_path)
+
+    raise ValueError("Database is not configured. Pass exactly one of db_url or db_path.")

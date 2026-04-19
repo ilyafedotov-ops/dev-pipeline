@@ -10,6 +10,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# Import-time defaults for modules that call get_config() during collection.
+os.environ.setdefault("DEVGODZILLA_DB_URL", "")
+os.environ.setdefault("DEVGODZILLA_DB_PATH", str(ROOT / ".pytest-bootstrap.sqlite"))
+os.environ.setdefault("DEVGODZILLA_REDIS_URL", "redis://localhost:0/0")
+os.environ.setdefault("DEVGODZILLA_ASSUME_AGENT_AUTH", "1")
+
 # ---------------------------------------------------------------------------
 # Hypothesis configuration – cap example count to prevent timeouts
 # ---------------------------------------------------------------------------
@@ -35,17 +41,25 @@ except Exception:  # pragma: no cover – hypothesis not installed
 
 
 @pytest.fixture(autouse=True)
-def _default_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _default_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Set sensible defaults for all tests so no real infra is required."""
     # Prevent .env-provided Postgres URLs from leaking into SQLite-based tests.
     monkeypatch.setenv("DEVGODZILLA_DB_URL", "")
-    # Default database path for tests that use file-based SQLite.
-    monkeypatch.setenv("DEVGODZILLA_DATABASE_URL", "")
+    # Set one explicit SQLite backend for tests that call load_config/get_config.
+    monkeypatch.setenv("DEVGODZILLA_DB_PATH", str(tmp_path / "test_devgodzilla.sqlite"))
+    monkeypatch.delenv("DEVGODZILLA_DATABASE_URL", raising=False)
     # Redis – point at a non-existent instance so tests fail fast if they
     # accidentally try to connect instead of using the mock.
     monkeypatch.setenv("DEVGODZILLA_REDIS_URL", "redis://localhost:0/0")
     # Skip agent auth in tests.
     monkeypatch.setenv("DEVGODZILLA_ASSUME_AGENT_AUTH", "1")
+
+    try:
+        from devgodzilla.config import _reset_config_for_tests
+
+        _reset_config_for_tests()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------

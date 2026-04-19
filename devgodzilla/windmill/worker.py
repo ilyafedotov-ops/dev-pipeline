@@ -32,8 +32,8 @@ def get_db():
     """Get database instance for worker jobs."""
     config = get_config()
     return get_database(
-        db_url=config.database.url if config.database.url else None,
-        db_path=Path(config.database.path) if config.database.path else None,
+        db_url=config.db_url,
+        db_path=Path(config.db_path) if config.db_path else None,
     )
 
 

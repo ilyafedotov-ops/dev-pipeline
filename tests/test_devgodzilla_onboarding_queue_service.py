@@ -169,7 +169,7 @@ class TestOnboardingQueueService:
         # Create a new config with windmill disabled
         from devgodzilla.config import Config
         config = Config(
-            windmill_enabled=False,
+            db_path=Path("test.db"),
             windmill_url=None,
             windmill_token=None,
         )

@@ -9,14 +9,23 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Pull DB URL from env if provided; fallback to alembic.ini default.
-db_url = os.environ.get("DEVGODZILLA_DB_URL")
-if not db_url:
-    db_path = os.environ.get("DEVGODZILLA_DB_PATH")
-    if db_path:
-        db_url = f"sqlite:///{db_path}"
+# Pull DB settings from env and require one explicit backend.
+db_url = (os.environ.get("DEVGODZILLA_DB_URL") or "").strip() or None
+db_path = (os.environ.get("DEVGODZILLA_DB_PATH") or "").strip() or None
+if db_url and db_path:
+    raise RuntimeError(
+        "Configure exactly one database backend for Alembic: set either "
+        "DEVGODZILLA_DB_URL or DEVGODZILLA_DB_PATH, not both."
+    )
 if db_url:
     config.set_main_option("sqlalchemy.url", db_url)
+elif db_path:
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+else:
+    raise RuntimeError(
+        "Database is not configured for Alembic. Set exactly one of "
+        "DEVGODZILLA_DB_URL or DEVGODZILLA_DB_PATH."
+    )
 
 target_metadata = None
 

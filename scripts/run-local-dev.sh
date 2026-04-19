@@ -65,6 +65,10 @@ export_env() {
   export DEVGODZILLA_WINDMILL_IMPORT_ROOT="${DEVGODZILLA_WINDMILL_IMPORT_ROOT:-$PROJECT_DIR/windmill}"
   export WINDMILL_JOB_TIMEOUT_SECONDS="${WINDMILL_JOB_TIMEOUT_SECONDS:-3600}"
   export DEVGODZILLA_PROJECTS_ROOT="${DEVGODZILLA_PROJECTS_ROOT:-$PROJECT_DIR/projects}"
+
+  if [[ -n "${DEVGODZILLA_DB_URL:-}" && -n "${DEVGODZILLA_DB_PATH:-}" ]]; then
+    die "Configure exactly one database backend: set either DEVGODZILLA_DB_URL or DEVGODZILLA_DB_PATH."
+  fi
 }
 
 RUN_DIR="$PROJECT_DIR/runs/local-dev"

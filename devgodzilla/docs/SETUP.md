@@ -59,9 +59,11 @@ alembic upgrade head
 
 ## Environment Variables
 
+Set exactly one database backend. Do not set both `DEVGODZILLA_DB_URL` and `DEVGODZILLA_DB_PATH`.
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DEVGODZILLA_DB_PATH` | SQLite database file path | `.devgodzilla.sqlite` |
+| `DEVGODZILLA_DB_PATH` | SQLite database file path | None |
 | `DEVGODZILLA_DB_URL` | PostgreSQL connection string | None |
 | `DEVGODZILLA_LOG_LEVEL` | Logging level | `INFO` |
 | `DEVGODZILLA_API_HOST` | API host | `0.0.0.0` |

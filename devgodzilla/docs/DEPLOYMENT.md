@@ -44,10 +44,12 @@ WantedBy=multi-user.target
 
 ## Environment Variables
 
+Set exactly one database backend. Do not set both `DEVGODZILLA_DB_URL` and `DEVGODZILLA_DB_PATH`.
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DEVGODZILLA_DB_URL` | PostgreSQL connection string | None |
-| `DEVGODZILLA_DB_PATH` | SQLite DB path (dev) | `.devgodzilla.sqlite` |
+| `DEVGODZILLA_DB_PATH` | SQLite DB path (dev) | None |
 | `DEVGODZILLA_LOG_LEVEL` | Logging level | `INFO` |
 | `DEVGODZILLA_API_HOST` | API bind host | `0.0.0.0` |
 | `DEVGODZILLA_API_PORT` | API port | `8000` |

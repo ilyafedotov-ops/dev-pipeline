@@ -21,6 +21,7 @@ fi
 export PYTHONPATH="${PYTHONPATH:-.}"
 # Keep unit tests deterministic; many tests provision temporary SQLite DBs.
 export DEVGODZILLA_DB_URL=""
+export DEVGODZILLA_DB_PATH="${DEVGODZILLA_DB_PATH:-.pytest-devgodzilla.sqlite}"
 export DEVGODZILLA_API_TOKEN=""
 
 # Run unit tests (fast, deterministic - uses stub opencode)
