@@ -40,7 +40,7 @@ const navigationItems = [
   { icon: FolderKanban, label: "Projects", href: "/projects", shortcut: "p" },
   { icon: PlayCircle, label: "Runs", href: "/runs", shortcut: "r" },
   { icon: GitBranch, label: "Protocols", href: "/protocols", shortcut: "o" },
-  { icon: Kanban, label: "Sprints", href: "/sprints", shortcut: "s" },
+  { icon: Kanban, label: "Execution", href: "/execution", shortcut: "s" },
   { icon: Bot, label: "Agents", href: "/agents", shortcut: "a" },
   { icon: Shield, label: "Policy Packs", href: "/policy-packs", shortcut: "l" },
   { icon: FileCode2, label: "Specifications", href: "/specifications", shortcut: "e" },
@@ -199,7 +199,7 @@ export function CommandPalette() {
 ⌘P - Projects
 ⌘R - Runs
 ⌘O - Protocols
-⌘S - Sprints
+⌘S - Execution
 ⌘A - Agents
 ⌘N - New Project
 ⌘. - Refresh page`);

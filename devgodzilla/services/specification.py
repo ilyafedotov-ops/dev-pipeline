@@ -368,7 +368,7 @@ class SpecificationService(Service):
         Returns:
             Constitution content or None if not found
         """
-        path = Path(project_path) / self.DOT_SPECIFY / self.MEMORY_DIR / "constitution.md"
+        path = Path(project_path).expanduser() / self.DOT_SPECIFY / self.MEMORY_DIR / "constitution.md"
         if path.exists():
             return path.read_text()
         return None
@@ -393,7 +393,7 @@ class SpecificationService(Service):
         log_extra = self.log_extra(project_id=project_id, path=project_path)
 
         try:
-            path = Path(project_path) / self.DOT_SPECIFY / self.MEMORY_DIR / "constitution.md"
+            path = Path(project_path).expanduser() / self.DOT_SPECIFY / self.MEMORY_DIR / "constitution.md"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
 

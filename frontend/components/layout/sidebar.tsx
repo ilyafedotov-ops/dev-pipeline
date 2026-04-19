@@ -64,7 +64,7 @@ const navigationGroups: NavGroup[] = [
       { name: "Executions", href: "/executions", icon: Terminal },
       { name: "Templates", href: "/templates", icon: Layers },
       { name: "Protocols", href: "/protocols", icon: GitBranch },
-      { name: "Sprints", href: "/sprints", icon: Kanban },
+      { name: "Execution", href: "/execution", icon: Kanban },
       { name: "Specifications", href: "/specifications", icon: FileCode2 },
       { name: "Clarifications", href: "/clarifications", icon: MessageCircle },
     ],

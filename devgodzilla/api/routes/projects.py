@@ -1503,6 +1503,22 @@ def answer_project_clarification(
     
     return updated
 
+@router.get("/projects/{project_id}/constitution")
+def get_project_constitution_compat(
+    project_id: int,
+    db: Database = Depends(get_db),
+):
+    """Compatibility route — returns constitution content from disk."""
+    from pathlib import Path as _Path
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    constitution_path = _Path(project.local_path).expanduser() / ".specify" / "memory" / "constitution.md"
+    if constitution_path.exists():
+        return {"content": constitution_path.read_text()}
+    raise HTTPException(status_code=404, detail="Constitution not found")
+
+
 @router.get("/projects/{project_id}/commits", response_model=List[schemas.CommitOut])
 def list_project_commits(
     project_id: int,
@@ -1531,9 +1547,9 @@ def list_project_commits(
     
     commits = []
     try:
-        # Use git log to get recent commits with format: sha|subject|author name|relative date
+        # Use git log to get recent commits with format: sha|subject|author name|ISO-8601 date
         result = run_process(
-            ["git", "log", f"-{limit}", "--format=%H|%s|%an|%ar"],
+            ["git", "log", f"-{limit}", "--format=%H|%s|%an|%aI"],
             cwd=repo_path,
         )
         for line in result.stdout.strip().splitlines():
@@ -1703,7 +1719,7 @@ def list_project_worktrees(
         last_date = None
         try:
             result = run_process(
-                ["git", "log", "-1", "--format=%H|%s|%ar", branch_name],
+                ["git", "log", "-1", "--format=%H|%s|%aI", branch_name],
                 cwd=repo_path,
                 check=False,
             )
@@ -1753,7 +1769,7 @@ def list_project_worktrees(
         last_date = None
         try:
             result = run_process(
-                ["git", "log", "-1", "--format=%H|%s|%ar", branch_name],
+                ["git", "log", "-1", "--format=%H|%s|%aI", branch_name],
                 cwd=repo_path,
                 check=False,
             )
