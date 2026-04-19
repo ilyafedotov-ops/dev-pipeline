@@ -21,7 +21,7 @@ from devgodzilla.db.database import Database
 from devgodzilla.logging import get_logger
 
 # Timeout for synchronous attempt before falling back to background (seconds)
-_SYNC_TIMEOUT = 2.0
+_SYNC_TIMEOUT = 15.0
 from devgodzilla.models.domain import SpecRunStatus
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.specification import SpecificationService
@@ -306,6 +306,7 @@ def run_specify(
     import threading
     _sync_result = [None]
     _sync_exc = [None]
+    _sync_done = threading.Event()
 
     def _do_sync():
         try:
@@ -321,12 +322,23 @@ def run_specify(
             )
         except Exception as e:
             _sync_exc[0] = e
+            # Mark spec_run as FAILED if we got this far but crashed
+            try:
+                from devgodzilla.models.domain import SpecRunStatus as _SRS
+                existing = db.list_spec_runs(request.project_id)
+                for sr in existing:
+                    if sr.status == "specifying":
+                        db.update_spec_run(sr.id, status="failed")
+            except Exception:
+                pass
+        finally:
+            _sync_done.set()
 
     t = threading.Thread(target=_do_sync, daemon=True)
     t.start()
-    t.join(timeout=_SYNC_TIMEOUT)
+    completed = _sync_done.wait(timeout=_SYNC_TIMEOUT)
 
-    if not t.is_alive():
+    if completed:
         if _sync_exc[0]:
             raise _sync_exc[0]
         if _sync_result[0] is not None:
@@ -343,6 +355,15 @@ def run_specify(
 
     def _run_in_background() -> None:
         try:
+            # Wait for sync thread to finish before starting background work
+            _sync_done.wait(timeout=30)
+            # Guard: if sync thread already completed successfully, skip
+            if _sync_result[0] is not None and _sync_result[0].success:
+                logger.info(
+                    "speckit_specify_bg_skipped_sync_succeeded",
+                    extra={"project_id": request.project_id},
+                )
+                return
             from devgodzilla.cli.main import get_db as _get_db
             _bg_db = _get_db()
             _bg_ctx = get_service_context()

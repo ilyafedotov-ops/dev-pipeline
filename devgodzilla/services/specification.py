@@ -593,9 +593,14 @@ class SpecificationService(Service):
                         project_id=project_id,
                     )
                     if not agent_result.success:
+                        self._record_spec_run(
+                            spec_run_id=spec_run_id,
+                            status=SpecRunStatus.FAILED,
+                        )
                         return SpecifyResult(
                             success=False,
                             error=agent_result.error or "Spec generation failed",
+                            spec_run_id=spec_run_id,
                         )
                     self._append_policy_guidelines(spec_path, policy_guidelines)
 
@@ -677,9 +682,17 @@ class SpecificationService(Service):
                 project_id=project_id,
             )
             if not agent_result.success:
+                self._record_spec_run(
+                    spec_run_id=spec_run_id,
+                    status=SpecRunStatus.FAILED,
+                    branch_name=spec_name,
+                    spec_number=spec_number,
+                    feature_name=resolved_feature_name,
+                )
                 return SpecifyResult(
                     success=False,
                     error=agent_result.error or "Spec generation failed",
+                    spec_run_id=spec_run_id,
                 )
             self._append_policy_guidelines(spec_path, policy_guidelines)
             self._ensure_non_placeholder_artifact(
@@ -854,6 +867,10 @@ class SpecificationService(Service):
                 project_id=project_id,
             )
             if not agent_result.success:
+                self._record_spec_run(
+                    spec_run_id=spec_run.id if spec_run else spec_run_id,
+                    status=SpecRunStatus.FAILED,
+                )
                 return PlanResult(
                     success=False,
                     error=agent_result.error or "Plan generation failed",
@@ -969,9 +986,14 @@ class SpecificationService(Service):
                 project_id=project_id,
             )
             if not agent_result.success:
+                self._record_spec_run(
+                    spec_run_id=spec_run.id if spec_run else spec_run_id,
+                    status=SpecRunStatus.FAILED,
+                )
                 return TasksResult(
                     success=False,
                     error=agent_result.error or "Task generation failed",
+                    spec_run_id=spec_run.id if spec_run else spec_run_id,
                 )
             self._ensure_non_placeholder_artifact(
                 artifact_type="tasks",
@@ -1147,9 +1169,14 @@ class SpecificationService(Service):
                 project_id=project_id,
             )
             if not agent_result.success:
+                self._record_spec_run(
+                    spec_run_id=spec_run.id if spec_run else spec_run_id,
+                    status=SpecRunStatus.FAILED,
+                )
                 return ChecklistResult(
                     success=False,
                     error=agent_result.error or "Checklist generation failed",
+                    spec_run_id=spec_run.id if spec_run else spec_run_id,
                 )
 
             item_count = checklist_path.read_text().count("- [ ]")
@@ -1244,9 +1271,14 @@ class SpecificationService(Service):
                 project_id=project_id,
             )
             if not agent_result.success:
+                self._record_spec_run(
+                    spec_run_id=spec_run.id if spec_run else spec_run_id,
+                    status=SpecRunStatus.FAILED,
+                )
                 return AnalyzeResult(
                     success=False,
                     error=agent_result.error or "Analyze failed",
+                    spec_run_id=spec_run.id if spec_run else spec_run_id,
                 )
 
             rendered_report = report_path.read_text(encoding="utf-8")

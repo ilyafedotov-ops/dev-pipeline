@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from time import monotonic as _monotonic
 from typing import Any, List, Optional
+from uuid import uuid4 as _uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -12,6 +14,9 @@ from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.specification import SpecificationService
 from devgodzilla.services.policy import PolicyService
 from pathlib import Path
+import traceback as _traceback
+from devgodzilla.logging import get_logger as _get_logger
+_log = _get_logger(__name__)
 
 router = APIRouter(tags=["SpecKit"])
 
@@ -260,8 +265,39 @@ def project_speckit_specify(
     db: Database = Depends(get_db),
     service: SpecificationService = Depends(_service),
 ):
+    import os as _os
+    import threading as _threading
+
+    _invocation_id = _uuid4().hex[:12]
+    _caller_trace = "".join(_traceback.format_stack(limit=8)[-5:-1])
+    _thread = _threading.current_thread()
+    _pid = _os.getpid()
+    _log.info(
+        "project_speckit_specify_invoked",
+        extra={
+            "project_id": project_id,
+            "invocation_id": _invocation_id,
+            "pid": _pid,
+            "thread_name": _thread.name,
+            "thread_id": _thread.ident,
+            "feature_name": request.feature_name,
+            "base_branch": request.base_branch,
+            "description_len": len(request.description),
+            "description_preview": request.description[:120],
+            "trace": _caller_trace,
+        },
+    )
+
     project = get_local_project_or_400(db, project_id)
-    
+    _log.info(
+        "project_speckit_specify_project_resolved",
+        extra={
+            "project_id": project_id,
+            "invocation_id": _invocation_id,
+            "local_path": project.local_path,
+        },
+    )
+
     # Emit start event
     try:
         db.append_event(
@@ -276,15 +312,54 @@ def project_speckit_specify(
         )
     except Exception:
         pass  # Don't fail the request if event emission fails
-    
-    result = service.run_specify(
-        project.local_path,
-        request.description,
-        feature_name=request.feature_name,
-        base_branch=request.base_branch,
-        project_id=project_id,
+
+    _started_at = _monotonic()
+    _log.info(
+        "project_speckit_specify_run_specify_started",
+        extra={
+            "project_id": project_id,
+            "invocation_id": _invocation_id,
+            "local_path": project.local_path,
+        },
     )
-    
+    try:
+        result = service.run_specify(
+            project.local_path,
+            request.description,
+            feature_name=request.feature_name,
+            base_branch=request.base_branch,
+            project_id=project_id,
+        )
+    except Exception:
+        _log.exception(
+            "project_speckit_specify_run_specify_failed",
+            extra={
+                "project_id": project_id,
+                "invocation_id": _invocation_id,
+                "elapsed_ms": round((_monotonic() - _started_at) * 1000, 3),
+                "local_path": project.local_path,
+            },
+        )
+        raise
+
+    _log.info(
+        "project_speckit_specify_run_specify_finished",
+        extra={
+            "project_id": project_id,
+            "invocation_id": _invocation_id,
+            "elapsed_ms": round((_monotonic() - _started_at) * 1000, 3),
+            "success": result.success,
+            "spec_run_id": result.spec_run_id,
+            "spec_number": result.spec_number,
+            "result_feature_name": result.feature_name,
+            "spec_path": result.spec_path,
+            "worktree_path": result.worktree_path,
+            "branch_name": result.branch_name,
+            "base_branch": result.base_branch,
+            "error": result.error,
+        },
+    )
+
     # Emit result event
     try:
         if result.success:
