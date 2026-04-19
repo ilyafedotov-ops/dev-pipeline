@@ -21,7 +21,7 @@ from devgodzilla.db.database import Database
 from devgodzilla.logging import get_logger
 
 # Timeout for synchronous attempt before falling back to background (seconds)
-_SYNC_TIMEOUT = 15.0
+_SYNC_TIMEOUT = 30.0
 from devgodzilla.models.domain import SpecRunStatus
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.specification import SpecificationService
@@ -413,6 +413,7 @@ def run_plan(
     import threading
     _sync_result = [None]
     _sync_exc = [None]
+    _sync_done = threading.Event()
 
     def _do_sync():
         try:
@@ -428,12 +429,14 @@ def run_plan(
             )
         except Exception as e:
             _sync_exc[0] = e
+        finally:
+            _sync_done.set()
 
     t = threading.Thread(target=_do_sync, daemon=True)
     t.start()
-    t.join(timeout=_SYNC_TIMEOUT)
+    completed = _sync_done.wait(timeout=_SYNC_TIMEOUT)
 
-    if not t.is_alive():
+    if completed:
         if _sync_exc[0]:
             raise _sync_exc[0]
         if _sync_result[0] is not None:
@@ -444,11 +447,19 @@ def run_plan(
         extra={"project_id": request.project_id},
     )
 
+    # --- Background path ---------------------------------------------------
     if background_tasks is None:
         raise
 
     def _run_in_background() -> None:
         try:
+            _sync_done.wait(timeout=30)
+            if _sync_result[0] is not None and getattr(_sync_result[0], "success", False):
+                logger.info(
+                    "speckit_plan_bg_skipped_sync_succeeded",
+                    extra={"project_id": request.project_id},
+                )
+                return
             from devgodzilla.cli.main import get_db as _get_db
             _bg_db = _get_db()
             _bg_ctx = get_service_context()
@@ -499,6 +510,7 @@ def run_tasks(
     import threading
     _sync_result = [None]
     _sync_exc = [None]
+    _sync_done = threading.Event()
 
     def _do_sync():
         try:
@@ -513,12 +525,14 @@ def run_tasks(
             )
         except Exception as e:
             _sync_exc[0] = e
+        finally:
+            _sync_done.set()
 
     t = threading.Thread(target=_do_sync, daemon=True)
     t.start()
-    t.join(timeout=_SYNC_TIMEOUT)
+    completed = _sync_done.wait(timeout=_SYNC_TIMEOUT)
 
-    if not t.is_alive():
+    if completed:
         if _sync_exc[0]:
             raise _sync_exc[0]
         if _sync_result[0] is not None:
@@ -529,11 +543,19 @@ def run_tasks(
         extra={"project_id": request.project_id},
     )
 
+    # --- Background path ---------------------------------------------------
     if background_tasks is None:
         raise
 
     def _run_in_background() -> None:
         try:
+            _sync_done.wait(timeout=30)
+            if _sync_result[0] is not None and getattr(_sync_result[0], "success", False):
+                logger.info(
+                    "speckit_tasks_bg_skipped_sync_succeeded",
+                    extra={"project_id": request.project_id},
+                )
+                return
             from devgodzilla.cli.main import get_db as _get_db
             _bg_db = _get_db()
             _bg_ctx = get_service_context()
@@ -626,6 +648,7 @@ def run_analyze(
     import threading
     _sync_result = [None]
     _sync_exc = [None]
+    _sync_done = threading.Event()
 
     def _do_sync():
         try:
@@ -642,12 +665,14 @@ def run_analyze(
             )
         except Exception as e:
             _sync_exc[0] = e
+        finally:
+            _sync_done.set()
 
     t = threading.Thread(target=_do_sync, daemon=True)
     t.start()
-    t.join(timeout=_SYNC_TIMEOUT)
+    completed = _sync_done.wait(timeout=_SYNC_TIMEOUT)
 
-    if not t.is_alive():
+    if completed:
         if _sync_exc[0]:
             raise _sync_exc[0]
         if _sync_result[0] is not None:
@@ -658,11 +683,19 @@ def run_analyze(
         extra={"project_id": request.project_id},
     )
 
+    # --- Background path ---------------------------------------------------
     if background_tasks is None:
         raise
 
     def _run_in_background() -> None:
         try:
+            _sync_done.wait(timeout=30)
+            if _sync_result[0] is not None and getattr(_sync_result[0], "success", False):
+                logger.info(
+                    "speckit_analyze_bg_skipped_sync_succeeded",
+                    extra={"project_id": request.project_id},
+                )
+                return
             from devgodzilla.cli.main import get_db as _get_db
             _bg_db = _get_db()
             _bg_ctx = get_service_context()
@@ -1088,18 +1121,21 @@ def run_workflow(
     import threading
     _sync_result = [None]
     _sync_exc = [None]
+    _sync_done = threading.Event()
 
     def _do_sync():
         try:
             _sync_result[0] = _execute_workflow(request, db, service)
         except Exception as e:
             _sync_exc[0] = e
+        finally:
+            _sync_done.set()
 
     t = threading.Thread(target=_do_sync, daemon=True)
     t.start()
-    t.join(timeout=_SYNC_TIMEOUT)
+    completed = _sync_done.wait(timeout=_SYNC_TIMEOUT)
 
-    if not t.is_alive():
+    if completed:
         if _sync_exc[0]:
             raise _sync_exc[0]
         if _sync_result[0] is not None:
@@ -1110,11 +1146,21 @@ def run_workflow(
         extra={"project_id": request.project_id},
     )
 
+    # --- Background path ---------------------------------------------------
     if background_tasks is None:
         raise
 
     def _run_in_background() -> None:
         try:
+            # Wait for sync thread to finish before starting background work
+            _sync_done.wait(timeout=30)
+            # Guard: if sync thread already completed successfully, skip
+            if _sync_result[0] is not None and getattr(_sync_result[0], "success", False):
+                logger.info(
+                    "speckit_workflow_bg_skipped_sync_succeeded",
+                    extra={"project_id": request.project_id},
+                )
+                return
             from devgodzilla.cli.main import get_db as _get_db
             _bg_db = _get_db()
             _bg_ctx = get_service_context()

@@ -507,6 +507,7 @@ class SpecificationService(Service):
 
             self._record_spec_run(
                 spec_run_id=spec_run_id,
+                status=SpecRunStatus.SPECIFIED,
                 branch_name=spec_name,
                 worktree_path=worktree_root,
                 spec_number=spec_number,
@@ -1401,6 +1402,10 @@ class SpecificationService(Service):
                 )
 
             if not tasks_path.exists():
+                self._record_spec_run(
+                    spec_run_id=spec_run.id if spec_run else spec_run_id,
+                    status=SpecRunStatus.FAILED,
+                )
                 return ImplementResult(
                     success=False,
                     spec_run_id=spec_run.id if spec_run else spec_run_id,
@@ -1415,6 +1420,10 @@ class SpecificationService(Service):
                 }
             )
             if placeholder_errors:
+                self._record_spec_run(
+                    spec_run_id=spec_run.id if spec_run else spec_run_id,
+                    status=SpecRunStatus.FAILED,
+                )
                 return ImplementResult(
                     success=False,
                     spec_run_id=spec_run.id if spec_run else spec_run_id,
@@ -1459,6 +1468,10 @@ class SpecificationService(Service):
                     spec_run_id=spec_run.id if spec_run else spec_run_id,
                 )
                 if not protocol_result.success:
+                    self._record_spec_run(
+                        spec_run_id=spec_run.id if spec_run else spec_run_id,
+                        status=SpecRunStatus.FAILED,
+                    )
                     return ImplementResult(
                         success=False,
                         spec_run_id=spec_run.id if spec_run else spec_run_id,
