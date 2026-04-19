@@ -1,37 +1,49 @@
 # DevGodzilla API Architecture
 
 > Status: Active
-> Scope: Current API architecture (implemented) + short target notes
+> Scope: Current API architecture and access model
 > Source of truth: `devgodzilla/api/app.py`, `devgodzilla/api/routes/*.py`, `GET /openapi.json`
-> Last updated: 2026-02-21
+> Last updated: 2026-04-19
 
 ## Summary
 
-DevGodzilla API is a FastAPI service that exposes project/protocol/step lifecycle management, SpecKit operations, governance, agile artifacts, operations telemetry, and Windmill passthrough endpoints.
+DevGodzilla API is a FastAPI service that exposes project and protocol lifecycle endpoints, SpecKit flows, agile execution artifacts, governance and quality surfaces, operations telemetry, auth flows, and Windmill passthrough endpoints.
 
-For exact schemas, request/response payloads, and required fields, use `GET /openapi.json`.
+For exact schemas, payloads, and required fields, use `GET /openapi.json`.
 
 ## Request Flow
 
 ```text
-Client -> nginx -> FastAPI route -> dependency injection -> service layer -> db/windmill/filesystem
+Client -> nginx or Next.js rewrite -> FastAPI route -> dependency injection -> service layer -> db / windmill / filesystem / agent runtime
 ```
 
 - App entrypoint: `devgodzilla/api/app.py`
 - Route modules: `devgodzilla/api/routes/*.py`
-- Main dependencies: `devgodzilla/api/dependencies.py`
+- Shared dependencies: `devgodzilla/api/dependencies.py`
+
+## Router Mounting Model
+
+Most main routers are mounted twice:
+
+1. `/api/v1/*`: canonical versioned API used by the frontend
+2. root-level routes such as `/projects` and `/protocols`: backward-compatible legacy surface
+
+This dual mounting is implemented in `devgodzilla/api/app.py`, not at the nginx layer.
 
 ## Authentication and Access
 
-- Most route groups are protected by API token dependency.
-- Webhook endpoints use webhook-token dependency.
-- Metrics endpoint is exposed without the API-token dependency.
+Current access model by route category:
 
-Configured in app wiring (`app.include_router(...)`) rather than a separate gateway.
+- API token required for most core, orchestration, governance, ops, and Windmill-facing routes
+- webhook token required for `/webhooks/*`
+- `/metrics*` is intentionally mounted without the API-token dependency
+- `/ws/events` is mounted without auth dependencies
+- `/auth/*` handles session/JWT-oriented login flow
+- `/users/*` uses its own auth dependencies rather than the global API-token dependency
 
-## Route Domains (Implemented)
+## Route Domains
 
-### Core Lifecycle
+### Core lifecycle
 
 - `/projects*`
 - `/protocols*`
@@ -39,73 +51,115 @@ Configured in app wiring (`app.include_router(...)`) rather than a separate gate
 - `/agents*`
 - `/clarifications*`
 
-### Specification
+### SpecKit and specification flows
 
 - `/speckit/*`
 - `/projects/{project_id}/speckit/*`
 - `/specifications*`
+- `/brownfield*`
+- `/templates*`
 
-### Agile
+Current compatibility behavior:
+
+- `/speckit/*` remains the compatibility surface
+- project-scoped `/projects/{project_id}/speckit/*` handlers are the underlying implementation path reused by those compatibility routes
+
+### Agile execution
 
 - `/sprints*`
 - `/tasks*`
 
-### Governance and Quality
+### Governance and quality
 
 - `/policy_packs*`
-- `/projects/{project_id}/policy*`
-- `/quality/dashboard`
+- project policy endpoints under `/projects/{project_id}/policy*`
+- `/quality*`
 
-### Operations
+### Operations and observability
 
 - `/events*`
-- `/logs/recent`, `/logs/stream`
-- `/queues`, `/queues/stats`, `/queues/jobs`
+- `/logs*`
+- `/queues*`
 - `/cli-executions*`
 - `/runs*`
-- `/metrics`, `/metrics/summary`
+- `/metrics*`
 
-### Windmill and External Signals
+### Windmill and maintenance
 
-- `/flows*`, `/jobs*` (Windmill passthrough)
-- `/webhooks/github`, `/webhooks/gitlab`, `/webhooks/windmill/job`, `/webhooks/windmill/flow`
+- `/flows*`
+- `/jobs*`
+- `/reconciliation*`
 
-### Profile and Health
+### Identity and profile
 
+- `/auth/*`
+- `/users/*`
 - `/profile`
-- `/health`, `/health/live`, `/health/ready`
 
-## API Naming Notes
+### Webhooks and streaming
 
-- Policy pack API uses underscore path: `/policy_packs`.
-- Frontend route slug uses hyphen path: `/console/policy-packs`.
+- `/webhooks/github`
+- `/webhooks/gitlab`
+- `/webhooks/windmill/*`
+- `/ws/events`
 
-This is intentional and currently implemented.
+### Health
 
-## Streaming Endpoints
+- `/health`
+- `/health/live`
+- `/health/ready`
+- `/health/agents`
 
-Server-sent event style streaming endpoints exist for long-running operations/log tails:
+## Naming Notes
+
+- API paths currently use underscores for some resources, for example `/policy_packs`.
+- Frontend route slugs may use hyphens, for example `/console/policy-packs`.
+- This mismatch is intentional and reflected in the existing UI code.
+
+## Streaming and Long-Running Endpoints
+
+The current API surface includes streaming or long-poll style endpoints for operations and logs, including:
 
 - `/events/stream`
+- `/logs/stream`
 - `/runs/{run_id}/logs/stream`
 - `/cli-executions/{execution_id}/logs/stream`
-- `/logs/stream`
+- `/ws/events`
+
+## SpecKit Execution Semantics
+
+Several SpecKit endpoints are intentionally hybrid synchronous/background operations.
+
+Current behavior:
+
+- compatibility endpoints such as `/speckit/specify`, `/speckit/plan`, `/speckit/tasks`, `/speckit/analyze`, and `/speckit/workflow` first attempt synchronous execution
+- when work does not finish inside the synchronous window, they return `202 Accepted` and continue in a FastAPI background task
+- `POST /speckit/specify` currently waits up to 15 seconds before switching to background execution
+- the `202` payload is an `AsyncAcceptedResponse` with a pending-style status and polling guidance
+- `GET /speckit/status/{project_id}` and spec-run endpoints are the recovery and inspection surface for deferred work
+- `POST /speckit/spec-runs/{spec_run_id}/stop` exists for stuck transitional runs so cleanup can proceed
+- `POST /speckit/spec-runs/{spec_run_id}/cleanup` removes worktree state after the run is terminal or manually stopped
+
+Failure-state hardening in the current implementation:
+
+- if the underlying SpecKit agent run fails during specify, plan, tasks, checklist, or analyze, the backend records the corresponding `SpecRun` as `failed`
+- the `/projects/{project_id}/speckit/specify` handler emits structured logs and DB events around invocation, project resolution, completion, and failure
 
 ## Service Layer Relationship
 
-Route handlers are thin orchestration endpoints and delegate business logic to services in `devgodzilla/services/`.
+Routes are intentionally thin and delegate orchestration and business logic to `devgodzilla/services/`.
 
-## Target Notes (Not Implemented Yet)
+Primary service domains used behind the API include:
 
-Potential improvements (non-blocking for current implementation):
-
-- automated route-doc drift checks in CI,
-- stricter typed response envelopes for all async job endpoints,
-- explicit API versioning policy.
+- orchestration and planning
+- execution and QA
+- specification and SpecKit flows
+- template and reconciliation flows
+- telemetry, events, and health
 
 ## Related Docs
 
 - Runtime truth: `docs/DevGodzilla/CURRENT_STATE.md`
-- Architecture: `docs/DevGodzilla/ARCHITECTURE.md`
+- System architecture: `docs/DevGodzilla/ARCHITECTURE.md`
 - Windmill workflows: `docs/DevGodzilla/WINDMILL-WORKFLOWS.md`
-- Legacy archive index: `docs/legacy/README.md`
+- CI notes: `docs/ci.md`

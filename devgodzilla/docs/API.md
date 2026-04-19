@@ -8,9 +8,35 @@ DevGodzilla provides a FastAPI-based REST API.
 http://localhost:8000
 ```
 
+Canonical frontend-facing versioned routes are also available under:
+
+```
+http://localhost:8000/api/v1
+```
+
+Most primary routers are mounted at both locations:
+
+- `/api/v1/*` is the canonical API surface
+- root-level routes remain available for backward compatibility
+
 ## Authentication
 
-> **Note:** Authentication is not yet implemented. JWT authentication is planned for future releases.
+Authentication is partially implemented and depends on route category:
+
+- most operational routes use `DEVGODZILLA_API_TOKEN` when configured
+- webhook routes use `DEVGODZILLA_WEBHOOK_TOKEN` when configured
+- JWT/session-style auth is available under `/auth/*`
+- authenticated profile operations are available under `/users/me` and `/auth/me`
+
+Current auth endpoints:
+
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `GET /auth/me`
+- `POST /auth/logout`
+- `GET /users/me`
+- `PUT /users/me`
+- `POST /users/me/password`
 
 ---
 
@@ -166,6 +192,13 @@ Update project constitution.
 
 Generate a feature specification.
 
+Execution model:
+
+- tries to complete synchronously first
+- if it does not finish inside the current synchronous window, the API returns `202 Accepted` and continues in background
+- the current synchronous window for `specify` is 15 seconds
+- failed generation attempts now persist the related `SpecRun` as `failed`
+
 **Request Body:**
 ```json
 {
@@ -181,13 +214,31 @@ Generate a feature specification.
   "success": true,
   "spec_path": "specs/001-auth-oauth2/spec.md",
   "spec_number": 1,
-  "feature_name": "auth-oauth2"
+  "feature_name": "auth-oauth2",
+  "spec_run_id": 42,
+  "worktree_path": "/abs/path/to/worktree",
+  "branch_name": "001-auth-oauth2"
+}
+```
+
+**Deferred Response (`202 Accepted`):**
+```json
+{
+  "spec_run_id": null,
+  "status": "specifying",
+  "message": "Specification generation deferred to background.",
+  "poll_url": null
 }
 ```
 
 ### `POST /speckit/plan`
 
 Generate an implementation plan.
+
+Execution model:
+
+- tries synchronous execution first
+- may return `202 Accepted` for slow AI-backed runs and continue in background
 
 **Request Body:**
 ```json
@@ -203,13 +254,29 @@ Generate an implementation plan.
   "success": true,
   "plan_path": "specs/001-auth/plan.md",
   "data_model_path": "specs/001-auth/data-model.md",
-  "contracts_path": "specs/001-auth/contracts"
+  "contracts_path": "specs/001-auth/contracts",
+  "spec_run_id": 42
+}
+```
+
+**Deferred Response (`202 Accepted`):**
+```json
+{
+  "spec_run_id": 42,
+  "status": "planning",
+  "message": "Plan generation deferred to background.",
+  "poll_url": null
 }
 ```
 
 ### `POST /speckit/tasks`
 
 Generate a task list.
+
+Execution model:
+
+- tries synchronous execution first
+- may return `202 Accepted` for slow AI-backed runs and continue in background
 
 **Request Body:**
 ```json
@@ -225,7 +292,8 @@ Generate a task list.
   "success": true,
   "tasks_path": "specs/001-auth/tasks.md",
   "task_count": 12,
-  "parallelizable_count": 5
+  "parallelizable_count": 5,
+  "spec_run_id": 42
 }
 ```
 
@@ -236,6 +304,14 @@ List all specs in a project.
 ### `GET /speckit/status/{project_id}`
 
 Get SpecKit status for a project.
+
+### `POST /speckit/spec-runs/{spec_run_id}/stop`
+
+Force a stuck SpecRun into `stopped` so cleanup can proceed.
+
+### `POST /speckit/spec-runs/{spec_run_id}/cleanup`
+
+Clean up worktree state and optional remote branch state for a SpecRun.
 
 ---
 

@@ -114,9 +114,9 @@
 | Item | Detail |
 |------|--------|
 | **Endpoint** | `POST /api/v1/speckit/specify` |
-| **Payload** | `{"project_id": {id}, "feature_name": "add-auth"}` |
-| **Expected** | `200` with worktree created, branch named `{NNN}-add-auth` |
-| **Verify** | Response contains `worktree_path`, `branch_name` matching `NNN-add-auth` pattern |
+| **Payload** | `{"project_id": {id}, "description": "Add authentication flow for protected API access", "feature_name": "add-auth"}` |
+| **Expected** | `200` with worktree created, branch named `{NNN}-add-auth`, **or** `202` if the AI-backed specify flow defers to background |
+| **Verify** | If `200`, response contains `worktree_path`, `branch_name`, and `spec_run_id`. If `202`, poll project status/spec-run state until the worktree and spec artifacts appear. |
 
 ### B.4 Delete Branch Cleanup
 
@@ -152,9 +152,9 @@
 |------|--------|
 | **Endpoint** | `POST /api/v1/speckit/specify` |
 | **Payload** | `{"project_id": {id}, "description": "Build a user dashboard with real-time data visualization widgets and chart components", "feature_name": "user-dashboard"}` |
-| **Notes** | `description` is required (min 10 chars). This is an **AI-powered operation** that may take 30-300s. Consider using extended timeout or async polling. |
-| **Expected** | `200` with `success: true`, `spec_path`, `worktree_path`, `branch_name`, `spec_run_id` |
-| **Verify** | `spec.md` file exists in worktree at `{worktree_path}/specs/{NNN}-user-dashboard/spec.md` |
+| **Notes** | `description` is required (min 10 chars). This is an **AI-powered operation**. The route currently attempts synchronous completion for about 15s, then may return `202 Accepted` and continue in background. |
+| **Expected** | `200` with `success: true`, `spec_path`, `worktree_path`, `branch_name`, `spec_run_id`, **or** `202` with background/deferred status |
+| **Verify** | If `200`, `spec.md` file exists in worktree at `{worktree_path}/specs/{NNN}-user-dashboard/spec.md`. If `202`, poll `GET /api/v1/speckit/status/{project_id}` and/or inspect the spec run until it leaves `specifying`. |
 
 ### C.2 GET /speckit/status/{project_id} → Verify Spec Stage
 
@@ -170,9 +170,9 @@
 |------|--------|
 | **Endpoint** | `POST /api/v1/speckit/plan` |
 | **Payload** | `{"project_id": {id}, "spec_path": "{spec_path from C.1}", "spec_run_id": {spec_run_id}}` |
-| **Notes** | `spec_path` is required. AI-powered operation. |
-| **Expected** | `200` with plan artifacts created |
-| **Verify** | `plan.md` exists in spec directory |
+| **Notes** | `spec_path` is required. AI-powered operation and may also return `202` if deferred to background. |
+| **Expected** | `200` with plan artifacts created, **or** `202` with deferred status |
+| **Verify** | `plan.md` exists in spec directory once the run leaves `planning` |
 
 ### C.4 POST /speckit/tasks → Creates tasks.md with - [ ] Checkboxes
 
@@ -180,9 +180,9 @@
 |------|--------|
 | **Endpoint** | `POST /api/v1/speckit/tasks` |
 | **Payload** | `{"project_id": {id}, "plan_path": "{plan_path from C.3}", "spec_run_id": {spec_run_id}}` |
-| **Notes** | `plan_path` is required. AI-powered operation. |
-| **Expected** | `200` with tasks artifact created |
-| **Verify** | `tasks.md` exists and contains `- [ ]` checkbox items |
+| **Notes** | `plan_path` is required. AI-powered operation and may also return `202` if deferred to background. |
+| **Expected** | `200` with tasks artifact created, **or** `202` with deferred status |
+| **Verify** | `tasks.md` exists and contains `- [ ]` checkbox items once the run leaves task generation |
 
 ### C.5 POST /speckit/analyze → Creates analysis.md
 
@@ -222,7 +222,7 @@
 | **Payload** | `{"delete_remote_branch": false}` |
 | **Notes** | Spec run must be stopped/inactive before cleanup |
 | **Expected** | `200` with cleanup confirmation |
-| **Verify** | Worktree removed from disk; branch deleted from git |
+| **Verify** | Worktree removed from disk; branch deleted from git. If cleanup rejects an active transitional run, call `POST /api/v1/speckit/spec-runs/{spec_run_id}/stop` first. |
 
 ### C.9 POST /speckit/implement → Bootstraps Protocol Execution
 
@@ -234,7 +234,16 @@
 | **Expected** | `200` with protocol creation or execution bootstrap |
 | **Verify** | Protocol run created and associated with spec |
 
-### C.10 GET /specifications → Cross-Project Listing with Filters
+### C.10 POST /speckit/spec-runs/{spec_run_id}/stop → Recover Stuck Transitional Runs
+
+| Item | Detail |
+|------|--------|
+| **Endpoint** | `POST /api/v1/speckit/spec-runs/{spec_run_id}/stop` |
+| **Precondition** | Spec run is stuck in a transitional status such as `specifying` or `planning` |
+| **Expected** | `200` with `status: "stopped"` |
+| **Verify** | Cleanup succeeds afterward and status is no longer transitional |
+
+### C.11 GET /specifications → Cross-Project Listing with Filters
 
 || Item | Detail |
 |------|--------|
@@ -243,7 +252,7 @@
 | **Expected** | `200` with `{items: [...], total: N, filters_applied: {...}}` |
 | **Verify** | Pagination works; filter params narrow results correctly |
 
-### C.11 GET /speckit/specs/{project_id} → Per-Project Spec Listing
+### C.12 GET /speckit/specs/{project_id} → Per-Project Spec Listing
 
 || Item | Detail |
 |------|--------|
