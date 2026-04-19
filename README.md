@@ -115,6 +115,24 @@ scripts/run-local-dev.sh frontend start|stop|restart|status
 | `scripts/run-local-dev.sh logs` | Tail Docker logs |
 | `scripts/run-local-dev.sh dev` | Infra + backend + frontend (hybrid) |
 
+### Stack Manager & Monitor
+
+`scripts/pipeline-ctl.sh` is a unified manager/monitor over the full stack —
+containers, host dev processes, HTTP health endpoints, and DB/Redis probes.
+Output is coloured and `NO_COLOR`-aware; every column is scriptable.
+
+```bash
+scripts/pipeline-ctl.sh status          # one-shot table
+scripts/pipeline-ctl.sh health --exit-code  # CI-friendly: non-zero if any down
+scripts/pipeline-ctl.sh watch           # live refresh (Ctrl-C to exit)
+scripts/pipeline-ctl.sh logs windmill devgodzilla-api --grep ERROR --save
+scripts/pipeline-ctl.sh restart windmill          # waits for healthy
+scripts/pipeline-ctl.sh fix rebuild-api           # compose build + up -d + wait
+```
+
+Makefile shortcuts: `make ctl-status`, `make ctl-health`, `make ctl-watch`,
+`make ctl-logs`. See `scripts/pipeline-ctl.sh help` for the full surface.
+
 ## Development Commands
 
 ```bash

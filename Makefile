@@ -1,4 +1,4 @@
-.PHONY: orchestrator-setup migrate deps compose-deps compose-down demo-harness
+.PHONY: orchestrator-setup migrate deps compose-deps compose-down demo-harness ctl-status ctl-health ctl-watch ctl-logs
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -29,3 +29,16 @@ compose-down:
 
 demo-harness: $(VENV)
 	DEVGODZILLA_AUTO_CLONE=false $(PY) -m pytest tests/test_devgodzilla_*.py -q
+
+# Stack manager shortcuts (see scripts/pipeline-ctl.sh help for full command surface).
+ctl-status:
+	@scripts/pipeline-ctl.sh status
+
+ctl-health:
+	@scripts/pipeline-ctl.sh health --exit-code
+
+ctl-watch:
+	@scripts/pipeline-ctl.sh watch
+
+ctl-logs:
+	@scripts/pipeline-ctl.sh logs
