@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   Bell,
@@ -36,8 +36,13 @@ import { apiClient, useHealth } from "@/lib/api";
 export default function SettingsPage() {
   const [apiBase, setApiBase] = useState(() => apiClient.getConfig().baseUrl);
   const [token, setToken] = useState(() => apiClient.getConfig().token || "");
+  const [webhookUrl, setWebhookUrl] = useState("");
   const { data: health, isError, refetch } = useHealth();
   const { theme, setTheme } = useTheme();
+
+  useEffect(() => {
+    setWebhookUrl(`${window.location.origin}/api/v1/webhooks/events`);
+  }, []);
 
   const handleSave = () => {
     apiClient.configure({
@@ -287,16 +292,16 @@ export default function SettingsPage() {
                 <div className="flex gap-2">
                   <Input
                     readOnly
-                    value={`${window.location.origin}/api/v1/webhooks/events`}
+                    value={webhookUrl}
                     className="font-mono text-sm"
                   />
                   <Button
                     variant="outline"
                     size="icon"
+                    disabled={!webhookUrl}
                     onClick={() => {
-                      navigator.clipboard.writeText(
-                        `${window.location.origin}/api/v1/webhooks/events`
-                      );
+                      if (!webhookUrl) return;
+                      navigator.clipboard.writeText(webhookUrl);
                       toast.success("Webhook URL copied to clipboard");
                     }}
                   >
