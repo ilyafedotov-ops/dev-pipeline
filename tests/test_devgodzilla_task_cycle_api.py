@@ -400,6 +400,29 @@ def test_task_cycle_start_brownfield_run_creates_protocol_and_work_items(monkeyp
                 worktree_path=str(repo),
             ),
         )
+        # Mock CLI execution to avoid hanging on real opencode subprocess
+        monkeypatch.setattr(
+            "devgodzilla.engines.cli_adapter.run_cli_command",
+            lambda *a, **kw: __import__("devgodzilla.engines.cli_adapter", fromlist=["EngineResult"]).EngineResult(
+                success=True,
+                stdout="mocked cli output",
+                stderr="",
+                exit_code=0,
+                duration_seconds=0.1,
+            ),
+        )
+        # Mock ExecutionService.execute_step — it calls real CLI via engine adapter
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.ExecutionService",
+            type(
+                "MockExecutionService",
+                (),
+                {
+                    "__init__": lambda self, ctx, db: None,
+                    "execute_step": lambda self, step_run_id: None,
+                },
+            ),
+        )
 
         app.dependency_overrides[get_db] = lambda: db
         try:

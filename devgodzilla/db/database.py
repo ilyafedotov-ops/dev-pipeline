@@ -2892,6 +2892,8 @@ class PostgresDatabase:
         return Project(
             id=row["id"],
             name=row["name"],
+            description=row.get("description"),
+            status=row.get("status"),
             git_url=row["git_url"],
             base_branch=row["base_branch"],
             local_path=row.get("local_path"),
