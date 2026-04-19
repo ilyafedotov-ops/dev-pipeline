@@ -173,10 +173,10 @@ class TaskCycleService(Service):
                 helper_agents=request.helper_agents if (request.allow_helper_agents or request.helper_agents) else [],
             )
 
-            # Auto-advance the first pending step when Windmill is not enabled.
+            # Auto-advance the first pending step.
             # Without this, protocol steps created by brownfield run stay in
             # "pending" forever because nothing dispatches them.
-            if not getattr(self.context.config, "windmill_enabled", False):
+            if True:
                 try:
                     steps = self.db.list_step_runs(protocol.protocol_run_id)
                     completed_ids = {s.id for s in steps if s.status == StepStatus.COMPLETED}

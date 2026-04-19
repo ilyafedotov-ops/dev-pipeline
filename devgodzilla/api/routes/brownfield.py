@@ -4,7 +4,7 @@ import concurrent.futures
 import threading
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -59,7 +59,6 @@ def list_task_cycle_work_items(
 def start_brownfield_run(
     project_id: int,
     request: schemas.BrownfieldRunRequest,
-    background_tasks: BackgroundTasks,
     db: Database = Depends(get_db),
     ctx: ServiceContext = Depends(get_service_context),
     service: TaskCycleService = Depends(_task_cycle_service),
@@ -120,11 +119,12 @@ def start_brownfield_run(
             extra={"project_id": project_id},
         )
 
-    if background_tasks is None:
-        raise RuntimeError("Background tasks not available")
-
     def _run_brownfield():
         try:
+            logger.info(
+                "brownfield_bg_starting",
+                extra={"project_id": project_id},
+            )
             # Wait for sync thread to finish before starting background work
             _sync_done.wait(timeout=120)
             # Guard: if sync thread already completed successfully, skip
@@ -134,14 +134,26 @@ def start_brownfield_run(
                     extra={"project_id": project_id},
                 )
                 return
+            logger.info(
+                "brownfield_bg_calling_start",
+                extra={"project_id": project_id},
+            )
             service.start_brownfield_run(project_id, request)
+            logger.info(
+                "brownfield_bg_completed",
+                extra={"project_id": project_id},
+            )
         except Exception as bg_exc:
             logger.exception(
                 "brownfield_background_run_failed",
                 extra={"project_id": project_id, "error": str(bg_exc)},
             )
 
-    background_tasks.add_task(_run_brownfield)
+    # Use a daemon thread instead of FastAPI BackgroundTasks to avoid
+    # lifecycle issues — BackgroundTasks may not execute reliably with
+    # JSONResponse in some uvicorn configurations.
+    bg_thread = threading.Thread(target=_run_brownfield, daemon=True, name="brownfield-bg")
+    bg_thread.start()
 
     return JSONResponse(
         status_code=202,
