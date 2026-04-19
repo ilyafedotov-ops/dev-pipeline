@@ -71,10 +71,10 @@ export function Header() {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative h-8 w-8">
+                <Button variant="ghost" size="icon" className="relative h-8 w-8 overflow-visible">
                   <Bell className="h-4 w-4" />
                   <Badge
-                    className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center p-0 text-[10px]"
+                    className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center p-0 text-[10px] leading-none"
                     variant="destructive"
                   >
                     3

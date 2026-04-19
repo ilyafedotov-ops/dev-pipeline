@@ -80,7 +80,7 @@ export default function SpecificationDetailPage({ params }: { params: Promise<{ 
     draft: "bg-gray-500",
     "in-progress": "bg-blue-500",
     completed: "bg-green-500",
-    failed: "bg-red-500",
+    failed: "bg-red-700",
   };
   const hasChecklist = Boolean(spec.checklist_path);
   const hasAnalysis = Boolean(spec.analysis_path);

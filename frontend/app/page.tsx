@@ -33,6 +33,7 @@ export default function DashboardPage() {
       value: projects?.length || 0,
       icon: FolderGit2,
       color: "text-blue-500",
+      bg: "bg-blue-500/10",
       href: "/projects",
     },
     {
@@ -40,6 +41,7 @@ export default function DashboardPage() {
       value: activeProtocols.length,
       icon: Activity,
       color: "text-green-500",
+      bg: "bg-green-500/10",
       href: "/protocols",
     },
     {
@@ -47,6 +49,7 @@ export default function DashboardPage() {
       value: runs?.length || 0,
       icon: PlayCircle,
       color: "text-purple-500",
+      bg: "bg-purple-500/10",
       href: "/runs",
     },
     {
@@ -54,6 +57,7 @@ export default function DashboardPage() {
       value: failedRuns,
       icon: AlertCircle,
       color: "text-red-500",
+      bg: "bg-red-500/10",
       href: "/runs?status=failed",
     },
   ];
@@ -70,12 +74,14 @@ export default function DashboardPage() {
           const Icon = stat.icon;
           return (
             <Link key={stat.label} href={stat.href}>
-              <Card className="hover:border-primary/50 transition-colors">
+              <Card className={`hover:border-primary/50 transition-all hover:shadow-md ${stat.bg}`}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-muted-foreground text-sm font-medium">
                     {stat.label}
                   </CardTitle>
-                  <Icon className={`h-4 w-4 ${stat.color}`} />
+                  <div className="rounded-lg bg-background/50 p-2">
+                    <Icon className={`h-5 w-5 ${stat.color}`} />
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{stat.value}</div>

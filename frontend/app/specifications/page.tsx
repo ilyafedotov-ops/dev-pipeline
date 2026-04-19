@@ -143,7 +143,7 @@ export default function SpecificationsPage() {
     "in-progress": "bg-blue-500",
     completed: "bg-green-500",
     cleaned: "bg-zinc-500",
-    failed: "bg-red-500",
+    failed: "bg-red-700",
   };
 
   const statusLabels: Record<string, string> = {

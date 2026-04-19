@@ -154,7 +154,9 @@ export function OnboardingTab({ projectId }: OnboardingTabProps) {
                   <p className="font-medium capitalize">{stage.name.replace(/_/g, " ")}</p>
                   <p className="text-muted-foreground text-sm">
                     {stage.status === "completed"
-                      ? `Completed ${formatRelativeTime(stage.completed_at)}`
+                      ? stage.completed_at
+                        ? `Completed ${formatRelativeTime(stage.completed_at)}`
+                        : "Completed"
                       : stage.status === "running"
                         ? "In progress..."
                         : stage.status === "failed"
@@ -213,9 +215,9 @@ export function OnboardingTab({ projectId }: OnboardingTabProps) {
                         {formatRelativeTime(event.created_at)}
                       </span>
                       <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
-                        {event.event_type}
+                        {event.event_type.replace(/_/g, " ")}
                       </span>
-                      <span className="flex-1">{event.message}</span>
+                      <span className="flex-1 capitalize">{event.message}</span>
                       {hasMetadata && (
                         <button
                           type="button"
