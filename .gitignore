@@ -12,6 +12,7 @@ frontend/.next/
 frontend/out/
 frontend/playwright-report/
 frontend/test-results/
+frontend/package-lock.json
 archive/tasksgodzilla/api/frontend_dist/
 .vscode/
 .idea/
