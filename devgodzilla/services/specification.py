@@ -17,10 +17,11 @@ import os
 import re
 import shutil
 import uuid
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
 
 from devgodzilla.engines import EngineNotFoundError, EngineRequest, SandboxMode, get_registry
 from devgodzilla.services.base import Service, ServiceContext
@@ -34,21 +35,21 @@ from devgodzilla.speckit_metadata import with_spec_run_id
 from devgodzilla.spec import resolve_spec_path
 
 
-@dataclass
-class SpecKitResult:
+class SpecKitResult(BaseModel):
     """Result from a SpecKit operation."""
+    model_config = {"frozen": False}
     success: bool
     project_id: Optional[int] = None
     spec_path: Optional[str] = None
     constitution_hash: Optional[str] = None
-    artifacts: Dict[str, str] = field(default_factory=dict)
+    artifacts: Dict[str, str] = Field(default_factory=dict)
     error: Optional[str] = None
-    warnings: List[str] = field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
 
 
-@dataclass
-class SpecifyResult:
+class SpecifyResult(BaseModel):
     """Result from spec generation."""
+    model_config = {"frozen": False}
     success: bool
     spec_path: Optional[str] = None
     spec_number: Optional[int] = None
@@ -61,9 +62,9 @@ class SpecifyResult:
     error: Optional[str] = None
 
 
-@dataclass
-class PlanResult:
+class PlanResult(BaseModel):
     """Result from plan generation."""
+    model_config = {"frozen": False}
     success: bool
     plan_path: Optional[str] = None
     data_model_path: Optional[str] = None
@@ -73,9 +74,9 @@ class PlanResult:
     error: Optional[str] = None
 
 
-@dataclass
-class TasksResult:
+class TasksResult(BaseModel):
     """Result from task generation."""
+    model_config = {"frozen": False}
     success: bool
     tasks_path: Optional[str] = None
     task_count: int = 0
@@ -85,9 +86,9 @@ class TasksResult:
     error: Optional[str] = None
 
 
-@dataclass
-class ClarifyResult:
+class ClarifyResult(BaseModel):
     """Result from spec clarification."""
+    model_config = {"frozen": False}
     success: bool
     spec_path: Optional[str] = None
     clarifications_added: int = 0
@@ -96,9 +97,9 @@ class ClarifyResult:
     error: Optional[str] = None
 
 
-@dataclass
-class ChecklistResult:
+class ChecklistResult(BaseModel):
     """Result from checklist generation."""
+    model_config = {"frozen": False}
     success: bool
     checklist_path: Optional[str] = None
     item_count: int = 0
@@ -107,9 +108,9 @@ class ChecklistResult:
     error: Optional[str] = None
 
 
-@dataclass
-class AnalyzeResult:
+class AnalyzeResult(BaseModel):
     """Result from analysis generation."""
+    model_config = {"frozen": False}
     success: bool
     report_path: Optional[str] = None
     spec_run_id: Optional[int] = None
@@ -117,24 +118,24 @@ class AnalyzeResult:
     error: Optional[str] = None
 
 
-@dataclass
-class ImplementResult:
+class ImplementResult(BaseModel):
     """Result from implementation bootstrap."""
+    model_config = {"frozen": False}
     success: bool
     run_path: Optional[str] = None
     metadata_path: Optional[str] = None
     protocol_id: Optional[int] = None
     protocol_root: Optional[str] = None
     step_count: int = 0
-    warnings: List[str] = field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
     spec_run_id: Optional[int] = None
     worktree_path: Optional[str] = None
     error: Optional[str] = None
 
 
-@dataclass
-class CleanupResult:
+class CleanupResult(BaseModel):
     """Result from a SpecRun cleanup."""
+    model_config = {"frozen": False}
     success: bool
     spec_run_id: Optional[int] = None
     worktree_path: Optional[str] = None
@@ -1001,6 +1002,15 @@ class SpecificationService(Service):
                 tasks_path=tasks_path,
                 plan_path=plan_file,
                 spec_path=spec_path if spec_path.exists() else None,
+            )
+
+            # SPEX-003: Run LLM-based ambiguity detection on generated tasks
+            self._detect_tasks_ambiguities(
+                tasks_content=tasks_content,
+                project_path=str(workspace_root),
+                project_id=project_id,
+                spec_path=spec_path if spec_path.exists() else None,
+                plan_path=plan_file,
             )
 
             self.logger.info("tasks_generated", extra={
@@ -2674,6 +2684,66 @@ Legend:
             self.logger.warning(
                 "policy_clarifications_persist_failed",
                 extra=self.log_extra(project_id=project_id, path=project_path, error=str(exc)),
+            )
+
+    def _detect_tasks_ambiguities(
+        self,
+        *,
+        tasks_content: str,
+        project_path: str,
+        project_id: Optional[int],
+        spec_path: Optional[Path] = None,
+        plan_path: Optional[Path] = None,
+    ) -> None:
+        """
+        SPEX-003: Run LLM-based ambiguity detection on generated tasks content.
+
+        Collects optional context from spec/plan and delegates to
+        ClarifierService.detect_ambiguities(). Failures are logged but do
+        not block the tasks stage.
+        """
+        if not self.db or not project_id:
+            return
+        try:
+            # Collect additional context from spec and plan
+            context_parts: List[str] = []
+            if spec_path and spec_path.exists():
+                try:
+                    context_parts.append(
+                        f"--- SPEC ---\n{spec_path.read_text(encoding='utf-8')}"
+                    )
+                except Exception:
+                    pass
+            if plan_path and plan_path.exists():
+                try:
+                    context_parts.append(
+                        f"--- PLAN ---\n{plan_path.read_text(encoding='utf-8')}"
+                    )
+                except Exception:
+                    pass
+            context_text = "\n\n".join(context_parts) if context_parts else ""
+
+            clarifier = ClarifierService(self.context, self.db)
+            detected = clarifier.detect_ambiguities(
+                tasks_content,
+                context=context_text,
+                project_id=project_id,
+                persist=True,
+            )
+            if detected:
+                self.logger.info(
+                    "tasks_ambiguities_detected",
+                    extra=self.log_extra(
+                        project_id=project_id,
+                        ambiguity_count=len(detected),
+                    ),
+                )
+        except Exception as exc:
+            self.logger.warning(
+                "tasks_ambiguity_detection_failed",
+                extra=self.log_extra(
+                    project_id=project_id, path=project_path, error=str(exc),
+                ),
             )
 
     def _ensure_runtime_dir(self, spec_dir: Path, feature_name: str) -> None:

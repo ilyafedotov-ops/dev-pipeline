@@ -1728,11 +1728,61 @@ def list_project_worktrees(
             protocol_run_id=protocol.id,
             protocol_name=protocol.protocol_name,
             protocol_status=protocol.status,
-            spec_run_id=None,  # Could be populated if we track spec runs per protocol
+            spec_run_id=None,
             last_commit_sha=last_sha,
             last_commit_message=last_message,
             last_commit_date=last_date,
             pr_url=pr_url,
         ))
+    
+    # Also include worktrees from spec runs that aren't already listed
+    try:
+        spec_runs = db.list_spec_runs(project_id)
+    except Exception:
+        spec_runs = []
+    
+    existing_branches = {w.branch_name for w in worktrees}
+    for sr in spec_runs:
+        if not sr.branch_name or sr.branch_name in existing_branches:
+            continue
+        branch_name = sr.branch_name
+        
+        # Get last commit for this branch
+        last_sha = None
+        last_message = None
+        last_date = None
+        try:
+            result = run_process(
+                ["git", "log", "-1", "--format=%H|%s|%ar", branch_name],
+                cwd=repo_path,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                parts = result.stdout.strip().split("|", 2)
+                if len(parts) >= 3:
+                    last_sha = parts[0]
+                    last_message = parts[1]
+                    last_date = parts[2]
+        except Exception:
+            pass
+        
+        pr_url = None
+        pull = pulls_by_branch.get(branch_name)
+        if pull is not None:
+            pr_url = pull.url
+        
+        worktrees.append(schemas.WorktreeOut(
+            branch_name=branch_name,
+            worktree_path=worktree_paths.get(branch_name) or sr.worktree_path,
+            protocol_run_id=sr.protocol_run_id,
+            protocol_name=sr.feature_name or sr.spec_name,
+            protocol_status=sr.status,
+            spec_run_id=sr.id,
+            last_commit_sha=last_sha,
+            last_commit_message=last_message,
+            last_commit_date=last_date,
+            pr_url=pr_url,
+        ))
+        existing_branches.add(branch_name)
     
     return worktrees

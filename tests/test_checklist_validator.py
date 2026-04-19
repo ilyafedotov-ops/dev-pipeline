@@ -2,12 +2,31 @@
 
 import pytest
 from pathlib import Path
+from unittest.mock import MagicMock
 
+from devgodzilla.engines.interface import Engine, EngineMetadata, EngineKind, EngineResult
 from devgodzilla.qa.checklist_validator import (
     ChecklistValidator,
     ChecklistItem,
     ValidationResult,
 )
+
+
+def _make_mock_engine(stdout: str = "", error: str | None = None) -> MagicMock:
+    """Create a mock Engine that returns the given stdout via qa()."""
+    engine = MagicMock(spec=Engine)
+    engine.metadata = EngineMetadata(
+        id="mock-engine",
+        display_name="Mock Engine",
+        kind=EngineKind.CLI,
+    )
+    engine.qa.return_value = EngineResult(
+        success=error is None,
+        stdout=stdout,
+        stderr="",
+        error=error,
+    )
+    return engine
 
 
 class TestChecklistItem:
@@ -174,19 +193,14 @@ class TestChecklistValidator:
         assert len(results) == 2
 
 
-class TestChecklistValidatorWithLLM:
-    """Tests for LLM-based validation (mocked)."""
+class TestChecklistValidatorWithEngine:
+    """Tests for Engine-based validation (mocked Engine)."""
 
-    @pytest.fixture
-    def mock_llm_client(self):
-        class MockLLMClient:
-            def complete(self, prompt):
-                return "PASSED\nConfidence: 0.9\nEvidence: Found implementation"
-
-        return MockLLMClient()
-
-    def test_validate_with_llm(self, tmp_path, mock_llm_client):
-        validator = ChecklistValidator(llm_client=mock_llm_client, use_llm=True)
+    def test_validate_with_engine(self, tmp_path):
+        mock_engine = _make_mock_engine(
+            stdout="PASSED\nConfidence: 0.9\nEvidence: Found implementation"
+        )
+        validator = ChecklistValidator(engine=mock_engine, use_llm=True)
 
         test_file = tmp_path / "code.py"
         test_file.write_text("def important_function(): pass")
@@ -197,27 +211,93 @@ class TestChecklistValidatorWithLLM:
             required=True,
         )
 
-        result = validator.validate_item(item, [test_file])
-        # Since LLM returns PASSED, should pass
+        # Force low-confidence pattern result so engine path is taken
+        result = validator._validate_with_llm(item, [test_file], None)
         assert result.passed is True
 
-    def test_llm_fallback_on_error(self, tmp_path):
-        class FailingLLMClient:
-            def complete(self, prompt):
-                raise RuntimeError("LLM unavailable")
-
-        validator = ChecklistValidator(
-            llm_client=FailingLLMClient(),
-            use_llm=True,
+    def test_validate_with_engine_called_via_validate_item(self, tmp_path):
+        """Integration: validate_item falls through to engine when pattern confidence < 0.8."""
+        mock_engine = _make_mock_engine(
+            stdout="PASSED\nConfidence: 0.9\nEvidence: Found implementation"
         )
+        validator = ChecklistValidator(engine=mock_engine, use_llm=True)
+
+        # Use a file that won't trigger high pattern confidence
+        test_file = tmp_path / "code.py"
+        test_file.write_text("def something(): pass")
+
+        item = ChecklistItem(
+            id="1",
+            description="Implement exotic feature xyz",
+            required=True,
+        )
+
+        result = validator.validate_item(item, [test_file])
+        # Engine should have been called
+        assert mock_engine.qa.called
+
+    def test_engine_error_fallback(self, tmp_path):
+        mock_engine = _make_mock_engine(error="Engine unavailable")
+
+        validator = ChecklistValidator(engine=mock_engine, use_llm=True)
 
         test_file = tmp_path / "code.py"
         test_file.write_text("def function(): pass")
 
         item = ChecklistItem(id="1", description="Do something")
 
+        result = validator._validate_with_llm(item, [test_file], None)
+        assert isinstance(result, ValidationResult)
+        assert result.passed is False
+        assert "Engine QA error" in result.reasoning
+
+    def test_engine_exception_fallback(self, tmp_path):
+        """When engine.qa() raises, _validate_with_llm catches and returns a result."""
+        mock_engine = MagicMock(spec=Engine)
+        mock_engine.qa.side_effect = RuntimeError("Boom")
+
+        validator = ChecklistValidator(engine=mock_engine, use_llm=True)
+
+        test_file = tmp_path / "code.py"
+        test_file.write_text("def function(): pass")
+
+        item = ChecklistItem(id="1", description="Do something")
+
+        result = validator._validate_with_llm(item, [test_file], None)
+        assert isinstance(result, ValidationResult)
+        assert result.passed is False
+        assert "Engine validation failed" in result.reasoning
+
+    def test_engine_request_uses_context(self, tmp_path):
+        """EngineRequest is populated from context dict."""
+        mock_engine = _make_mock_engine(stdout="PASSED\nConfidence: 0.8")
+        validator = ChecklistValidator(engine=mock_engine, use_llm=True)
+
+        test_file = tmp_path / "code.py"
+        test_file.write_text("pass")
+
+        item = ChecklistItem(id="1", description="Something")
+        ctx = {"project_id": 42, "protocol_run_id": 7, "step_run_id": 3}
+
+        validator._validate_with_llm(item, [test_file], ctx)
+
+        call_args = mock_engine.qa.call_args
+        req = call_args[0][0]
+        assert req.project_id == 42
+        assert req.protocol_run_id == 7
+        assert req.step_run_id == 3
+        assert item.description in req.prompt_text
+
+    def test_no_engine_uses_patterns_only(self, tmp_path):
+        """When engine is None, only pattern matching runs."""
+        validator = ChecklistValidator(engine=None, use_llm=True)
+
+        test_file = tmp_path / "code.py"
+        test_file.write_text("def function(): pass")
+
+        item = ChecklistItem(id="1", description="Do something exotic")
+
         result = validator.validate_item(item, [test_file])
-        # Should fallback to pattern validation
         assert isinstance(result, ValidationResult)
 
 

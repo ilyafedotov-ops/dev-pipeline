@@ -307,6 +307,7 @@ def test_task_cycle_review_qa_and_pr_ready(monkeypatch: pytest.MonkeyPatch) -> N
             _reset_config_for_tests()
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_task_cycle_start_brownfield_run_creates_protocol_and_work_items(monkeypatch: pytest.MonkeyPatch) -> None:
     from devgodzilla.api.dependencies import get_db

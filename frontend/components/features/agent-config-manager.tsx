@@ -99,7 +99,7 @@ interface AgentConfigFormProps {
   onSaved?: () => void;
 }
 
-function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormProps) {
+export function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormProps) {
   const updateConfig = useUpdateAgentConfig();
   const testSetup = useTestAgentSetup();
 

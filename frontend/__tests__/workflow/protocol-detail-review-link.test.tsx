@@ -20,6 +20,10 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("@/lib/websocket/hooks", () => ({
+  useWebSocketEvent: () => {},
+}));
+
 vi.mock("@/lib/api", () => ({
   useProtocol: () => ({
     data: {
@@ -66,6 +70,8 @@ vi.mock("@/lib/api", () => ({
     mutateAsync: vi.fn(),
     isPending: false,
   }),
+  useFeedbackEvents: () => ({ data: null }),
+  useFeedbackAnswerClarification: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/app/protocols/[id]/components/artifacts-tab", () => ({

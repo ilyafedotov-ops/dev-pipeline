@@ -183,6 +183,7 @@ def test_orchestrator_dispatches_to_windmill(service_context: ServiceContext, de
     assert windmill.run_script_calls[1].args == {"step_run_id": step1.id}
 
 
+@pytest.mark.integration
 def test_windmill_worker_entrypoints_plan_and_update_status(
     monkeypatch: pytest.MonkeyPatch,
     service_context: ServiceContext,

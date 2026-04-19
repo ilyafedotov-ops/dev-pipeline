@@ -72,6 +72,9 @@ vi.mock("@/lib/api", () => ({
   useAnalyzeSpec: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRunImplement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useGenerateSpec: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useGeneratePlan: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useGenerateTasks: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRunWorkflow: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 describe("SpecTab review surface", () => {

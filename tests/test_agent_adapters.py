@@ -431,6 +431,9 @@ class TestAllAdaptersIntegration:
             "devgodzilla.engines.qwen",
             "devgodzilla.engines.amazon_q",
             "devgodzilla.engines.auggie",
+            "devgodzilla.engines.codebuddy",
+            "devgodzilla.engines.kilo",
+            "devgodzilla.engines.roo",
         ]
 
         for adapter in adapters:
@@ -450,6 +453,9 @@ class TestAllAdaptersIntegration:
         assert hasattr(engines, "QwenEngine")
         assert hasattr(engines, "AmazonQEngine")
         assert hasattr(engines, "AuggieEngine")
+        assert hasattr(engines, "CodeBuddyEngine")
+        assert hasattr(engines, "KiloEngine")
+        assert hasattr(engines, "RooEngine")
 
     def test_all_adapters_have_required_metadata(self):
         """All adapters have required metadata fields."""
@@ -462,6 +468,9 @@ class TestAllAdaptersIntegration:
         from devgodzilla.engines.qwen import QwenEngine
         from devgodzilla.engines.amazon_q import AmazonQEngine
         from devgodzilla.engines.auggie import AuggieEngine
+        from devgodzilla.engines.codebuddy import CodeBuddyEngine
+        from devgodzilla.engines.kilo import KiloEngine
+        from devgodzilla.engines.roo import RooEngine
 
         engines = [
             CodexEngine(),
@@ -473,6 +482,9 @@ class TestAllAdaptersIntegration:
             QwenEngine(),
             AmazonQEngine(),
             AuggieEngine(),
+            CodeBuddyEngine(),
+            KiloEngine(),
+            RooEngine(),
         ]
 
         for engine in engines:
@@ -488,12 +500,18 @@ class TestAllAdaptersIntegration:
         from devgodzilla.engines.qwen import QwenEngine
         from devgodzilla.engines.amazon_q import AmazonQEngine
         from devgodzilla.engines.auggie import AuggieEngine
+        from devgodzilla.engines.codebuddy import CodeBuddyEngine
+        from devgodzilla.engines.kilo import KiloEngine
+        from devgodzilla.engines.roo import RooEngine
 
         engines = [
             QoderEngine(),
             QwenEngine(),
             AmazonQEngine(),
             AuggieEngine(),
+            CodeBuddyEngine(),
+            KiloEngine(),
+            RooEngine(),
         ]
 
         req = EngineRequest(
@@ -519,12 +537,18 @@ class TestAllAdaptersIntegration:
         from devgodzilla.engines.qwen import QwenEngine
         from devgodzilla.engines.amazon_q import AmazonQEngine
         from devgodzilla.engines.auggie import AuggieEngine
+        from devgodzilla.engines.codebuddy import CodeBuddyEngine
+        from devgodzilla.engines.kilo import KiloEngine
+        from devgodzilla.engines.roo import RooEngine
 
         engines = [
             QoderEngine(),
             QwenEngine(),
             AmazonQEngine(),
             AuggieEngine(),
+            CodeBuddyEngine(),
+            KiloEngine(),
+            RooEngine(),
         ]
 
         req = EngineRequest(
@@ -547,6 +571,9 @@ class TestAllAdaptersIntegration:
         from devgodzilla.engines.qwen import register_qwen_engine, QwenEngine
         from devgodzilla.engines.amazon_q import register_amazon_q_engine, AmazonQEngine
         from devgodzilla.engines.auggie import register_auggie_engine, AuggieEngine
+        from devgodzilla.engines.codebuddy import register_codebuddy_engine, CodeBuddyEngine
+        from devgodzilla.engines.kilo import register_kilo_engine, KiloEngine
+        from devgodzilla.engines.roo import register_roo_engine, RooEngine
         from devgodzilla.engines.registry import get_registry
 
         # Reset the registry to allow re-registration in tests
@@ -559,8 +586,389 @@ class TestAllAdaptersIntegration:
             register_qwen_engine(),
             register_amazon_q_engine(),
             register_auggie_engine(),
+            register_codebuddy_engine(),
+            register_kilo_engine(),
+            register_roo_engine(),
         ]
 
         for engine in engines:
             assert engine is not None
             assert engine.metadata.id is not None
+
+
+class TestCodeBuddyEngine:
+    """Tests for CodeBuddy CLI engine adapter."""
+
+    def test_codebuddy_engine_metadata(self):
+        """Test CodeBuddy engine creation and metadata."""
+        from devgodzilla.engines.codebuddy import CodeBuddyEngine
+
+        engine = CodeBuddyEngine()
+        assert engine.metadata.id == "codebuddy"
+        assert engine.metadata.kind == EngineKind.CLI
+        assert "plan" in engine.metadata.capabilities
+        assert "execute" in engine.metadata.capabilities
+
+    def test_codebuddy_engine_build_command(self, tmp_path: Path):
+        """Test CodeBuddy command building."""
+        from devgodzilla.engines.codebuddy import CodeBuddyEngine
+
+        engine = CodeBuddyEngine()
+
+        req = EngineRequest(
+            project_id=1,
+            protocol_run_id=2,
+            step_run_id=3,
+            prompt_text="Create a new module",
+            working_dir=str(tmp_path),
+            sandbox=SandboxMode.WORKSPACE_WRITE,
+        )
+
+        cmd = engine._build_command(req, SandboxMode.WORKSPACE_WRITE)
+
+        assert cmd[0] == "codebuddy"
+        assert "--cwd" in cmd
+        assert str(tmp_path) in cmd
+        assert "--sandbox" in cmd
+        assert "-" in cmd  # Read from stdin
+
+    def test_codebuddy_engine_build_command_with_model(self, tmp_path: Path):
+        """Test CodeBuddy command with custom model."""
+        from devgodzilla.engines.codebuddy import CodeBuddyEngine
+
+        engine = CodeBuddyEngine(default_model="codebuddy-pro")
+
+        req = EngineRequest(
+            project_id=1,
+            protocol_run_id=2,
+            step_run_id=3,
+            prompt_text="Test",
+            working_dir=str(tmp_path),
+            model="codebuddy-custom",
+        )
+
+        cmd = engine._build_command(req, SandboxMode.WORKSPACE_WRITE)
+
+        assert "--model" in cmd
+        model_idx = cmd.index("--model")
+        assert cmd[model_idx + 1] == "codebuddy-custom"
+
+    def test_codebuddy_engine_sandbox_modes(self, tmp_path: Path):
+        """Test CodeBuddy handles different sandbox modes."""
+        from devgodzilla.engines.codebuddy import CodeBuddyEngine
+
+        engine = CodeBuddyEngine()
+
+        req = EngineRequest(
+            project_id=1,
+            protocol_run_id=2,
+            step_run_id=3,
+            prompt_text="Test",
+            working_dir=str(tmp_path),
+        )
+
+        for sandbox in [SandboxMode.FULL_ACCESS, SandboxMode.READ_ONLY]:
+            cmd = engine._build_command(req, sandbox)
+            assert "--sandbox" in cmd
+
+    def test_codebuddy_engine_extra_options(self, tmp_path: Path):
+        """Test CodeBuddy engine with extra options."""
+        from devgodzilla.engines.codebuddy import CodeBuddyEngine
+
+        engine = CodeBuddyEngine()
+
+        req = EngineRequest(
+            project_id=1,
+            protocol_run_id=2,
+            step_run_id=3,
+            prompt_text="Test",
+            working_dir=str(tmp_path),
+            extra={"auto_approve": True, "config": "custom.toml", "context": "extra info"},
+        )
+
+        cmd = engine._build_command(req, SandboxMode.WORKSPACE_WRITE)
+
+        assert "--auto-approve" in cmd
+        assert "--config" in cmd
+        assert "--context" in cmd
+
+    def test_codebuddy_engine_check_availability_no_binary(self):
+        """Test availability check when binary not found."""
+        from devgodzilla.engines.codebuddy import CodeBuddyEngine
+
+        engine = CodeBuddyEngine()
+        with patch("shutil.which", return_value=None):
+            result = engine.check_availability()
+            assert result is False
+
+    def test_codebuddy_engine_check_availability_with_auth(self):
+        """Test availability check with auth environment variable."""
+        from devgodzilla.engines.codebuddy import CodeBuddyEngine
+
+        engine = CodeBuddyEngine()
+        with patch("shutil.which", return_value="/usr/bin/codebuddy"), \
+             patch.dict(os.environ, {"CODEBUDDY_API_KEY": "test-key"}):
+            result = engine.check_availability()
+            assert result is True
+
+    def test_codebuddy_engine_check_availability_assume_auth(self):
+        """Test availability check with DEVGODZILLA_ASSUME_AGENT_AUTH."""
+        from devgodzilla.engines.codebuddy import CodeBuddyEngine
+
+        engine = CodeBuddyEngine()
+        with patch("shutil.which", return_value="/usr/bin/codebuddy"), \
+             patch.dict(os.environ, {"DEVGODZILLA_ASSUME_AGENT_AUTH": "true"}, clear=False):
+            result = engine.check_availability()
+            assert result is True
+
+    def test_register_codebuddy_engine(self):
+        """Test CodeBuddy engine registration function."""
+        import devgodzilla.engines.registry as reg_module
+        reg_module._registry = None
+
+        from devgodzilla.engines.codebuddy import register_codebuddy_engine
+
+        engine = register_codebuddy_engine()
+        assert engine.metadata.id == "codebuddy"
+
+
+class TestKiloEngine:
+    """Tests for Kilo CLI engine adapter."""
+
+    def test_kilo_engine_metadata(self):
+        """Test Kilo engine creation and metadata."""
+        from devgodzilla.engines.kilo import KiloEngine
+
+        engine = KiloEngine()
+        assert engine.metadata.id == "kilo"
+        assert engine.metadata.kind == EngineKind.CLI
+        assert "plan" in engine.metadata.capabilities
+        assert "execute" in engine.metadata.capabilities
+
+    def test_kilo_engine_build_command(self, tmp_path: Path):
+        """Test Kilo command building."""
+        from devgodzilla.engines.kilo import KiloEngine
+
+        engine = KiloEngine()
+
+        req = EngineRequest(
+            project_id=1,
+            protocol_run_id=2,
+            step_run_id=3,
+            prompt_text="Implement the feature",
+            working_dir=str(tmp_path),
+            sandbox=SandboxMode.WORKSPACE_WRITE,
+        )
+
+        cmd = engine._build_command(req, SandboxMode.WORKSPACE_WRITE)
+
+        assert cmd[0] == "kilo"
+        assert "--cwd" in cmd
+        assert "--sandbox" in cmd
+        assert "-" in cmd
+
+    def test_kilo_engine_sandbox_mapping(self):
+        """Test Kilo sandbox mode mapping."""
+        from devgodzilla.engines.kilo import KiloEngine
+
+        engine = KiloEngine()
+
+        assert engine._sandbox_to_kilo(SandboxMode.FULL_ACCESS) == "full-access"
+        assert engine._sandbox_to_kilo(SandboxMode.WORKSPACE_WRITE) == "workspace-write"
+        assert engine._sandbox_to_kilo(SandboxMode.READ_ONLY) == "read-only"
+
+    def test_kilo_engine_extra_options(self, tmp_path: Path):
+        """Test Kilo engine with extra options."""
+        from devgodzilla.engines.kilo import KiloEngine
+
+        engine = KiloEngine()
+
+        req = EngineRequest(
+            project_id=1,
+            protocol_run_id=2,
+            step_run_id=3,
+            prompt_text="Test",
+            working_dir=str(tmp_path),
+            extra={"auto_approve": True, "config": "custom.toml"},
+        )
+
+        cmd = engine._build_command(req, SandboxMode.WORKSPACE_WRITE)
+
+        assert "--auto-approve" in cmd
+        assert "--config" in cmd
+
+    def test_kilo_engine_check_availability_no_binary(self):
+        """Test availability check when binary not found."""
+        from devgodzilla.engines.kilo import KiloEngine
+
+        engine = KiloEngine()
+        with patch("shutil.which", return_value=None):
+            result = engine.check_availability()
+            assert result is False
+
+    def test_kilo_engine_check_availability_with_api_key(self):
+        """Test availability check with API key."""
+        from devgodzilla.engines.kilo import KiloEngine
+
+        engine = KiloEngine()
+        with patch("shutil.which", return_value="/usr/bin/kilo"), \
+             patch.dict(os.environ, {"KILO_API_KEY": "test-key"}):
+            result = engine.check_availability()
+            assert result is True
+
+    def test_kilo_engine_check_availability_with_token(self):
+        """Test availability check with token."""
+        from devgodzilla.engines.kilo import KiloEngine
+
+        engine = KiloEngine()
+        with patch("shutil.which", return_value="/usr/bin/kilo"), \
+             patch.dict(os.environ, {"KILO_TOKEN": "test-token"}):
+            result = engine.check_availability()
+            assert result is True
+
+    def test_register_kilo_engine(self):
+        """Test Kilo engine registration function."""
+        import devgodzilla.engines.registry as reg_module
+        reg_module._registry = None
+
+        from devgodzilla.engines.kilo import register_kilo_engine
+
+        engine = register_kilo_engine()
+        assert engine.metadata.id == "kilo"
+
+
+class TestRooEngine:
+    """Tests for Roo CLI engine adapter."""
+
+    def test_roo_engine_metadata(self):
+        """Test Roo engine creation and metadata."""
+        from devgodzilla.engines.roo import RooEngine
+
+        engine = RooEngine()
+        assert engine.metadata.id == "roo"
+        assert engine.metadata.kind == EngineKind.CLI
+        assert "plan" in engine.metadata.capabilities
+        assert "execute" in engine.metadata.capabilities
+
+    def test_roo_engine_build_command(self, tmp_path: Path):
+        """Test Roo command building."""
+        from devgodzilla.engines.roo import RooEngine
+
+        engine = RooEngine()
+        # Force CLI name to "roo" so test doesn't depend on what's installed
+        engine._cli_name = "roo"
+
+        req = EngineRequest(
+            project_id=1,
+            protocol_run_id=2,
+            step_run_id=3,
+            prompt_text="Generate code",
+            working_dir=str(tmp_path),
+            sandbox=SandboxMode.WORKSPACE_WRITE,
+        )
+
+        cmd = engine._build_command(req, SandboxMode.WORKSPACE_WRITE)
+
+        assert cmd[0] == "roo"
+        assert "--cwd" in cmd
+        assert "--sandbox" in cmd
+        assert "-" in cmd
+
+    def test_roo_engine_sandbox_mapping(self):
+        """Test Roo sandbox mode mapping."""
+        from devgodzilla.engines.roo import RooEngine
+
+        engine = RooEngine()
+
+        assert engine._sandbox_to_roo(SandboxMode.FULL_ACCESS) == "full-access"
+        assert engine._sandbox_to_roo(SandboxMode.WORKSPACE_WRITE) == "workspace-write"
+        assert engine._sandbox_to_roo(SandboxMode.READ_ONLY) == "read-only"
+
+    def test_roo_engine_extra_options(self, tmp_path: Path):
+        """Test Roo engine with extra options."""
+        from devgodzilla.engines.roo import RooEngine
+
+        engine = RooEngine()
+        engine._cli_name = "roo"
+
+        req = EngineRequest(
+            project_id=1,
+            protocol_run_id=2,
+            step_run_id=3,
+            prompt_text="Test",
+            working_dir=str(tmp_path),
+            extra={
+                "auto_approve": True,
+                "config": "custom.toml",
+                "context": "additional context",
+            },
+        )
+
+        cmd = engine._build_command(req, SandboxMode.WORKSPACE_WRITE)
+
+        assert "--auto-approve" in cmd
+        assert "--config" in cmd
+        assert "--context" in cmd
+
+    def test_roo_engine_check_availability_no_binary(self):
+        """Test availability check when binary not found."""
+        from devgodzilla.engines.roo import RooEngine
+
+        engine = RooEngine()
+        with patch("shutil.which", return_value=None):
+            result = engine.check_availability()
+            assert result is False
+
+    def test_roo_engine_check_availability_with_api_key(self):
+        """Test availability check with API key."""
+        from devgodzilla.engines.roo import RooEngine
+
+        engine = RooEngine()
+        with patch("shutil.which", return_value="/usr/bin/roo"), \
+             patch.dict(os.environ, {"ROO_API_KEY": "test-key"}):
+            result = engine.check_availability()
+            assert result is True
+
+    def test_roo_engine_check_availability_with_roo_cli_fallback(self):
+        """Test availability check falls back to roo-cli."""
+        from devgodzilla.engines.roo import RooEngine
+
+        engine = RooEngine()
+
+        def mock_which(name):
+            if name == "roo":
+                return None
+            if name == "roo-cli":
+                return "/usr/bin/roo-cli"
+            return None
+
+        with patch("shutil.which", side_effect=mock_which), \
+             patch.dict(os.environ, {"ROO_TOKEN": "test-token"}):
+            result = engine.check_availability()
+            assert result is True
+
+    def test_roo_engine_cli_name_prefers_roo(self):
+        """Test that RooEngine prefers 'roo' over 'roo-cli'."""
+        from devgodzilla.engines.roo import RooEngine
+
+        engine = RooEngine()
+
+        def mock_which(name):
+            if name == "roo":
+                return "/usr/bin/roo"
+            if name == "roo-cli":
+                return "/usr/bin/roo-cli"
+            return None
+
+        with patch("shutil.which", side_effect=mock_which):
+            assert engine._get_command_name() == "roo"
+
+    def test_register_roo_engine(self):
+        """Test Roo engine registration function."""
+        import devgodzilla.engines.registry as reg_module
+        reg_module._registry = None
+
+        from devgodzilla.engines.roo import register_roo_engine
+
+        engine = register_roo_engine()
+        assert engine.metadata.id == "roo"

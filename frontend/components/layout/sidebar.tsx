@@ -19,8 +19,10 @@ import {
   LayoutDashboard,
   MessageCircle,
   PlayCircle,
+  RefreshCw,
   Settings,
   Shield,
+  ShieldCheck,
   Terminal,
   TrendingUp,
   Zap,
@@ -74,6 +76,15 @@ const navigationGroups: NavGroup[] = [
       { name: "Agents", href: "/agents", icon: Bot },
       { name: "Quality", href: "/quality", icon: BarChart3 },
       { name: "Policy Packs", href: "/policy-packs", icon: Shield },
+    ],
+  },
+  {
+    title: "Windmill",
+    icon: GitBranch,
+    items: [
+      { name: "Flows", href: "/windmill/flows", icon: GitBranch },
+      { name: "Jobs", href: "/windmill/jobs", icon: Activity },
+      { name: "Reconciliation", href: "/windmill/reconciliation", icon: ShieldCheck },
     ],
   },
   {

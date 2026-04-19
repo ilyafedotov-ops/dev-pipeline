@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
+from devgodzilla.engines.interface import Engine, EngineRequest, EngineResult, SandboxMode
 from devgodzilla.logging import get_logger
 
 logger = get_logger(__name__)
@@ -43,13 +44,17 @@ class ChecklistValidator:
     Provides both pattern-based and LLM-based validation strategies
     for verifying checklist items are satisfied by code artifacts.
     
+    Uses the Engine abstraction for LLM calls, following the same pattern
+    as PromptQAGate. When engine is None, falls back to pattern-based
+    validation only.
+    
     Example:
-        validator = ChecklistValidator(llm_client=my_client)
+        validator = ChecklistValidator(engine=my_engine)
         items = validator.parse_checklist(markdown_content)
         results = validator.validate_all(items, [Path("src/main.py")])
     """
     
-    llm_client: Any = None  # Optional LLM client for semantic validation
+    engine: Optional[Engine] = None  # Optional Engine for semantic validation
     smart_context: Any = None  # SmartContextManager for large files
     use_llm: bool = True
     
@@ -110,8 +115,8 @@ class ChecklistValidator:
         if pattern_result.confidence >= 0.8:
             return pattern_result
         
-        # If LLM available and enabled, use semantic validation
-        if self.use_llm and self.llm_client:
+        # If engine available and enabled, use semantic validation
+        if self.use_llm and self.engine is not None:
             return self._validate_with_llm(item, artifacts, context)
         
         # Fall back to pattern result
@@ -214,9 +219,9 @@ class ChecklistValidator:
         self,
         item: ChecklistItem,
         artifacts: List[Path],
-        context: Optional[Dict]
+        context: Optional[Dict],
     ) -> ValidationResult:
-        """Validate using LLM for semantic understanding.
+        """Validate using Engine for semantic understanding.
         
         Args:
             item: Checklist item to validate
@@ -224,14 +229,14 @@ class ChecklistValidator:
             context: Optional additional context
             
         Returns:
-            ValidationResult from LLM analysis
+            ValidationResult from Engine analysis
         """
         
         # Build context from artifacts
         artifact_context = self._build_artifact_context(artifacts)
         
-        # Construct prompt for LLM
-        prompt = f"""Check if the following checklist item is satisfied by the code:
+        # Construct prompt for the engine
+        prompt_text = f"""Check if the following checklist item is satisfied by the code:
 
 Checklist Item: {item.description}
 
@@ -245,21 +250,49 @@ Respond with:
 4. Reasoning
 """
         
-        # Call LLM (implementation depends on client)
+        # Build EngineRequest and call engine.qa() — follows PromptQAGate pattern
         try:
-            response = self.llm_client.complete(prompt)
-            return self._parse_llm_response(item.id, response)
+            working_dir = str(artifacts[0].parent) if artifacts else "."
+            
+            req = EngineRequest(
+                project_id=context.get("project_id", 0) if context else 0,
+                protocol_run_id=context.get("protocol_run_id", 0) if context else 0,
+                step_run_id=context.get("step_run_id", 0) if context else 0,
+                prompt_text=prompt_text,
+                working_dir=working_dir,
+                sandbox=SandboxMode.READ_ONLY,
+                extra={"checklist_item_id": item.id},
+            )
+            
+            result: EngineResult = self.engine.qa(req)
+            
+            if result.error:
+                logger.warning(
+                    "engine_qa_error",
+                    extra={"item_id": item.id, "error": result.error},
+                )
+                return ValidationResult(
+                    item_id=item.id,
+                    passed=False,
+                    confidence=0.0,
+                    evidence=[],
+                    reasoning=f"Engine QA error: {result.error}",
+                )
+            
+            response_text = result.stdout or ""
+            return self._parse_llm_response(item.id, response_text)
+            
         except Exception as e:
             logger.warning(
-                "llm_validation_failed",
-                extra={"item_id": item.id, "error": str(e)}
+                "engine_validation_failed",
+                extra={"item_id": item.id, "error": str(e)},
             )
             return ValidationResult(
                 item_id=item.id,
                 passed=False,
                 confidence=0.0,
                 evidence=[],
-                reasoning=f"LLM validation failed: {e}"
+                reasoning=f"Engine validation failed: {e}",
             )
     
     def _extract_keywords(self, text: str) -> List[str]:

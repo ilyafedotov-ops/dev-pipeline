@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ClipboardCheck,
-  ExternalLink,
   FileSearch,
   FileText,
   ListTodo,
@@ -22,6 +21,7 @@ import { CodeBlock } from "@/components/ui/code-block";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SpecificationViewer } from "@/components/features/specification-viewer";
 import { useSpecification, useSpecificationContent } from "@/lib/api";
 import {
   getProjectExecutionPath,
@@ -265,7 +265,6 @@ export default function SpecificationDetailPage({ params }: { params: Promise<{ 
                       <Button variant="outline" size="sm" asChild>
                         <Link href={getProjectExecutionPath(spec.project_id, spec.sprint_id)}>
                           View in Execution
-                          <ExternalLink className="ml-2 h-3 w-3" />
                         </Link>
                       </Button>
                     </div>
@@ -276,22 +275,9 @@ export default function SpecificationDetailPage({ params }: { params: Promise<{ 
           </Card>
         </TabsContent>
 
+        {/* Integrated SpecificationViewer component for spec content tabs */}
         <TabsContent value="spec_file" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>spec.md</CardTitle>
-              <CardDescription>Rendered as plain Markdown text</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {contentLoading ? (
-                <LoadingState message="Loading spec content..." />
-              ) : specContent?.spec_content ? (
-                <CodeBlock code={specContent.spec_content} language="markdown" maxHeight="600px" />
-              ) : (
-                <div className="text-muted-foreground text-sm">No spec content available yet.</div>
-              )}
-            </CardContent>
-          </Card>
+          <SpecificationViewer specId={id} />
         </TabsContent>
 
         <TabsContent value="plan_file" className="space-y-4">
@@ -355,6 +341,7 @@ export default function SpecificationDetailPage({ params }: { params: Promise<{ 
           </Card>
         </TabsContent>
 
+        {/* Analysis tab — shows ambiguities detected by LLM Clarifier and implementation review */}
         <TabsContent value="analysis" className="space-y-4">
           <Card>
             <CardHeader>

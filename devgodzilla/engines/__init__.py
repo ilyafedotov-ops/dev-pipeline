@@ -39,6 +39,13 @@ from devgodzilla.engines.qoder import QoderEngine, register_qoder_engine
 from devgodzilla.engines.qwen import QwenEngine, register_qwen_engine
 from devgodzilla.engines.amazon_q import AmazonQEngine, register_amazon_q_engine
 from devgodzilla.engines.auggie import AuggieEngine, register_auggie_engine
+from devgodzilla.engines.codebuddy import CodeBuddyEngine, register_codebuddy_engine
+from devgodzilla.engines.kilo import KiloEngine, register_kilo_engine
+from devgodzilla.engines.roo import RooEngine, register_roo_engine
+from devgodzilla.engines.amp import AmpEngine, register_amp_engine
+from devgodzilla.engines.shai import SHAIEngine, register_shai_engine
+from devgodzilla.engines.bob import BobEngine, register_bob_engine
+from devgodzilla.engines.jules import JulesEngine, register_jules_engine
 from devgodzilla.engines.dummy import DummyEngine
 from devgodzilla.engines.artifacts import Artifact, ArtifactWriter
 from devgodzilla.engines.sandbox import (
@@ -105,6 +112,20 @@ __all__ = [
     "register_amazon_q_engine",
     "AuggieEngine",
     "register_auggie_engine",
+    "CodeBuddyEngine",
+    "register_codebuddy_engine",
+    "KiloEngine",
+    "register_kilo_engine",
+    "RooEngine",
+    "register_roo_engine",
+    "AmpEngine",
+    "register_amp_engine",
+    "SHAIEngine",
+    "register_shai_engine",
+    "BobEngine",
+    "register_bob_engine",
+    "JulesEngine",
+    "register_jules_engine",
     "DummyEngine",
     # Artifacts
     "Artifact",

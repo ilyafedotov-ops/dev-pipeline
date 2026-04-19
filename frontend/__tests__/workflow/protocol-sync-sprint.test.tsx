@@ -85,6 +85,12 @@ vi.mock("@/lib/api", () => ({
     mutateAsync: syncToSprintMutateAsyncMock,
     isPending: false,
   }),
+  useFeedbackEvents: () => ({ data: null }),
+  useFeedbackAnswerClarification: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}));
+
+vi.mock("@/lib/websocket/hooks", () => ({
+  useWebSocketEvent: () => {},
 }));
 
 vi.mock("@/app/protocols/[id]/components/artifacts-tab", () => ({

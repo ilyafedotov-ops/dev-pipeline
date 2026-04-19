@@ -6,18 +6,22 @@ import {
   Activity,
   Bot,
   Circle,
-  CheckCircle2,
   Info,
   Layers,
   Plus,
   RefreshCw,
   Settings,
   TrendingUp,
-  XCircle,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  AgentSelector,
+  getAgentKindIcon,
+  getAgentKindLabel,
+} from "@/components/features/agent-selector";
+import { AgentConfigForm } from "@/components/features/agent-config-manager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,18 +57,14 @@ import {
   useAgents,
   useProjects,
   useUpdateAgentAssignments,
-  useUpdateAgentConfig,
   useUpdateAgentDefaults,
   useUpdateAgentPrompt,
-  useTestAgentSetup,
 } from "@/lib/api";
 import type {
   Agent,
   AgentAssignments,
   AgentDefaults as AgentDefaultsType,
   AgentPromptTemplate,
-  AgentTestResult,
-  AgentUpdate,
 } from "@/lib/api/types";
 
 type AgentCard = Agent & {
@@ -79,22 +79,6 @@ function isAgentNotInstalled(error?: string | null): boolean {
   if (!error) return false;
   return /command not found|not installed|binary.*not.*found/i.test(error);
 }
-
-type AgentDraft = {
-  id: string;
-  name: string;
-  kind: string;
-  enabled: boolean;
-  default_model: string;
-  command: string;
-  command_dir: string;
-  endpoint: string;
-  sandbox: string;
-  format: string;
-  capabilities: string;
-  timeout_seconds: string;
-  max_retries: string;
-};
 
 type AssignmentDraft = {
   agent_id?: string;
@@ -158,21 +142,18 @@ export default function AgentsPage() {
   } = useAgentHealth(projectId);
   const { data: metricsData } = useAgentMetrics(projectId);
 
-  const updateAgent = useUpdateAgentConfig();
   const updateAssignments = useUpdateAgentAssignments();
   const updatePrompt = useUpdateAgentPrompt();
-  const testAgentSetup = useTestAgentSetup();
 
   // Agent defaults panel
   const { data: agentDefaults, isLoading: defaultsLoading } = useAgentDefaults(projectId);
   const updateAgentDefaults = useUpdateAgentDefaults();
   const [defaultsDraft, setDefaultsDraft] = useState<AgentDefaultsType | null>(null);
 
-  const [selectedAgent, setSelectedAgent] = useState<AgentDraft | null>(null);
+  const [configuringAgent, setConfiguringAgent] = useState<AgentCard | null>(null);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [selectedPrompt, setSelectedPrompt] = useState<PromptDraft | null>(null);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
-  const [agentTestResult, setAgentTestResult] = useState<AgentTestResult | null>(null);
   const [assignmentsDraft, setAssignmentsDraft] = useState<AssignmentsDraft>({});
   const [inheritGlobalOverride, setInheritGlobalOverride] = useState<boolean | null>(null);
 
@@ -327,22 +308,7 @@ export default function AgentsPage() {
   }
 
   const openAgentConfig = (agent: AgentCard) => {
-    setAgentTestResult(null);
-    setSelectedAgent({
-      id: agent.id,
-      name: agent.name,
-      kind: agent.kind,
-      enabled: agent.enabled,
-      default_model: agent.default_model || "",
-      command: agent.command || "",
-      command_dir: agent.command_dir || "",
-      endpoint: agent.endpoint || "",
-      sandbox: agent.sandbox || "",
-      format: agent.format || "",
-      capabilities: agent.capabilities?.join(", ") || "",
-      timeout_seconds: agent.timeout_seconds ? String(agent.timeout_seconds) : "",
-      max_retries: agent.max_retries ? String(agent.max_retries) : "",
-    });
+    setConfiguringAgent(agent);
     setIsConfigOpen(true);
   };
 
@@ -361,77 +327,6 @@ export default function AgentsPage() {
     setIsPromptOpen(true);
   };
 
-  const handleSaveAgent = async () => {
-    if (!selectedAgent) return;
-    const toNullable = (value: string) => (value.trim().length > 0 ? value.trim() : null);
-    const toNumber = (value: string) => (value.trim().length > 0 ? Number(value) : null);
-
-    const payload: AgentUpdate = {
-      name: toNullable(selectedAgent.name),
-      kind: toNullable(selectedAgent.kind),
-      enabled: selectedAgent.enabled,
-      default_model: toNullable(selectedAgent.default_model),
-      command: toNullable(selectedAgent.command),
-      command_dir: toNullable(selectedAgent.command_dir),
-      endpoint: toNullable(selectedAgent.endpoint),
-      sandbox: toNullable(selectedAgent.sandbox),
-      format: toNullable(selectedAgent.format),
-      capabilities: selectedAgent.capabilities
-        .split(",")
-        .map((cap) => cap.trim())
-        .filter(Boolean),
-      timeout_seconds: toNumber(selectedAgent.timeout_seconds),
-      max_retries: toNumber(selectedAgent.max_retries),
-    };
-
-    try {
-      await updateAgent.mutateAsync({
-        agentId: selectedAgent.id,
-        data: payload,
-        projectId,
-      });
-      toast.success("Agent updated");
-      setIsConfigOpen(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update agent");
-    }
-  };
-
-  const handleTestAgentSetup = async () => {
-    if (!selectedAgent) return;
-    const toNullable = (value: string) => (value.trim().length > 0 ? value.trim() : null);
-    const toNumber = (value: string) => (value.trim().length > 0 ? Number(value) : null);
-
-    const overrides: AgentUpdate = {
-      name: toNullable(selectedAgent.name),
-      kind: toNullable(selectedAgent.kind),
-      enabled: selectedAgent.enabled,
-      default_model: toNullable(selectedAgent.default_model),
-      command: toNullable(selectedAgent.command),
-      command_dir: toNullable(selectedAgent.command_dir),
-      endpoint: toNullable(selectedAgent.endpoint),
-      sandbox: toNullable(selectedAgent.sandbox),
-      format: toNullable(selectedAgent.format),
-      capabilities: selectedAgent.capabilities
-        .split(",")
-        .map((cap) => cap.trim())
-        .filter(Boolean),
-      timeout_seconds: toNumber(selectedAgent.timeout_seconds),
-      max_retries: toNumber(selectedAgent.max_retries),
-    };
-
-    try {
-      const res = await testAgentSetup.mutateAsync({
-        agentId: selectedAgent.id,
-        projectId,
-        overrides,
-      });
-      setAgentTestResult(res);
-      toast.success(res.ok ? "Agent setup looks good" : "Agent setup check failed");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to test agent setup");
-    }
-  };
 
   const handleSaveAssignments = async () => {
     const toNullable = (value: string) => (value.trim().length > 0 ? value.trim() : null);
@@ -604,18 +499,20 @@ export default function AgentsPage() {
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 {processAssignments.map((process) => (
-                  <AssignmentSelect
-                    key={process.key}
-                    label={process.label}
-                    value={effectiveAssignments[process.key]?.agent_id || ""}
-                    agents={agents}
-                    onChange={(value) =>
-                      setAssignmentsDraft((prev) => ({
-                        ...prev,
-                        [process.key]: { ...prev[process.key], agent_id: value },
-                      }))
-                    }
-                  />
+                  <div key={process.key} className="space-y-2">
+                    <Label>{process.label}</Label>
+                    <AgentSelector
+                      projectId={projectId}
+                      value={effectiveAssignments[process.key]?.agent_id || ""}
+                      onChange={(value) =>
+                        setAssignmentsDraft((prev) => ({
+                          ...prev,
+                          [process.key]: { ...prev[process.key], agent_id: value },
+                        }))
+                      }
+                      placeholder="Select agent"
+                    />
+                  </div>
                 ))}
               </div>
             </CardContent>
@@ -793,247 +690,22 @@ export default function AgentsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Bot className="h-5 w-5 text-blue-500" />
-              Configure {selectedAgent?.name}
+              Configure {configuringAgent?.name}
             </DialogTitle>
             <DialogDescription>
               {projectId ? "Editing project-level overrides" : "Editing global agent configuration"}
             </DialogDescription>
           </DialogHeader>
 
-          {selectedAgent && (
-            <div className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="agent-name">Agent Name</Label>
-                  <Input
-                    id="agent-name"
-                    value={selectedAgent.name}
-                    onChange={(event) =>
-                      setSelectedAgent((prev) =>
-                        prev ? { ...prev, name: event.target.value } : prev
-                      )
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="agent-kind">Agent Kind</Label>
-                  <Input
-                    id="agent-kind"
-                    value={selectedAgent.kind}
-                    onChange={(event) =>
-                      setSelectedAgent((prev) =>
-                        prev ? { ...prev, kind: event.target.value } : prev
-                      )
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="agent-command">Command</Label>
-                  <Input
-                    id="agent-command"
-                    value={selectedAgent.command}
-                    onChange={(event) =>
-                      setSelectedAgent((prev) =>
-                        prev ? { ...prev, command: event.target.value } : prev
-                      )
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="agent-endpoint">Endpoint</Label>
-                  <Input
-                    id="agent-endpoint"
-                    value={selectedAgent.endpoint}
-                    onChange={(event) =>
-                      setSelectedAgent((prev) =>
-                        prev ? { ...prev, endpoint: event.target.value } : prev
-                      )
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="agent-default-model">Default Model</Label>
-                  <Input
-                    id="agent-default-model"
-                    value={selectedAgent.default_model}
-                    onChange={(event) =>
-                      setSelectedAgent((prev) =>
-                        prev ? { ...prev, default_model: event.target.value } : prev
-                      )
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="agent-command-dir">Command Dir</Label>
-                  <Input
-                    id="agent-command-dir"
-                    value={selectedAgent.command_dir}
-                    onChange={(event) =>
-                      setSelectedAgent((prev) =>
-                        prev ? { ...prev, command_dir: event.target.value } : prev
-                      )
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="agent-sandbox">Sandbox</Label>
-                  <Input
-                    id="agent-sandbox"
-                    value={selectedAgent.sandbox}
-                    onChange={(event) =>
-                      setSelectedAgent((prev) =>
-                        prev ? { ...prev, sandbox: event.target.value } : prev
-                      )
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="agent-format">Format</Label>
-                  <Input
-                    id="agent-format"
-                    value={selectedAgent.format}
-                    onChange={(event) =>
-                      setSelectedAgent((prev) =>
-                        prev ? { ...prev, format: event.target.value } : prev
-                      )
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="agent-timeout">Timeout (seconds)</Label>
-                  <Input
-                    id="agent-timeout"
-                    type="number"
-                    value={selectedAgent.timeout_seconds}
-                    onChange={(event) =>
-                      setSelectedAgent((prev) =>
-                        prev ? { ...prev, timeout_seconds: event.target.value } : prev
-                      )
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="agent-retries">Max Retries</Label>
-                  <Input
-                    id="agent-retries"
-                    type="number"
-                    value={selectedAgent.max_retries}
-                    onChange={(event) =>
-                      setSelectedAgent((prev) =>
-                        prev ? { ...prev, max_retries: event.target.value } : prev
-                      )
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="agent-capabilities">Capabilities</Label>
-                <Textarea
-                  id="agent-capabilities"
-                  rows={3}
-                  value={selectedAgent.capabilities}
-                  onChange={(event) =>
-                    setSelectedAgent((prev) =>
-                      prev ? { ...prev, capabilities: event.target.value } : prev
-                    )
-                  }
-                  placeholder="code_gen, code_review"
-                />
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div>
-                  <Label>Enabled</Label>
-                  <p className="text-muted-foreground text-xs">Disable to prevent assignment.</p>
-                </div>
-                <Switch
-                  checked={selectedAgent.enabled}
-                  onCheckedChange={(value) =>
-                    setSelectedAgent((prev) => (prev ? { ...prev, enabled: value } : prev))
-                  }
-                />
-              </div>
-
-              {agentTestResult && (
-                <div className="rounded-lg border p-3 text-sm">
-                  <div className="flex items-start gap-3">
-                    {agentTestResult.ok ? (
-                      <CheckCircle2 className="mt-0.5 h-5 w-5 text-green-500" />
-                    ) : (
-                      <XCircle className="text-destructive mt-0.5 h-5 w-5" />
-                    )}
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-medium">
-                          {agentTestResult.ok ? "Setup looks good" : "Setup needs attention"}
-                        </p>
-                        {typeof agentTestResult.duration_ms === "number" && (
-                          <span className="text-muted-foreground text-xs">
-                            {Math.round(agentTestResult.duration_ms)}ms
-                          </span>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        {agentTestResult.checks.map((check) => (
-                          <div key={check.name} className="space-y-1">
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-muted-foreground text-xs">{check.name}</span>
-                              <Badge variant={check.ok ? "secondary" : "destructive"}>
-                                {check.ok ? "OK" : "Failed"}
-                              </Badge>
-                            </div>
-                            {check.error && (
-                              <p className="text-destructive text-xs">{check.error}</p>
-                            )}
-                            {check.details && (
-                              <p className="text-muted-foreground truncate text-xs">
-                                {Object.entries(check.details)
-                                  .filter(([, v]) => v !== null && v !== undefined && v !== "")
-                                  .slice(0, 3)
-                                  .map(([k, v]) => `${k}=${String(v)}`)
-                                  .join(" • ")}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+          {configuringAgent && (
+            <AgentConfigForm
+              agent={configuringAgent}
+              projectId={projectId}
+              onSaved={() => {
+                setIsConfigOpen(false);
+              }}
+            />
           )}
-
-          <div className="mt-4 flex items-center justify-between gap-2">
-            <Button
-              variant="outline"
-              onClick={handleTestAgentSetup}
-              disabled={!selectedAgent || testAgentSetup.isPending}
-            >
-              {testAgentSetup.isPending ? "Testing..." : "Test Setup"}
-            </Button>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setIsConfigOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSaveAgent} disabled={updateAgent.isPending}>
-                Save Changes
-              </Button>
-            </div>
-          </div>
         </DialogContent>
       </Dialog>
 
@@ -1212,6 +884,7 @@ function AgentCardWithHealth({
   onConfigure: (agent: AgentCard) => void;
 }) {
   const { data: healthCheck } = useAgentHealthCheck(agent.id);
+  const KindIcon = getAgentKindIcon(agent.kind);
 
   // Derive real-time status from individual health check when available
   const effectiveStatus: AgentCard["healthStatus"] = healthCheck
@@ -1228,7 +901,7 @@ function AgentCardWithHealth({
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
-            <Bot className="h-5 w-5 text-blue-500" />
+            <KindIcon className="h-5 w-5 text-blue-500" />
             <CardTitle className="text-base">{agent.name}</CardTitle>
           </div>
           <div className="flex items-center gap-1.5">
@@ -1244,7 +917,7 @@ function AgentCardWithHealth({
             </span>
           </div>
         </div>
-        <CardDescription className="text-xs">{agent.kind}</CardDescription>
+        <CardDescription className="text-xs">{getAgentKindLabel(agent.kind)}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="space-y-2 text-sm">
@@ -1360,36 +1033,6 @@ function StatBlock({
 
 function Divider() {
   return <div className="bg-border hidden h-12 w-px md:block" />;
-}
-
-function AssignmentSelect({
-  label,
-  value,
-  agents,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  agents: AgentCard[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <Select value={value || ""} onValueChange={onChange}>
-        <SelectTrigger>
-          <SelectValue placeholder="Select agent" />
-        </SelectTrigger>
-        <SelectContent>
-          {agents.map((agent) => (
-            <SelectItem key={agent.id} value={agent.id}>
-              {agent.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
 }
 
 function PromptAssignmentSelect({

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List
 from datetime import datetime, timedelta
 
+import pytest
 from hypothesis import given, strategies as st, settings, HealthCheck
 
 from devgodzilla.db.database import SQLiteDatabase
@@ -184,6 +185,7 @@ def test_sprint_metrics_task_count_accuracy(
     # How many should be completed (done status)
     num_completed=st.integers(min_value=0, max_value=50)
 )
+@pytest.mark.integration
 def test_sprint_metrics_completed_count_accuracy(num_tasks: int, num_completed: int):
     """
     **Feature: frontend-api-integration, Property 7: Sprint metrics completed count accuracy**
