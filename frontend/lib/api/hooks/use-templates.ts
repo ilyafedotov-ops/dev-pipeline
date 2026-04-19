@@ -253,7 +253,7 @@ export function useExportTemplate() {
       templateId: string;
       format?: "yaml" | "json";
     }) => {
-      const response = await fetch(`/templates/${templateId}/export?format=${format}`);
+      const response = await fetch(`/api/v1/templates/${templateId}/export?format=${format}`);
       if (!response.ok) {
         throw new Error("Failed to export template");
       }
@@ -273,7 +273,7 @@ export function useImportTemplate() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch("/templates/import", {
+      const response = await fetch("/api/v1/templates/import", {
         method: "POST",
         body: formData,
       });
