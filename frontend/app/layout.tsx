@@ -11,6 +11,14 @@ export const metadata: Metadata = {
   title: "DevGodzilla Console",
   description: "AI-powered protocol-driven development control plane",
   generator: "v0.app",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-dark-32x32.png", sizes: "32x32", type: "image/png", media: "(prefers-color-scheme: dark)" },
+      { url: "/icon-light-32x32.png", sizes: "32x32", type: "image/png", media: "(prefers-color-scheme: light)" },
+    ],
+    apple: { url: "/apple-icon.png", sizes: "180x180" },
+  },
 };
 
 export const viewport: Viewport = {

@@ -1213,10 +1213,17 @@ function AgentCardWithHealth({
 }) {
   const { data: healthCheck } = useAgentHealthCheck(agent.id);
 
+  // Derive real-time status from individual health check when available
+  const effectiveStatus: AgentCard["healthStatus"] = healthCheck
+    ? healthCheck.available
+      ? "available"
+      : "unavailable"
+    : agent.healthStatus;
+
   return (
     <Card className="relative overflow-hidden transition-shadow hover:shadow-lg">
       <div
-        className={`absolute top-0 left-0 h-full w-1 ${colors[agent.healthStatus].bg}`}
+        className={`absolute top-0 left-0 h-full w-1 ${colors[effectiveStatus].bg}`}
       />
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
@@ -1226,7 +1233,7 @@ function AgentCardWithHealth({
           </div>
           <div className="flex items-center gap-1.5">
             <Circle
-              className={`h-2 w-2 fill-current ${colors[agent.healthStatus].bg.replace("bg-", "text-")}`}
+              className={`h-2 w-2 fill-current ${colors[effectiveStatus].bg.replace("bg-", "text-")}`}
             />
             <span className="text-muted-foreground text-xs">
               {healthCheck

@@ -15,6 +15,7 @@ import {
   User,
   XCircle,
 } from "lucide-react";
+import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ export default function SettingsPage() {
   const [apiBase, setApiBase] = useState(() => apiClient.getConfig().baseUrl);
   const [token, setToken] = useState(() => apiClient.getConfig().token || "");
   const { data: health, isError, refetch } = useHealth();
+  const { theme, setTheme } = useTheme();
 
   const handleSave = () => {
     apiClient.configure({
@@ -159,7 +161,10 @@ export default function SettingsPage() {
                   <p className="font-medium">Dark Mode</p>
                   <p className="text-muted-foreground text-sm">Always use dark theme</p>
                 </div>
-                <Switch defaultChecked />
+                <Switch
+                  checked={theme === "dark"}
+                  onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+                />
               </div>
               <Separator />
               <div className="space-y-2">

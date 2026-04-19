@@ -322,6 +322,7 @@ export function useProjectCommits(projectId: number | undefined) {
     queryKey: queryKeys.projects.commits(projectId as number),
     queryFn: () => apiClient.get<Commit[]>(`/projects/${projectId}/commits`),
     enabled: !!projectId,
+    retry: false, // Don't retry on 5xx — backend may be down, avoid hammering
   });
 }
 
