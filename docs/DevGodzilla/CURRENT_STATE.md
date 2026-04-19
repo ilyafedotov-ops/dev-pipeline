@@ -1,108 +1,166 @@
 # DevGodzilla Current State
 
 > Status: Active
-> Scope: Current Runtime (Implemented)
-> Source of truth: `devgodzilla/api/app.py`, `devgodzilla/api/routes/`, `frontend/next.config.mjs`, `nginx.local.conf`, `docker-compose.yml`, `windmill/`
-> Last updated: 2026-02-21
+> Scope: Current runtime and supported local topologies
+> Source of truth: `devgodzilla/api/app.py`, `devgodzilla/api/routes/`, `frontend/next.config.mjs`, `frontend/package.json`, `docker-compose*.yml`, `nginx*.conf`, `scripts/run-local-dev.sh`, `windmill/`
+> Last updated: 2026-04-19
 
-This document describes what runs in this repository today.
+This document describes what is implemented in this repository today.
 
 ## Canonical Documentation
 
-- Runtime truth: `docs/DevGodzilla/CURRENT_STATE.md` (this file)
-- Architecture (current + target boundaries): `docs/DevGodzilla/ARCHITECTURE.md`
+- Runtime truth: `docs/DevGodzilla/CURRENT_STATE.md`
+- Architecture boundaries: `docs/DevGodzilla/ARCHITECTURE.md`
 - API architecture: `docs/DevGodzilla/API-ARCHITECTURE.md`
-- Windmill workflows: `docs/DevGodzilla/WINDMILL-WORKFLOWS.md`
-- Legacy/history docs: `docs/legacy/README.md`
+- Windmill integration and assets: `docs/DevGodzilla/WINDMILL-WORKFLOWS.md`
+- Historical material: `docs/legacy/README.md`
 
-## Runtime Topology (Local Dev)
+## Supported Local Topologies
 
-Local default workflow is hybrid:
+### Full Docker stack
 
-1. Docker Compose runs infra: nginx, windmill, windmill workers, postgres, redis, lsp.
-2. Host runs DevGodzilla API (`:8000`) and Next.js frontend (`:3000`).
-3. nginx proxies API paths to host API and `/console` to host frontend.
-4. Windmill UI remains served at `/`.
-
-Primary files:
+Default repo startup uses:
 
 - `docker-compose.yml`
-- `docker-compose.local.yml`
-- `scripts/run-local-dev.sh`
+- `nginx.devgodzilla.conf`
+
+This topology runs nginx, backend, frontend, Windmill, workers, Postgres, Redis, and LSP in containers.
+
+Convenience entrypoints:
+
+- `docker compose up --build -d`
+- `scripts/run-local-dev.sh up`
+
+`docker-compose.local.yml` is a closely related full-stack variant that swaps some image/build choices but keeps the same containerized routing model.
+
+### Host-backed / hybrid proxy topology
+
+The repo also contains a host-proxy topology defined by:
+
+- `docker-compose.devgodzilla.yml`
 - `nginx.local.conf`
+
+That setup keeps nginx, Windmill, workers, Postgres, Redis, and LSP in Docker while proxying backend and frontend traffic to host processes on `:8000` and `:3000`.
+
+Important implementation detail:
+
+- `scripts/run-local-dev.sh backend ...` and `scripts/run-local-dev.sh frontend ...` do start host processes.
+- `scripts/run-local-dev.sh up` and `scripts/run-local-dev.sh dev` currently use `docker-compose.yml`, not `docker-compose.devgodzilla.yml`.
 
 ## Frontend
 
-Current primary console is Next.js at `frontend/` with base path `/console`:
+The primary console is the Next.js app in `frontend/`.
 
-- Config: `frontend/next.config.mjs` (`basePath: '/console'`)
-- API calls: frontend rewrites `/api/*` to DevGodzilla API base URL
+Current frontend facts:
 
-Windmill UI remains available at root path (`/`) for workflow operations.
+- Next.js 16, React 19, TypeScript
+- `basePath: "/console"` in `frontend/next.config.mjs`
+- Browser API calls use `/api/v1/*` and rely on Next.js rewrites or nginx routing
+- Package manager is `pnpm`
+- Test surface includes Vitest and Playwright smoke coverage
 
-## API Surface (Implemented)
+Current page groups include:
 
-FastAPI app entrypoint: `devgodzilla/api/app.py`.
+- `/console/projects` and `/console/projects/[id]`
+- `/console/protocols` and `/console/protocols/[id]`
+- `/console/specifications` and `/console/specifications/[id]`
+- `/console/steps`, `/console/runs`, `/console/sprints`
+- `/console/ops/*`
+- `/console/policy-packs/*`
+- `/console/templates`
+- `/console/agents`
+- `/console/profile`, `/console/settings`, `/console/login`
+- `/console/windmill/*`
 
-Route groups currently registered:
+Windmill UI remains available at `/`.
 
-- Health: `/health`, `/health/live`, `/health/ready`
-- Core: `/projects`, `/protocols`, `/steps`, `/agents`, `/clarifications`
-- SpecKit: `/speckit/*`, `/projects/{id}/speckit/*`
-- Agile: `/sprints`, `/tasks`
-- Governance: `/policy_packs`, project policy endpoints under `/projects/{id}/policy*`
-- Quality and specs: `/quality/dashboard`, `/specifications*`
-- Ops: `/events*`, `/logs*`, `/metrics*`, `/queues*`, `/cli-executions*`, `/runs*`
-- Windmill passthrough: `/flows*`, `/jobs*`
-- Webhooks: `/webhooks/github`, `/webhooks/gitlab`, `/webhooks/windmill/*`
-- Profile: `/profile`
+## API Surface
 
-For exact request/response shapes, use `GET /openapi.json`.
+FastAPI entrypoint: `devgodzilla/api/app.py`.
+
+Current router mounting model:
+
+1. Each main router is mounted under `/api/v1` as the canonical API.
+2. The same routers are mounted again at the root for backward compatibility.
+
+Current implemented route groups:
+
+- Health: `/health`, `/health/live`, `/health/ready`, `/health/agents`
+- Core lifecycle: `/projects`, `/protocols`, `/steps`, `/agents`, `/clarifications`
+- SpecKit and specs: `/speckit/*`, `/projects/{id}/speckit/*`, `/specifications*`
+- Agile execution: `/sprints*`, `/tasks*`
+- Governance and quality: `/policy_packs*`, `/quality*`, project policy endpoints
+- Brownfield and template flows: `/brownfield*`, `/templates*`
+- Operations: `/events*`, `/logs*`, `/metrics*`, `/queues*`, `/cli-executions*`, `/runs*`
+- Windmill passthrough and maintenance: `/flows*`, `/jobs*`, `/reconciliation*`
+- Identity: `/auth/*`, `/users/*`, `/profile`
+- Webhooks and sockets: `/webhooks/*`, `/ws/events`
+
+Use `GET /openapi.json` for the exact request and response contracts.
+
+Current SpecKit API behavior worth calling out explicitly:
+
+- compatibility routes under `/speckit/*` delegate to the project-scoped `/projects/{id}/speckit/*` handlers
+- long-running AI-backed SpecKit routes can return `202 Accepted` when they defer work to background execution
+- `POST /speckit/specify` currently uses a 15-second synchronous window before background fallback
+- failed SpecKit agent runs now persist `SpecRun` state as `failed` rather than leaving runs stuck in transitional statuses
+- project-scoped `specify` emits both DB events and structured route-level logs for invocation, resolution, completion, and failure paths
 
 ## Planning and Execution Model
 
 Current planning is protocol-file driven:
 
-1. A protocol run exists in DB.
-2. Planning reads `.protocols/<protocol_name>/step-*.md` (or SpecKit-backed sources when used).
-3. `StepRun` rows are materialized from protocol step files.
+1. A protocol run exists in the DB.
+2. Planning reads protocol step artifacts from the project workspace, including `.protocols/<protocol_name>/step-*.md`.
+3. `StepRun` records are materialized from those protocol files or SpecKit-generated sources.
 
-If step files are missing and auto-generation is enabled, protocol files are generated via headless agent before planning proceeds.
+If step files are missing and auto-generation is enabled, the system can generate protocol files before planning proceeds.
 
-Execution artifacts are written under protocol worktree:
+Execution artifacts are written under the project worktree, for example:
 
 - `.protocols/<protocol_name>/.devgodzilla/steps/<step_run_id>/artifacts/*`
 
-QA runs automatically after successful step execution, with manual re-run available via step QA endpoint.
+QA can run automatically after successful execution and can also be re-triggered through step endpoints.
 
-## SpecKit Artifacts
+## SpecKit and Discovery Artifacts
 
-SpecKit-style artifacts are generated in `.specify/` through DevGodzilla services and prompts. Current implementation does not depend on an external `specify` binary.
+SpecKit-style artifacts are generated inside `.specify/` through DevGodzilla services and prompts; the current implementation does not depend on an external `specify` binary.
 
-## Discovery Artifacts
-
-Onboarding can run optional discovery. Current expected outputs include legacy-named files under `tasksgodzilla/` for compatibility with existing downstream tooling:
+Discovery output still preserves some legacy `tasksgodzilla/` artifact names for compatibility with downstream tooling, for example:
 
 - `tasksgodzilla/ARCHITECTURE.md`
 - `tasksgodzilla/API_REFERENCE.md`
 - `tasksgodzilla/CI_NOTES.md`
 
-These are generated artifacts, not the active code package.
+These are generated outputs, not the active application package.
 
 ## Windmill Integration Model
 
-Supported pattern: Windmill scripts call DevGodzilla API (thin adapters), rather than importing the `devgodzilla` Python package into Windmill runtime.
+Windmill scripts in this repo are thin API adapters. The supported pattern is:
 
-Repository paths:
+- Windmill script -> helper in `windmill/scripts/devgodzilla/_api.py` -> DevGodzilla API
+
+Repository asset locations:
 
 - Scripts: `windmill/scripts/devgodzilla/`
 - Flows: `windmill/flows/devgodzilla/`
 - Apps: `windmill/apps/devgodzilla/`
 - Resources: `windmill/resources/devgodzilla/`
 
-Recommended flows for local stack:
+Common local bootstrap path:
 
-- `f/devgodzilla/onboard_to_tasks`
-- `f/devgodzilla/protocol_start`
-- `f/devgodzilla/step_execute_with_qa`
-- `f/devgodzilla/run_next_step`
+1. Start a compose topology.
+2. Ensure backend and frontend are reachable in the chosen routing mode.
+3. Run `scripts/run-local-dev.sh import`.
+
+## Active Defaults and Configuration
+
+Current agent defaults come from `devgodzilla/config/agents.yaml`.
+
+Notable current defaults:
+
+- default code generation / planning / QA / discovery engine: `opencode`
+- current configured `opencode` default model: `zai-coding-plan/glm-5`
+- current configured `codex` default model: `gpt-4.1`
+
+Windmill support is considered enabled when `DEVGODZILLA_WINDMILL_URL` and `DEVGODZILLA_WINDMILL_TOKEN` are both configured.

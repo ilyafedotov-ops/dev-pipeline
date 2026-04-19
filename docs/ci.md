@@ -1,27 +1,34 @@
 # DevGodzilla CI Notes
 
 > Status: Active
-> Scope: Current CI scripts and local parity
-> Source of truth: `scripts/ci/*.sh`
-> Last updated: 2026-02-21
+> Scope: Current CI scripts, local parity, and live harness notes
+> Source of truth: `scripts/ci/*.sh`, `.github/workflows/`, `tests/e2e/`
+> Last updated: 2026-04-19
 
 ## CI Scripts
 
 - `scripts/ci/bootstrap.sh`
   - Creates `.venv`
-  - Installs `requirements.txt` + `ruff`
+  - Installs `requirements.txt` plus `ruff`
 - `scripts/ci/lint.sh`
-  - `ruff check devgodzilla windmill scripts tests --select E9,F63,F7,F82`
+  - Runs `ruff check devgodzilla windmill scripts tests --select E9,F63,F7,F82`
+  - Runs `scripts/ci/devgodzilla_standalone_guard.sh`
 - `scripts/ci/typecheck.sh`
-  - `compileall` over runtime directories + import smoke
+  - Runs `compileall` over runtime directories
+  - Performs import smoke for key modules
 - `scripts/ci/test.sh`
-  - Runs unit tests (`tests/test_devgodzilla_*.py -k "not integration"`)
-  - Runs real-agent E2E (`tests/e2e/test_devgodzilla_cli_real_agent.py`)
-  - Requires `opencode` binary available
+  - Runs the deterministic backend unit slice: `tests/test_devgodzilla_*.py -k "not integration"`
+  - Optionally runs real-agent E2E coverage only when `DEVGODZILLA_RUN_E2E_REAL_AGENT=1`
+- `scripts/ci/test_frontend.sh`
+  - Runs frontend Vitest coverage via `pnpm test:run`
+  - Runs Playwright smoke coverage via `pnpm test:e2e:smoke`
 - `scripts/ci/build.sh`
-  - Build/config validation checks for container workflows
+  - Builds the Docker image when Docker is available
+  - Falls back to compose validation or a skipped status when container tooling is unavailable
 
 ## Local Parity
+
+Typical backend parity sequence:
 
 ```bash
 scripts/ci/bootstrap.sh
@@ -31,26 +38,43 @@ scripts/ci/test.sh
 scripts/ci/build.sh
 ```
 
+Frontend parity sequence:
+
+```bash
+scripts/ci/test_frontend.sh
+```
+
+Or manually:
+
+```bash
+cd frontend
+pnpm typecheck
+pnpm lint
+pnpm test:run
+pnpm test:e2e:smoke
+```
+
 ## Operational Notes
 
-- CI script behavior may report status via `scripts/ci/report.sh` when present.
-- `scripts/ci/test.sh` is intentionally strict and expects real agent tooling for E2E path.
-- In full-Docker local dev, CLI agents are installed by default for parity with the brownfield/task-cycle flow. If you need a lighter image, you can opt out with:
+- CI wrappers may report status through `scripts/ci/report.sh` when present.
+- `scripts/ci/test.sh` does not require a real agent binary unless `DEVGODZILLA_RUN_E2E_REAL_AGENT=1`.
+- Full-Docker local development is available via `docker-compose.yml` and `docker-compose.local.yml`.
+- The explicit host-backed proxy topology is defined in `docker-compose.devgodzilla.yml` and `nginx.local.conf`.
+
+If you want a lighter Docker backend image and do not need in-container CLI agents:
 
 ```bash
 export INSTALL_AGENT_CLIS=0
 docker compose -f docker-compose.local.yml up -d --build devgodzilla-api
 ```
 
-- For `opencode` in Docker, authenticate on the host first so the mounted auth state is reusable:
+For `opencode` in a runtime that needs it:
 
 ```bash
 opencode auth login
 ```
 
-- For architecture docs governance and canonical references, see `docs/DevGodzilla/CURRENT_STATE.md` and `docs/DevGodzilla/ARCHITECTURE.md`.
-
-## Live Harness (Nightly + Manual)
+## Live Harness
 
 Live harness entrypoint:
 
@@ -64,18 +88,11 @@ Default GitHub repo coverage:
 Automation workflow:
 
 - `.github/workflows/live-harness.yml`
-- Triggers:
-  - Nightly scheduled run
-  - Manual `workflow_dispatch`
-- Uploads run diagnostics from `runs/harness/**` as workflow artifacts.
-- Runtime profile:
-  - long-running live operations can take up to 45 minutes per stage (`2700s` stage timeout),
-  - workflow job budget is set to 300 minutes.
 
-Manual run examples:
+Manual examples:
 
 ```bash
-# default matrix (3 seeded repos)
+# default matrix
 scripts/ci/test-harness-live.sh
 
 # single scenario
@@ -85,27 +102,27 @@ HARNESS_SCENARIO=live_onboarding_demo_spring scripts/ci/test-harness-live.sh
 HARNESS_REPO_URL_OVERRIDE=https://github.com/ilyafedotov-ops/demo-spring.git \
 scripts/ci/test-harness-live.sh
 
-# use dummy engine (no opencode binary required)
+# use dummy engine
 HARNESS_STEP_ENGINE=dummy scripts/ci/test-harness-live.sh
 ```
 
-Key harness env vars:
+Key harness environment variables:
 
 - `DEVGODZILLA_RUN_E2E_HARNESS=1`
-- `DEVGODZILLA_DB_URL` or `DEVGODZILLA_DB_PATH` (must match the backend DB used by `scripts/run-local-dev.sh backend start`)
+- `DEVGODZILLA_DB_URL` or `DEVGODZILLA_DB_PATH`
 - `HARNESS_GITHUB_OWNER`
 - `HARNESS_GITHUB_REPOS`
 - `HARNESS_REPO_URL_OVERRIDE`
 - `HARNESS_SCENARIO`
-- `HARNESS_CONTINUE_ON_ERROR` (`1` or `0`)
-- `HARNESS_ONBOARD_MODE` (`windmill` or `agent`)
-- `HARNESS_STEP_ENGINE` (`opencode` or `dummy`)
-- `HARNESS_FEATURE_CYCLES` (default `2`; number of protocol/worktree/plan/execute feature cycles per scenario)
-- `HARNESS_WINDMILL_AUTO_IMPORT` (`1` default; set `0` to skip `scripts/run-local-dev.sh import` during preflight)
-- `HARNESS_WINDMILL_HEARTBEAT_TIMEOUT_SECONDS` (optional; fail stage if Windmill status/log stream is silent for this many seconds)
-- `WINDMILL_JOB_TIMEOUT_SECONDS` (`3600` default in local compose; increases Windmill worker instance-wide max job duration)
+- `HARNESS_CONTINUE_ON_ERROR`
+- `HARNESS_ONBOARD_MODE`
+- `HARNESS_STEP_ENGINE`
+- `HARNESS_FEATURE_CYCLES`
+- `HARNESS_WINDMILL_AUTO_IMPORT`
+- `HARNESS_WINDMILL_HEARTBEAT_TIMEOUT_SECONDS`
+- `WINDMILL_JOB_TIMEOUT_SECONDS`
 
-## Adding New Repo Coverage
+## Adding New Harness Coverage
 
 Contracts:
 
@@ -113,69 +130,37 @@ Contracts:
 - Scenarios: `tests/e2e/scenarios/*.json`
 - Adapters: `tests/e2e/adapters/*.adapter.json`
 
-Steps:
+Typical flow:
 
 1. Copy an existing scenario JSON in `tests/e2e/scenarios/`.
 2. Set `scenario_id`, `repo.owner`, `repo.name`, and `adapter_id`.
-3. Prefer `owner` + `name`; keep `url` omitted unless you need a non-default Git URL.
-4. Ensure workflow stage list reflects the intended onboarding mode and protocol flow.
-5. Copy/create adapter JSON in `tests/e2e/adapters/`.
-6. Define adapter `required_paths`, optional `path_aliases`, and `worktree_branch_expectations`.
-7. Validate files by running:
-   - `pytest -q tests/e2e/test_harness_scenario_loader.py`
-8. Run a focused live harness pass:
-   - `HARNESS_SCENARIO=<scenario_id> scripts/ci/test-harness-live.sh`
-9. Cached checkout branch handling:
-   - harness auto-falls back from configured `repo.default_branch` to `origin/HEAD` when they diverge (for example `main` vs `master`).
-10. Feature implementation cycles:
-   - `protocol_feature_cycles` runs repeated `protocol_create -> protocol_worktree -> protocol_plan -> step_execute` loops.
-   - Control loop count with `HARNESS_FEATURE_CYCLES` (default `2`).
+3. Prefer `owner` plus `name`; omit `url` unless a non-default Git URL is required.
+4. Copy or create the matching adapter JSON in `tests/e2e/adapters/`.
+5. Validate loader coverage with `pytest -q tests/e2e/test_harness_scenario_loader.py`.
+6. Run a focused live harness pass with `HARNESS_SCENARIO=<scenario_id> scripts/ci/test-harness-live.sh`.
 
-Failure outputs:
+## Diagnostics and Monitoring
 
-- Local diagnostics: `runs/harness/<timestamp>-<scenario_id>/diagnostics/`
-- CI diagnostics: uploaded artifact from `runs/harness/**`
-- Structured event stream: `runs/harness/<timestamp>-<scenario_id>/diagnostics/events.jsonl`
-  - Top-level event types: `run_started`, `stage_started`, `stage_retry`, `stage_succeeded`, `stage_failed`, `run_finished`
-  - Nested protocol-cycle visibility: `protocol_cycle_started`, `substage_started`, `substage_succeeded`, `substage_failed`, `protocol_cycle_finished`
-  - Windmill onboarding visibility while waiting: `onboarding_progress`, `onboarding_backend_event`, `onboarding_progress_poll_error`
-  - Interrupt cleanup events: `windmill_job_cancelled`, `windmill_job_cancel_skipped`, `windmill_job_cancel_failed`
-  - Backend discovery cancel events (best-effort via `/cli-executions`): `backend_discovery_cancelled`, `backend_discovery_cancel_failed`, `backend_discovery_cancel_scan_failed`, `backend_discovery_cancel_skipped`
-  - Interrupted runs emit `run_interrupted` and still write `diagnostics/run-summary.json` with `status: "interrupted"`
-- Per-command live CLI logs: `runs/harness/<timestamp>-<scenario_id>/diagnostics/cli-<stage>-attempt-<n>-*.log`
-- Windmill job payload snapshots: `runs/harness/<timestamp>-<scenario_id>/diagnostics/windmill-job-<job_id>.json`
+Harness diagnostics are written under:
+
+- `runs/harness/<timestamp>-<scenario_id>/diagnostics/`
+
+Useful monitoring commands:
+
+```bash
+RUN_DIR="$(ls -td runs/harness/* | head -n1)"
+
+tail -F "$RUN_DIR/diagnostics/events.jsonl" | jq -c
+tail -F "$RUN_DIR/diagnostics/events.jsonl" | jq -c 'select(.event_type|test("protocol_cycle_|substage_"))'
+tail -F "$RUN_DIR/diagnostics/events.jsonl" | jq -c 'select(.event_type|test("^onboarding_"))'
+tail -F "$RUN_DIR"/diagnostics/cli-*.log
+tail -F "$RUN_DIR"/diagnostics/windmill-job-*.log
+```
 
 DB alignment note:
 
-- Windmill onboarding uses the backend API DB, while harness CLI commands use the local process DB config.
-- If these differ, onboarding can enqueue successfully but return payload errors like `Project not found`.
-- Fix by exporting the same `DEVGODZILLA_DB_URL` (or `DEVGODZILLA_DB_PATH`) for both harness and backend startup.
-- `project_onboard_api` now uses `api_timeout_seconds` (default `2700`) for the `/actions/onboard` API call, so long discovery runs do not fail at the previous 30s HTTP timeout.
-- Windmill server/workers now set `JOB_DEFAULT_TIMEOUT_SECS=${WINDMILL_JOB_TIMEOUT_SECONDS:-3600}` and workers set `TIMEOUT=${WINDMILL_JOB_TIMEOUT_SECONDS:-3600}` in compose to avoid killing long onboarding jobs after short default limits.
-- `scripts/run-local-dev.sh import` now also updates Windmill `global_settings.job_default_timeout` to `WINDMILL_JOB_TIMEOUT_SECONDS` so DB-stored default timeout matches container env limits.
+- Windmill onboarding uses the backend API DB.
+- Harness CLI commands use the local process DB config.
+- If those differ, onboarding can enqueue successfully while later stages fail against missing project state.
 
-### Live Monitoring Commands
-
-```bash
-# watch structured harness lifecycle events
-RUN_DIR="$(ls -td runs/harness/* | head -n1)"
-tail -F "$RUN_DIR/diagnostics/events.jsonl" | jq -c
-
-# filter protocol cycle internals (create/worktree/plan/execute)
-tail -F "$RUN_DIR/diagnostics/events.jsonl" | jq -c 'select(.event_type|test("protocol_cycle_|substage_"))'
-
-# filter onboarding/discovery progress while project_onboard_windmill is waiting
-tail -F "$RUN_DIR/diagnostics/events.jsonl" | jq -c 'select(.event_type|test("^onboarding_"))'
-
-# filter interrupt cleanup actions (Windmill + backend discovery)
-tail -F "$RUN_DIR/diagnostics/events.jsonl" | jq -c 'select(.event_type|test("windmill_job_cancel|backend_discovery_cancel"))'
-
-# watch all streamed CLI/opencode stage logs
-tail -F "$RUN_DIR"/diagnostics/cli-*.log
-
-# watch live Windmill job stream logs captured by harness polling
-tail -F "$RUN_DIR"/diagnostics/windmill-job-*.log
-
-# watch backend structured logs (includes opencode_output events)
-tail -F /tmp/devgodzilla-harness-backend.log | rg --line-buffered "opencode_output|execute_step_started|execute_step_failed"
-```
+Align `DEVGODZILLA_DB_URL` or `DEVGODZILLA_DB_PATH` across both runtimes when debugging harness issues locally.

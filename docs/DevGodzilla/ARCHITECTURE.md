@@ -1,110 +1,110 @@
 # DevGodzilla Architecture
 
 > Status: Active
-> Scope: Current + Target (explicitly separated)
-> Source of truth: `docs/DevGodzilla/CURRENT_STATE.md`, `devgodzilla/`, `frontend/`, `windmill/`
-> Last updated: 2026-02-21
+> Scope: Current implemented architecture with a small target-state section
+> Source of truth: `docs/DevGodzilla/CURRENT_STATE.md`, `devgodzilla/`, `frontend/`, `windmill/`, `docker-compose*.yml`, `nginx*.conf`
+> Last updated: 2026-04-19
 
 ## Summary
 
 DevGodzilla in this repo is a layered system:
 
-1. Edge and routing (`nginx.local.conf`)
-2. UI layer (Next.js `/console` + Windmill root UI)
-3. API layer (FastAPI)
+1. Edge and routing (`nginx.devgodzilla.conf` and `nginx.local.conf`)
+2. UI layer (`frontend/` Next.js console plus Windmill UI)
+3. API layer (`devgodzilla/api/`)
 4. Service layer (`devgodzilla/services/`)
 5. Engine layer (`devgodzilla/engines/`)
-6. Data and integration layer (Postgres, Redis, Windmill, filesystem)
+6. Data and integration layer (Postgres, Redis, Windmill, filesystem, local project workspaces)
 
-## Current Architecture (Implemented)
+## Current Architecture
+
+### Full Docker topology
 
 ```text
 Browser
   -> nginx (:8080)
-     -> /console, /_next ............. frontend (Next.js on host :3000)
-     -> /projects|/protocols|... ..... devgodzilla API (host :8000)
-     -> / (default) .................. windmill UI/server (container :8000)
-
-DevGodzilla API
-  -> services/* (planning, execution, quality, policy, spec, orchestration)
-  -> engines/* (opencode, codex, claude-code, gemini-cli, dummy)
-  -> db (PostgreSQL or SQLite for dev)
-  -> redis (queues/cache)
-  -> filesystem (project repos, .protocols, .specify, run artifacts)
+     -> /console, /_next ............ frontend container (:3000)
+     -> /api/v1/* and legacy roots .. devgodzilla-api container (:8000)
+     -> / ........................... windmill container (:8000)
 ```
+
+### Host-backed topology
+
+```text
+Browser
+  -> nginx (:8080)
+     -> /console, /_next ............ host frontend (:3000)
+     -> /api/v1/* and legacy roots .. host backend (:8000)
+     -> / ........................... windmill container (:8000)
+```
+
+The repo contains config for both topologies. The default compose startup path is the full Docker topology.
 
 ## Layer Responsibilities
 
-### 1) Edge and Routing
+### 1. Edge and Routing
 
-- nginx routes API endpoints to FastAPI, `/console` to Next.js, and root to Windmill.
-- Route definitions are in `nginx.local.conf` and `nginx.devgodzilla.conf`.
+- `nginx.devgodzilla.conf` proxies to containerized backend/frontend services.
+- `nginx.local.conf` proxies to backend/frontend on `host.docker.internal`.
+- Both configurations route Windmill UI at `/` and DevGodzilla API/console traffic on explicit prefixes.
 
-### 2) UI Layer
+### 2. UI Layer
 
-- Primary product console: `frontend/` (Next.js, base path `/console`).
-- Windmill UI remains available at root for workflow/operator use.
+- Primary product console: `frontend/`
+- Framework: Next.js App Router with `basePath: "/console"`
+- Current major route families: projects, protocols, specifications, steps, runs, ops, policy packs, templates, agents, settings, Windmill views
+- Windmill UI remains available as an operator-facing companion interface at the site root
 
-### 3) API Layer
+### 3. API Layer
 
-- FastAPI app: `devgodzilla/api/app.py`.
-- Route modules: `devgodzilla/api/routes/*.py`.
-- API dependencies centralize auth/context/db wiring.
+- FastAPI app: `devgodzilla/api/app.py`
+- Route modules: `devgodzilla/api/routes/*.py`
+- Most routers are mounted twice: canonical `/api/v1/*` plus deprecated root-level compatibility routes
+- Auth model is mixed by route type: API token for most operational routes, webhook token for webhook endpoints, JWT/session-oriented auth for `/auth/*` and `/users/*`, and unauthenticated WebSocket access for `/ws/events`
 
-### 4) Service Layer
+### 4. Service Layer
 
 Implemented service modules include:
 
-- `devgodzilla/services/orchestrator.py`
-- `devgodzilla/services/planning.py`
-- `devgodzilla/services/execution.py`
-- `devgodzilla/services/quality.py`
-- `devgodzilla/services/specification.py`
-- `devgodzilla/services/spec_to_protocol.py`
-- `devgodzilla/services/policy.py`
-- `devgodzilla/services/clarifier.py`
-- `devgodzilla/services/sprint_integration.py`
-- `devgodzilla/services/task_sync.py`
-- `devgodzilla/services/git.py`
+- orchestration and planning: `orchestrator.py`, `planning.py`, `protocol_generation.py`, `spec_to_protocol.py`, `task_cycle.py`
+- execution and QA: `execution.py`, `quality.py`, `retry_config.py`, `cli_execution_tracker.py`
+- project/spec flows: `specification.py`, `speckit_adapter.py`, `clarifier.py`, `template_manager.py`
+- coordination and persistence: `event_persistence.py`, `events.py`, `reconciliation.py`, `onboarding_queue.py`, `sprint_integration.py`, `task_sync.py`
+- platform services: `agent_config.py`, `git.py`, `health.py`, `telemetry.py`, `path_contract.py`, `workspace_paths.py`, `worktree.py`
 
-### 5) Engine Layer
+### 5. Engine Layer
 
-Current engine adapters are implemented under `devgodzilla/engines/` and configured via `devgodzilla/config/agents.yaml`.
+Engine adapters live under `devgodzilla/engines/`.
 
-### 6) Data and Integrations
+Currently configured defaults are in `devgodzilla/config/agents.yaml`, with `opencode` as the default CLI-backed engine. The codebase also contains adapters for several additional CLI/API-backed engines used by tests, experiments, and per-project configuration.
+
+### 6. Data and Integrations
 
 - DB access: `devgodzilla/db/`
 - Alembic migrations: `devgodzilla/alembic/`
-- Windmill integration: `devgodzilla/windmill/`
-- Windmill assets: `windmill/flows/devgodzilla/`, `windmill/scripts/devgodzilla/`, `windmill/apps/devgodzilla/`
-- Prompt assets: `prompts/` (protocol/discovery/project bootstrapping prompts)
-- Schema contracts: `schemas/` (JSON schemas validating planning/spec/task documents and protocol artifacts)
+- Windmill client/runtime helpers: `devgodzilla/windmill/`
+- Windmill exported assets: `windmill/scripts/devgodzilla/`, `windmill/flows/devgodzilla/`, `windmill/apps/devgodzilla/`, `windmill/resources/devgodzilla/`
+- Project workspaces and generated artifacts: `projects/`, `.protocols/`, `.specify/`, `runs/`
 
 ## Current Constraints and Known Leftovers
 
 - Some generated discovery artifacts still use `tasksgodzilla/*` names for compatibility.
-- Historical architecture and migration documents are archived under `docs/legacy/` and are not authoritative.
-- API path naming is intentionally mixed in places (`/policy_packs` in API vs `/policy-packs` as a frontend page slug).
+- The repo contains both full-Docker and host-backed runtime assets; documentation must name the exact compose/nginx pair being discussed.
+- API naming intentionally mixes underscore API paths such as `/policy_packs` with hyphenated frontend slugs such as `/console/policy-packs`.
 
-## Target Architecture (Not Implemented Yet)
+## Target Notes
 
-The following items are target-state directions and should not be read as completed work:
+These are directional and should not be read as implemented work:
 
-- Additional hardening of service boundaries with stricter internal contracts.
-- Broader automated doc validation (broken links, stale path detection, route drift checks).
-- Expanded observability correlation across API, Windmill jobs, and artifact lineage.
+- automated route/doc drift checks in CI
+- stronger internal service contracts around protocol artifacts and event streams
+- broader observability correlation across API, Windmill jobs, and local artifact lineage
 
 ## Documentation Governance
 
-Use this order when documentation conflicts:
+When docs conflict, use this order:
 
-1. Runtime truth in code (`devgodzilla/api/app.py`, route modules, config files)
+1. Runtime code and config (`devgodzilla/api/app.py`, route modules, compose files, nginx configs)
 2. `docs/DevGodzilla/CURRENT_STATE.md`
-3. Other active docs in `docs/DevGodzilla/`
-4. Archived docs in `docs/legacy/` (historical only)
-
-## Legacy Archive
-
-Historical architecture/layer docs were moved to `docs/legacy/`.
-
-Migration index: `docs/legacy/README.md`
+3. Other active docs under `docs/DevGodzilla/`
+4. Archived docs under `docs/legacy/`

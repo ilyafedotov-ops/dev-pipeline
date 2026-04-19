@@ -1,289 +1,212 @@
 # DevGodzilla
 
-DevGodzilla is an AI-powered software development orchestration platform: a FastAPI backend (`devgodzilla/`), a Next.js console (`frontend/`), and Windmill workflow orchestration (`windmill/`) behind nginx.
-
-## Tech Stack
-
-| Layer | Technologies |
-|-------|-------------|
-| **Backend** | Python 3.12, FastAPI, SQLAlchemy (SQLite/PostgreSQL), Pydantic |
-| **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS, Radix UI, TanStack Query |
-| **Orchestration** | Windmill (DAG-based workflow engine), Redis, PostgreSQL |
-| **AI Engines** | OpenCode, Claude Code, Codex, Gemini CLI (pluggable adapter system) |
-| **Deployment** | Docker Compose, Kubernetes, nginx reverse proxy |
+DevGodzilla is an AI-assisted development orchestration platform built from a FastAPI backend, a Next.js console, and Windmill automation assets. This repository contains both the application code and the local infrastructure needed to run it.
 
 ## Documentation Source of Truth
 
-- `docs/DevGodzilla/CURRENT_STATE.md` (what runs today)
-- `docs/DevGodzilla/ARCHITECTURE.md` (layered architecture, current vs target)
-- `docs/DevGodzilla/API-ARCHITECTURE.md` (API architecture and domains)
-- `docs/DevGodzilla/WINDMILL-WORKFLOWS.md` (Windmill scripts/flows/resources)
+- `docs/DevGodzilla/CURRENT_STATE.md`: what is implemented and how the local runtime is wired today
+- `docs/DevGodzilla/ARCHITECTURE.md`: system boundaries and current architecture
+- `docs/DevGodzilla/API-ARCHITECTURE.md`: API mounting, auth model, and route domains
+- `docs/DevGodzilla/WINDMILL-WORKFLOWS.md`: Windmill assets, flows, and integration model
+- `docs/ci.md`: CI wrappers, local parity, and live harness notes
 
-Historical docs are archived under `docs/legacy/` with mapping in `docs/legacy/README.md`.
+Historical material lives under `docs/legacy/` and should not be treated as authoritative.
 
 ## Repository Layout
 
 | Directory | Purpose |
 |-----------|---------|
-| `devgodzilla/` | FastAPI API, services layer, engine adapters, DB access, Windmill client |
-| `frontend/` | Next.js console with DAG visualization, agile boards, real-time events |
-| `windmill/` | Windmill scripts/flows/apps exported from this repo |
-| `Origins/` | Vendored upstream sources (Windmill, spec-kit) - do not edit |
-| `scripts/` | Operational scripts and CI wrappers (`scripts/ci/`) |
-| `tests/` | pytest suite for backend/services/workflows |
-| `docs/` | Active + archived documentation |
-| `prompts/` | Reusable agent/system prompts for protocol workflows |
-| `schemas/` | JSON schema contracts for protocol artifacts |
-| `k8s/` | Kubernetes deployment manifests |
+| `devgodzilla/` | FastAPI app, services, engine adapters, DB layer, Windmill client |
+| `frontend/` | Next.js 16 console mounted at `/console` |
+| `windmill/` | Windmill scripts, flows, apps, resources, import manifest |
+| `scripts/` | Local-dev helpers, operational CLIs, CI wrappers |
+| `tests/` | Python `pytest` suite plus `tests/e2e/` harness support |
+| `docs/` | Active documentation and archived history |
+| `templates/` | Reusable project and workflow templates |
+| `schemas/` | JSON schema contracts |
+| `projects/` | Local project workspaces and generated protocol artifacts |
+| `runs/` | Local diagnostics, logs, and harness output |
+| `Origins/` | Vendored upstream sources; avoid editing by default |
 
-## Runtime Topology
+## Runtime Modes
 
-All services run in Docker. nginx on port 8080 is the single entry point.
+The repo currently contains two distinct local topologies.
 
-| Service | Port | Description |
-|---------|------|-------------|
-| nginx | 8080 | Reverse proxy, single entry point |
-| devgodzilla-api | 8000 | FastAPI backend |
-| frontend | 3000 | Next.js console |
-| windmill | 8001 | Workflow orchestration server |
-| windmill_worker | - | Default worker (Docker socket) |
-| windmill_worker_native | - | Native Python worker (8 workers) |
-| db | 5432 | PostgreSQL 16 |
-| redis | 6379 | Redis 7 |
-| lsp | 3001 | Language Server Protocol |
+### 1. Full Docker stack
 
-**Routing** (defined in `nginx.devgodzilla.conf`):
+This is the simplest way to boot the whole platform.
 
-| Path | Target |
-|------|--------|
-| `/console`, `/_next` | frontend (Next.js) |
-| `/projects`, `/protocols`, `/steps`, etc. | devgodzilla-api |
-| `/ws/events` | Backend WebSocket |
-| `/` (fallback) | Windmill UI |
+```bash
+docker compose up --build -d
+# or
+scripts/run-local-dev.sh up
+```
+
+This mode uses:
+
+- `docker-compose.yml`
+- `nginx.devgodzilla.conf`
+
+In this topology, nginx proxies to containerized backend and frontend services.
+
+### 2. Host-backed / hybrid routing
+
+The repo also includes assets that proxy nginx to backend/frontend processes running on the host:
+
+- `docker-compose.devgodzilla.yml`
+- `nginx.local.conf`
+
+Use that topology when you explicitly want Docker-hosted infra with host-run backend/frontend:
+
+```bash
+docker compose -f docker-compose.devgodzilla.yml up -d
+scripts/run-local-dev.sh backend start
+scripts/run-local-dev.sh frontend start
+```
+
+`scripts/run-local-dev.sh dev` also starts host backend/frontend processes after bringing up the default compose stack, which is useful for local debugging and hot reload.
 
 ## Quick Start
 
 ### Prerequisites
 
-- Docker + Docker Compose
-- (Optional) Python 3.12, Node.js 20+ for host-side development
+- Docker with Compose support
+- Python 3.12 for local backend development
+- Node.js 20+ and `pnpm` for local frontend development
 
-### 1) Start the full stack
+### Start the platform
 
 ```bash
+scripts/ci/bootstrap.sh
 docker compose up --build -d
-# or use the helper script
-scripts/run-local-dev.sh up
+scripts/run-local-dev.sh import
 ```
 
-### 2) Import Windmill assets (one-shot bootstrap)
+Primary interfaces:
+
+- Console: `http://localhost:8080/console`
+- API docs: `http://localhost:8080/docs`
+- Windmill UI: `http://localhost:8080/`
+
+### Host development commands
+
+```bash
+scripts/run-local-dev.sh backend start
+scripts/run-local-dev.sh frontend start
+
+# or run the helper that starts compose + host dev servers
+scripts/run-local-dev.sh dev
+```
+
+Useful ops commands:
+
+```bash
+scripts/run-local-dev.sh status
+scripts/run-local-dev.sh logs
+scripts/pipeline-ctl.sh status
+scripts/pipeline-ctl.sh health --exit-code
+scripts/pipeline-ctl.sh watch
+```
+
+## Development Commands
+
+### Backend
+
+```bash
+scripts/ci/bootstrap.sh
+scripts/ci/lint.sh
+scripts/ci/typecheck.sh
+scripts/ci/test.sh
+scripts/ci/build.sh
+```
+
+`scripts/ci/test.sh` runs the deterministic backend unit slice by default and only runs real-agent E2E coverage when `DEVGODZILLA_RUN_E2E_REAL_AGENT=1`.
+
+### Frontend
+
+```bash
+cd frontend
+pnpm install
+pnpm typecheck
+pnpm lint
+pnpm test:run
+pnpm test:e2e:smoke
+```
+
+Or use the wrapper from the repo root:
+
+```bash
+scripts/ci/test_frontend.sh
+```
+
+## API Surface
+
+FastAPI lives in `devgodzilla/api/app.py`.
+
+Routers are mounted twice:
+
+- canonical versioned routes under `/api/v1/*`
+- backward-compatible root routes such as `/projects` and `/protocols`
+
+High-level domains:
+
+| Domain | Examples |
+|--------|----------|
+| Core lifecycle | `/projects`, `/protocols`, `/steps`, `/agents`, `/clarifications` |
+| SpecKit and specs | `/speckit/*`, `/projects/{id}/speckit/*`, `/specifications*` |
+| Agile execution | `/sprints*`, `/tasks*` |
+| Governance and quality | `/policy_packs*`, `/quality*`, project policy endpoints |
+| Operations | `/events*`, `/logs*`, `/metrics*`, `/queues*`, `/runs*`, `/cli-executions*` |
+| Windmill passthrough | `/flows*`, `/jobs*`, `/reconciliation*` |
+| Auth and identity | `/auth/*`, `/users/*`, `/profile` |
+| Webhooks and streaming | `/webhooks/*`, `/ws/events` |
+
+Use `GET /openapi.json` for the exact contract.
+
+## Frontend Console
+
+The console under `frontend/` is a Next.js App Router application with `basePath: "/console"`.
+
+Current route groups include:
+
+- `/console/projects` and `/console/projects/[id]`
+- `/console/protocols` and `/console/protocols/[id]`
+- `/console/specifications` and `/console/specifications/[id]`
+- `/console/steps`, `/console/runs`, `/console/sprints`
+- `/console/ops`, `/console/ops/events`, `/console/ops/logs`, `/console/ops/metrics`, `/console/ops/queues`
+- `/console/policy-packs`, `/console/templates`, `/console/agents`, `/console/profile`, `/console/settings`
+- `/console/windmill`, `/console/windmill/flows`, `/console/windmill/jobs`, `/console/windmill/reconciliation`
+
+## Windmill Integration
+
+Windmill is used as workflow runtime and operator-facing UI. The repo’s Windmill scripts are thin adapters that call the DevGodzilla API rather than importing backend internals into the worker runtime.
+
+Key asset locations:
+
+- `windmill/scripts/devgodzilla/`
+- `windmill/flows/devgodzilla/`
+- `windmill/apps/devgodzilla/`
+- `windmill/resources/devgodzilla/`
+
+Import assets into a local Windmill workspace with:
 
 ```bash
 scripts/run-local-dev.sh import
 ```
 
-### 3) Open interfaces
+## Configuration Notes
 
-- **Console**: http://localhost:8080/console
-- **API Docs**: http://localhost:8080/docs
-- **Windmill UI**: http://localhost:8080/
+Common environment variables:
 
-## Host-side Development (Hybrid Mode)
+| Variable | Purpose |
+|----------|---------|
+| `DEVGODZILLA_DB_URL` | Backend database URL |
+| `DEVGODZILLA_API_TOKEN` | Bearer token for protected API routes |
+| `DEVGODZILLA_WEBHOOK_TOKEN` | Shared secret for webhook endpoints |
+| `DEVGODZILLA_WINDMILL_URL` | Windmill base URL |
+| `DEVGODZILLA_WINDMILL_TOKEN` | Windmill API token |
+| `DEVGODZILLA_WINDMILL_WORKSPACE` | Windmill workspace name |
+| `DEVGODZILLA_OPENCODE_MODEL` / `DEVGODZILLA_CODEX_MODEL` / `DEVGODZILLA_CLAUDE_MODEL` | Optional engine model overrides |
+| `WINDMILL_JOB_TIMEOUT_SECONDS` | Windmill job timeout used by local compose files |
 
-For development with local API keys and hot-reload:
-
-```bash
-# Prerequisites: Python 3.12, Node.js 20+, pnpm
-scripts/ci/bootstrap.sh          # create .venv, install deps
-
-# Hybrid mode: infra in Docker, API + frontend on host
-scripts/run-local-dev.sh dev
-
-# Or manage individually:
-scripts/run-local-dev.sh backend start|stop|restart|status
-scripts/run-local-dev.sh frontend start|stop|restart|status
-```
-
-### Development Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `scripts/run-local-dev.sh up` | Build and start full Docker stack |
-| `scripts/run-local-dev.sh down` | Stop Docker infra |
-| `scripts/run-local-dev.sh clean` | Stop Docker + remove volumes |
-| `scripts/run-local-dev.sh status` | Show Docker infra status |
-| `scripts/run-local-dev.sh logs` | Tail Docker logs |
-| `scripts/run-local-dev.sh dev` | Infra + backend + frontend (hybrid) |
-
-### Stack Manager & Monitor
-
-`scripts/pipeline-ctl.sh` is a unified manager/monitor over the full stack —
-containers, host dev processes, HTTP health endpoints, and DB/Redis probes.
-Output is coloured and `NO_COLOR`-aware; every column is scriptable.
-
-```bash
-scripts/pipeline-ctl.sh status          # one-shot table
-scripts/pipeline-ctl.sh health --exit-code  # CI-friendly: non-zero if any down
-scripts/pipeline-ctl.sh watch           # live refresh (Ctrl-C to exit)
-scripts/pipeline-ctl.sh logs windmill devgodzilla-api --grep ERROR --save
-scripts/pipeline-ctl.sh restart windmill          # waits for healthy
-scripts/pipeline-ctl.sh fix rebuild-api           # compose build + up -d + wait
-```
-
-Makefile shortcuts: `make ctl-status`, `make ctl-health`, `make ctl-watch`,
-`make ctl-logs`. See `scripts/pipeline-ctl.sh help` for the full surface.
-
-## Development Commands
-
-```bash
-# Lint (ruff - runtime-breaking checks only)
-scripts/ci/lint.sh
-
-# Type/import checks (compileall + import smoke)
-scripts/ci/typecheck.sh
-
-# Unit tests (pytest, skips integration by default)
-scripts/ci/test.sh
-
-# Run all CI checks
-scripts/ci/bootstrap.sh && scripts/ci/lint.sh && scripts/ci/typecheck.sh && scripts/ci/test.sh
-```
-
-## API Surface
-
-Route domains under `devgodzilla/api/routes/`:
-
-| Domain | Routes | Description |
-|--------|--------|-------------|
-| **Core** | `/projects`, `/protocols`, `/steps`, `/agents`, `/clarifications` | Project and protocol lifecycle |
-| **SpecKit** | `/speckit/*`, `/specifications*` | Specification management |
-| **Agile** | `/sprints*`, `/tasks*` | Sprint boards, task tracking |
-| **Governance** | `/policy_packs*`, `/projects/{id}/policy*`, `/quality/dashboard` | Policy enforcement, QA gates |
-| **Operations** | `/events*`, `/logs*`, `/metrics*`, `/queues*`, `/runs*` | Monitoring and observability |
-| **Windmill** | `/flows*`, `/jobs*` | Windmill passthrough |
-| **Webhooks** | `/webhooks/*` | External integrations |
-
-For exact schemas: `GET /openapi.json`
-
-## Backend Architecture
-
-### Core Services (`devgodzilla/services/`)
-
-| Service | Responsibility |
-|---------|---------------|
-| **OrchestratorService** | Protocol lifecycle, Windmill DAG execution, recovery |
-| **PlanningService** | Step decomposition, policy resolution, DAG generation |
-| **ExecutionService** | Step execution via AI engines, artifact writing |
-| **QualityService** | QA gate orchestration, verdict aggregation |
-| **SpecificationService** | SpecKit integration, spec/plan/tasks generation |
-| **DiscoveryAgentService** | Repository discovery, architecture analysis |
-| **PolicyService** | Policy pack resolution, effective policy merging |
-| **GitService** | Repository management, worktrees, PRs |
-| **AgentConfigService** | Per-project agent/model configuration |
-
-### Engine Adapters (`devgodzilla/engines/`)
-
-Pluggable AI coding agents with unified interface (`plan()`, `execute()`, `qa()`):
-
-| Engine | Kind | Capabilities |
-|--------|------|--------------|
-| opencode | CLI | code_gen, code_review, reasoning |
-| claude-code | CLI | code_gen, code_review |
-| codex | CLI | code_gen |
-| gemini-cli | CLI | code_gen, reasoning |
-| dummy | CLI | Testing/fallback |
-
-### Database Schema
-
-Core tables: `projects`, `protocol_runs`, `step_runs`, `speckit_specs`, `job_runs`, `qa_results`, `events`, `clarifications`, `sprints`, `tasks`, `policy_packs`
-
-Supports SQLite (development) and PostgreSQL (production) via SQLAlchemy.
-
-## Frontend Features
-
-The Next.js console (`/console`) provides:
-
-| Feature | Description |
-|---------|-------------|
-| **Protocol Management** | Create, start/pause/resume/cancel protocols |
-| **DAG Visualization** | Linear and DAG views with D3-dag rendering |
-| **Agile Board** | Kanban sprint board with drag-and-drop |
-| **Real-time Events** | WebSocket event feed with filtering |
-| **Logs Console** | Streaming log viewer |
-| **Quality Dashboard** | QA gate status and findings |
-| **Agent Health** | Agent status and metrics |
-| **Dark/Light Theme** | Theme switching support |
-
-### Key Frontend Routes
-
-| Route | Purpose |
-|-------|---------|
-| `/` | Dashboard |
-| `/projects` | Project management |
-| `/protocols/[id]` | Protocol detail (spec, steps, runs, logs, artifacts, quality, policy, feedback) |
-| `/sprints` | Sprint/execution board |
-| `/quality` | Quality gates dashboard |
-| `/ops` | Operations (queues, events, logs, metrics) |
-| `/agents` | Agent configuration |
-| `/policy-packs` | Policy pack management |
-
-## Windmill Integration
-
-### Directory Structure (`windmill/`)
-
-| Directory | Content |
-|-----------|---------|
-| `scripts/devgodzilla/` | Python scripts → `u/devgodzilla/*` |
-| `flows/devgodzilla/` | Flow definitions → `f/devgodzilla/*` |
-| `apps/` | App definitions including React app |
-
-### Key Flows
-
-- `onboard_to_tasks` - Project onboarding pipeline
-- `spec_to_protocol` - Specification to protocol conversion
-- `execute_protocol` - Protocol execution orchestration
-
-Scripts communicate with DevGodzilla API via `DEVGODZILLA_API_URL` environment variable.
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DEVGODZILLA_DB_URL` | `postgresql://...` | Database URL |
-| `DEVGODZILLA_WINDMILL_URL` | `http://windmill:8000` | Windmill API URL |
-| `DEVGODZILLA_WINDMILL_WORKSPACE` | `demo1` | Windmill workspace |
-| `DEVGODZILLA_NGINX_PORT` | `8080` | External port |
-| `WINDMILL_JOB_TIMEOUT_SECONDS` | `3600` | Job timeout |
-| `WINDMILL_FEATURES` | `static_frontend python deno_core` | Windmill features |
-
-### Agent Configuration (`devgodzilla/config/agents.yaml`)
-
-Defines available AI engines with their capabilities, commands, and default models. Per-project overrides supported via `AgentConfigService`.
-
-## Documentation Maintenance
-
-If docs and code disagree, trust code first, then update the canonical docs in `docs/DevGodzilla/`.
-
-## Testing
-
-```bash
-# Run all unit tests
-pytest -q tests/test_devgodzilla_*.py
-
-# Run with coverage
-pytest --cov=devgodzilla tests/
-
-# Run integration tests (requires live services)
-DEVGODZILLA_RUN_LIVE_INTEGRATION_TESTS=1 pytest tests/test_devgodzilla_frontend_integration.py
-```
-
-## Kubernetes Deployment
-
-Manifests in `k8s/`:
-
-- `api-deployment.yaml` - DevGodzilla API (250m-500m CPU, 256-512Mi memory)
-- `worker-deployment.yaml` - RQ worker for background jobs
-
-Secrets expected in `devgodzilla-secrets`: `db_url`, `redis_url`, `api_token`
+Current default CLI agent configuration is defined in `devgodzilla/config/agents.yaml`.

@@ -1,30 +1,87 @@
-# DevGodzilla
+# DevGodzilla Console
 
-_Automatically synced with your [v0.app](https://v0.app) deployments_
+This directory contains the Next.js console for DevGodzilla. The app uses the App Router and is mounted under `/console`.
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/fedotovilya-4883s-projects/v0-frontend-solution-architecture)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.app-black?style=for-the-badge)](https://v0.app/chat/s5IoVDyyzfy)
+## Stack
 
-## Overview
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS
+- TanStack Query
+- Vitest
+- Playwright
 
-This repository will stay in sync with your deployed chats on [v0.app](https://v0.app).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.app](https://v0.app).
+## Local Development
 
-## Deployment
+From `frontend/`:
 
-Your project is live at:
+```bash
+pnpm install
+pnpm dev
+```
 
-**[https://vercel.com/fedotovilya-4883s-projects/v0-frontend-solution-architecture](https://vercel.com/fedotovilya-4883s-projects/v0-frontend-solution-architecture)**
+The dev server runs on port `3000` by default.
 
-## Build your app
+Useful variants:
 
-Continue building your app on:
+```bash
+pnpm build
+pnpm start
+pnpm typecheck
+pnpm lint
+pnpm test:run
+pnpm test:e2e:smoke
+pnpm check
+```
 
-**[https://v0.app/chat/s5IoVDyyzfy](https://v0.app/chat/s5IoVDyyzfy)**
+## API Connectivity
 
-## How It Works
+Current frontend routing facts:
 
-1. Create and modify your project using [v0.app](https://v0.app)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+- `basePath` is `/console`
+- browser API calls target `/api/v1/*`
+- `frontend/next.config.mjs` rewrites `/api/v1/:path*`
+- if `NEXT_PUBLIC_API_BASE_URL` is unset, the default rewrite target is `http://localhost:8000/api/v1/:path*`
+
+Common local setups:
+
+- direct backend dev: run the backend on `:8000` and use the default rewrite
+- nginx-backed dev: set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8080/api/v1` or use the repo helper that exports `NEXT_PUBLIC_API_BASE_URL=http://localhost:8080`
+
+## Route Surface
+
+Current page groups under `app/` include:
+
+- dashboard: `app/page.tsx`
+- projects: `app/projects/`, `app/projects/[id]/`
+- protocols: `app/protocols/`, `app/protocols/[id]/`
+- specifications: `app/specifications/`, `app/specifications/[id]/`
+- steps: `app/steps/`, `app/steps/[id]/`
+- runs: `app/runs/`, `app/runs/[runId]/`
+- sprints: `app/sprints/`
+- ops: `app/ops/`, `app/ops/events/`, `app/ops/logs/`, `app/ops/metrics/`, `app/ops/queues/`
+- policy packs: `app/policy-packs/`
+- agents, templates, profile, settings, login
+- Windmill console pages under `app/windmill/`
+
+## Authentication
+
+The frontend includes:
+
+- auth context and guards under `lib/auth/`
+- login UI under `app/login/`
+- Next route handlers under `app/api/auth/`
+
+Current auth-related API calls are wired against backend `/api/v1/auth/*` endpoints.
+
+## Tests
+
+- Unit/component tests: `pnpm test:run`
+- Playwright smoke coverage: `pnpm test:e2e:smoke`
+
+From the repo root, you can also run:
+
+```bash
+scripts/ci/test_frontend.sh
+```

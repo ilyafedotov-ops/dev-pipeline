@@ -1,45 +1,51 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `devgodzilla/` is the primary backend: FastAPI API, services layer, engines, Windmill integration.
-- `windmill/` contains Windmill scripts/flows/apps exported from this repo (DevGodzilla workspace).
-- `Origins/` contains vendored upstream sources (Windmill, spec-kit, etc); avoid editing unless explicitly required.
-- `scripts/` holds operational CLIs and `scripts/ci/*.sh` hooks for lint/typecheck/tests/build.
-- `tests/` uses `pytest` for DevGodzilla API/service/workflow coverage (`tests/test_devgodzilla_*.py`).
-- `docs/` and `prompts/` contain process guidance and reusable agent prompts; `schemas/` stores JSON Schemas.
+- `devgodzilla/` is the primary backend: FastAPI app wiring, route modules, services, engines, DB access, and Windmill client code.
+- `frontend/` is the Next.js 16 console mounted at `/console`; UI routes live under `frontend/app/`, shared client code under `frontend/lib/`, and component primitives under `frontend/components/`.
+- `windmill/` contains Windmill scripts, flows, apps, resources, and the import manifest exported from this repo.
+- `scripts/` holds operational CLIs, local-dev helpers, and `scripts/ci/*.sh` wrappers for backend/frontend checks.
+- `tests/` contains the Python `pytest` suite, including backend unit/integration coverage plus `tests/e2e/` harness scenarios and adapters.
+- `docs/` contains active project documentation; `docs/legacy/` is historical and should not be treated as authoritative.
+- `templates/`, `schemas/`, `prompts/`, `projects/`, and `runs/` store reusable templates, JSON contracts, prompt assets, local project workspaces, and generated runtime artifacts.
+- `Origins/` contains vendored upstream sources (Windmill, spec-kit, etc.); avoid editing unless explicitly required.
 
 ## Build, Test, and Development Commands
-- Bootstrap env: `scripts/ci/bootstrap.sh` (creates `.venv`, installs `requirements.txt` + `ruff`).
-- Lint: `scripts/ci/lint.sh` (`ruff check devgodzilla windmill scripts tests --select E9,F63,F7,F82`).
-- Typecheck: `scripts/ci/typecheck.sh` (compileall + import smoke for key modules).
-- Tests: `scripts/ci/test.sh` (`pytest -q tests/test_devgodzilla_*.py`).
-- Docker infra stack: `docker compose up --build -d` (nginx + windmill + workers + db). Backend + frontend are intended to run locally on the host for development.
-- Local dev manager (hybrid): `scripts/run-local-dev.sh` starts backend + frontend on the host, and runs infra (db/redis/windmill/nginx/workers) in Docker.
-  - Infra only: `scripts/run-local-dev.sh up`
-  - Backend: `scripts/run-local-dev.sh backend start|stop|restart|status`
-  - Frontend: `scripts/run-local-dev.sh frontend start|stop|restart|status`
-  - Everything: `scripts/run-local-dev.sh dev` (restarts existing host dev servers instead of spawning duplicates)
-- Default Docker routing for local dev uses `nginx.local.conf` (proxies to `host.docker.internal` for backend/frontend).
-- Windmill bootstrap import (one-shot): `scripts/run-local-dev.sh import` (or `docker compose -f docker-compose.devgodzilla.yml up --build -d windmill_import`).
-- Windmill JS transforms: `WINDMILL_FEATURES` defaults to `static_frontend python deno_core` (set `WINDMILL_FEATURES="static_frontend python"` to skip `deno_core`, but flows that use JavaScript `input_transforms` will not work).
+- Bootstrap backend env: `scripts/ci/bootstrap.sh` creates `.venv` and installs `requirements.txt` plus `ruff`.
+- Backend lint: `scripts/ci/lint.sh` runs `ruff check devgodzilla windmill scripts tests --select E9,F63,F7,F82` plus the standalone guard.
+- Backend type/import smoke: `scripts/ci/typecheck.sh`.
+- Backend unit tests: `scripts/ci/test.sh` runs `pytest -q --disable-warnings --maxfail=1 tests/test_devgodzilla_*.py -k "not integration"`.
+- Optional real-agent E2E in the backend test wrapper: set `DEVGODZILLA_RUN_E2E_REAL_AGENT=1`.
+- Frontend checks: `scripts/ci/test_frontend.sh`, or in `frontend/`: `pnpm typecheck`, `pnpm lint`, `pnpm test:run`, `pnpm test:e2e:smoke`.
+- Docker full stack (default compose): `docker compose up --build -d` or `scripts/run-local-dev.sh up`. This uses `docker-compose.yml` and `nginx.devgodzilla.conf`.
+- Alternate full-stack local variant: `docker compose -f docker-compose.local.yml up -d`.
+- Host dev servers only: `scripts/run-local-dev.sh backend start|stop|restart|status` and `scripts/run-local-dev.sh frontend start|stop|restart|status`.
+- Combined local-dev helper: `scripts/run-local-dev.sh dev` starts the default compose stack, then starts host backend/frontend processes for direct debugging and hot reload.
+- Explicit host-proxy topology: `docker compose -f docker-compose.devgodzilla.yml up -d` uses `nginx.local.conf` to proxy to backend/frontend on `host.docker.internal`.
+- Windmill bootstrap import: `scripts/run-local-dev.sh import`.
+- Stack monitor: `scripts/pipeline-ctl.sh status|health|watch|logs`.
 
 ## Coding Style & Naming Conventions
-- Python 3.12, PEP8/black-like formatting with 4-space indents; prefer explicit imports and type hints.
+- Python 3.12, PEP 8 / black-like formatting with 4-space indents; prefer explicit imports and type hints.
 - Module/files: `snake_case.py`; classes: `CamelCase`; functions/vars: `snake_case`; constants/env keys: `UPPER_SNAKE`.
-- Centralize config via `devgodzilla.config.load_config()` and log through `devgodzilla.logging.get_logger()` for structured output.
+- Frontend code is TypeScript-first. Follow existing App Router patterns in `frontend/app/` and shared hooks/utilities in `frontend/lib/`.
+- Centralize backend config via `devgodzilla.config.get_config()` / `load_config()` and log through `devgodzilla.logging.get_logger()` for structured output.
 - When touching Windmill scripts/flows/apps, mirror existing naming and paths under `windmill/`.
 
 ## Testing Guidelines
-- Add/extend `pytest` cases next to existing patterns (e.g., `tests/test_devgodzilla_windmill_workflows.py`).
-- Prefer small, isolated units; use temp SQLite DBs for API tests and override Windmill via dependency injection for deterministic behavior.
-- Keep golden path + error path assertions; only hit real Windmill in local/manual tests (not CI).
+- Add or extend Python tests near existing patterns in `tests/`; use `tests/e2e/` only for harness or live-flow coverage.
+- Use temp SQLite DBs or injected dependencies for deterministic backend tests; keep real Windmill and live agent usage out of default CI paths.
+- Keep golden-path and error-path assertions together, especially for API contracts, orchestration state transitions, and QA verdicts.
+- For frontend changes, add or update Vitest coverage in `frontend/__tests__/` or colocated tests and run the Playwright smoke flow when routes or interactions change.
 
 ## Commit & Pull Request Guidelines
-- Follow the repo’s short, typed subject style: `feat:`, `chore:`, `fix:`, `docs:` (see `git log`).
-- Scope commits narrowly and keep messages imperative (`feat: add worker retry backoff`). For protocol work, include the protocol tag (`[protocol-NNNN/YY]`) when relevant.
-- PRs should summarize changes, list test commands run, call out config/env impacts (e.g., new `DEVGODZILLA_*` vars), and include console/API screenshots when UI behavior changes.
+- Follow the repo’s short typed subject style: `feat:`, `fix:`, `chore:`, `docs:`.
+- Scope commits narrowly and keep messages imperative, for example `fix: align protocol route auth handling`.
+- For protocol work, include the protocol tag (`[protocol-NNNN/YY]`) when relevant.
+- PRs should summarize behavior changes, list commands run, call out config/env impacts, and include screenshots for user-visible console changes.
 
 ## Security & Configuration Tips
-- Never commit real tokens or DB URLs; rely on env vars (`DEVGODZILLA_DB_URL`, `DEVGODZILLA_DB_PATH`, `DEVGODZILLA_WINDMILL_TOKEN`).
-- For local Windmill tokens, use `DEVGODZILLA_WINDMILL_ENV_FILE` (defaults to `windmill/apps/devgodzilla-react-app/.env.development`), which is expected to be local-only.
-- Default agent/engine: `opencode` with model `zai-coding-plan/glm-4.6` (override via `DEVGODZILLA_OPENCODE_MODEL` or agent config YAML).
+- Never commit real tokens or DB URLs; rely on env vars such as `DEVGODZILLA_DB_URL`, `DEVGODZILLA_API_TOKEN`, `DEVGODZILLA_WEBHOOK_TOKEN`, and `DEVGODZILLA_WINDMILL_TOKEN`.
+- Current configured CLI agents live in `devgodzilla/config/agents.yaml`; the default engine is `opencode` with model `zai-coding-plan/glm-5`.
+- For local Windmill imports, `DEVGODZILLA_WINDMILL_ENV_FILE` defaults to `windmill/apps/devgodzilla-react-app/.env.development` and is expected to stay local-only.
+- Full-Docker backend runs can consume provider credentials from env (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_API_KEY`) and optional per-engine model overrides such as `DEVGODZILLA_OPENCODE_MODEL`, `DEVGODZILLA_CODEX_MODEL`, and `DEVGODZILLA_CLAUDE_MODEL`.
