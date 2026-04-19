@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { SpecKitWorkflowPanel } from "./speckit-workflow-panel";
 
 import {
   AlertCircle,
@@ -435,6 +436,8 @@ export function SpecTab({ projectId }: SpecTabProps) {
           </CardContent>
         </Card>
       </div>
+
+      <SpecKitWorkflowPanel projectId={projectId} />
 
       <Card>
         <CardHeader>

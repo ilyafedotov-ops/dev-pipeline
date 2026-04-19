@@ -21,6 +21,7 @@ import {
   PlayCircle,
   Settings,
   Shield,
+  Terminal,
   TrendingUp,
   Zap,
 } from "lucide-react";
@@ -58,6 +59,8 @@ const navigationGroups: NavGroup[] = [
     icon: Zap,
     items: [
       { name: "Runs", href: "/runs", icon: PlayCircle },
+      { name: "Executions", href: "/executions", icon: Terminal },
+      { name: "Templates", href: "/templates", icon: Layers },
       { name: "Protocols", href: "/protocols", icon: GitBranch },
       { name: "Sprints", href: "/sprints", icon: Kanban },
       { name: "Specifications", href: "/specifications", icon: FileCode2 },
