@@ -34,8 +34,9 @@
 
 ### A.2 Start Onboarding → Verify 202 Accepted → Poll Until Complete
 
-| Item | Detail |
+|| Item | Detail |
 |------|--------|
+| **Precondition** | Project must have `git_url` set (non-null, valid URL) |
 | **Endpoint** | `POST /api/v1/projects/{id}/actions/onboard` |
 | **Payload** | `{}` (empty body, defaults: `clone_if_missing=true`, `run_discovery_agent=false`) |
 | **Expected** | `200` (synchronous completion with `ProjectOnboardResponse`) **or** `202 Accepted` (deferred to background) |
@@ -76,6 +77,16 @@
 | **Missing git_url** | `POST /api/v1/projects/{id}/actions/onboard` on project with `git_url: null` → `400` error |
 | **Duplicate onboarding** | Call onboard twice → second call should succeed (idempotent) or return meaningful status |
 | **Non-existent project** | `POST /api/v1/projects/99999/actions/onboard` → `404` |
+
+### A.7 Alternative: POST /onboarding/actions/start
+
+|| Item | Detail |
+|------|--------|
+| **Endpoint** | `POST /api/v1/projects/{id}/onboarding/actions/start` |
+| **Precondition** | Project must have `git_url` set |
+| **Payload** | `{"clone_if_missing": true, "run_discovery_agent": false}` |
+| **Expected** | `200` with onboarding result |
+| **Verify** | Same behavior as A.2; this is an alternative onboarding entry point |
 
 ---
 
@@ -225,12 +236,20 @@
 
 ### C.10 GET /specifications → Cross-Project Listing with Filters
 
-| Item | Detail |
+|| Item | Detail |
 |------|--------|
 | **Endpoint** | `GET /api/v1/specifications` |
 | **Query Params** | `project_id`, `status`, `has_plan`, `has_tasks`, `search`, `limit`, `offset` |
 | **Expected** | `200` with `{items: [...], total: N, filters_applied: {...}}` |
 | **Verify** | Pagination works; filter params narrow results correctly |
+
+### C.11 GET /speckit/specs/{project_id} → Per-Project Spec Listing
+
+|| Item | Detail |
+|------|--------|
+| **Endpoint** | `GET /api/v1/speckit/specs/{project_id}` |
+| **Expected** | `200` with JSON array of spec runs for the project |
+| **Verify** | Each spec has `id`, `name`, `status`, `spec_run_id`, `branch_name`, `feature_name` |
 
 ---
 
@@ -246,10 +265,11 @@
 
 ### D.2 POST /agents/{agent_id}/test → Per-Agent Smoke Test
 
-| Item | Detail |
+|| Item | Detail |
 |------|--------|
 | **Endpoint** | `POST /api/v1/agents/{agent_id}/test` |
 | **Agents** | `opencode`, `claude-code`, `codex`, `gemini-cli` |
+| **Test URL** | `POST /api/v1/agents/opencode/test` (use real `agent_id`, not placeholder) |
 | **Expected** | `200` with test results per agent |
 | **Verify** | Each agent returns a success/failure result |
 
@@ -301,8 +321,9 @@
 
 ### E.1 POST /projects/{id}/brownfield/run → Start Brownfield Analysis
 
-| Item | Detail |
+|| Item | Detail ||
 |------|--------|
+| **Precondition** | Project must have `local_path` set (project cloned/onboarded first) |
 | **Endpoint** | `POST /api/v1/projects/{id}/brownfield/run` |
 | **Payload** | `{"feature_request": "Analyze existing codebase and identify improvement areas", "output_mode": "protocol", "feature_name": "brownfield-analysis"}` |
 | **Notes** | `feature_request` is **required** (not `output_mode`). AI-powered operation — may take 30-300s. |
@@ -462,6 +483,8 @@
 ---
 
 ## H. Event System
+
+> **Note:** Events endpoint only supports `GET` (no POST). SSE streaming available via `/events/stream`.
 
 ### H.1 GET /events → SSE Stream
 
