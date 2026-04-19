@@ -67,6 +67,7 @@ class DatabaseProtocol(Protocol):
         name: str,
         git_url: str,
         base_branch: str,
+        description: Optional[str] = None,
         ci_provider: Optional[str] = None,
         default_models: Optional[dict] = None,
         secrets: Optional[dict] = None,
@@ -721,6 +722,7 @@ class SQLiteDatabase:
         name: str,
         git_url: str,
         base_branch: str,
+        description: Optional[str] = None,
         ci_provider: Optional[str] = None,
         default_models: Optional[dict] = None,
         secrets: Optional[dict] = None,
@@ -733,15 +735,15 @@ class SQLiteDatabase:
             cur = conn.execute(
                 """
                 INSERT INTO projects (
-                    name, git_url, base_branch, ci_provider,
+                    name, git_url, base_branch, description, ci_provider,
                     default_models, secrets, local_path,
                     project_classification, policy_pack_key, policy_pack_version,
                     policy_enforcement_mode
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'warn')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'warn')
                 """,
                 (
-                    name, git_url, base_branch, ci_provider,
+                    name, git_url, base_branch, description, ci_provider,
                     json.dumps(default_models) if default_models else None,
                     json.dumps(secrets) if secrets else None,
                     local_path, project_classification,
@@ -3649,6 +3651,7 @@ class PostgresDatabase:
         name: str,
         git_url: str,
         base_branch: str,
+        description: Optional[str] = None,
         ci_provider: Optional[str] = None,
         default_models: Optional[dict] = None,
         secrets: Optional[dict] = None,
@@ -3662,16 +3665,16 @@ class PostgresDatabase:
                 cur.execute(
                     """
                     INSERT INTO projects (
-                        name, git_url, base_branch, ci_provider,
+                        name, git_url, base_branch, description, ci_provider,
                         default_models, secrets, local_path,
                         project_classification, policy_pack_key, policy_pack_version,
                         policy_enforcement_mode
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'warn')
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'warn')
                     RETURNING id
                     """,
                     (
-                        name, git_url, base_branch, ci_provider,
+                        name, git_url, base_branch, description, ci_provider,
                         json.dumps(default_models) if default_models else None,
                         json.dumps(secrets) if secrets else None,
                         local_path, project_classification,

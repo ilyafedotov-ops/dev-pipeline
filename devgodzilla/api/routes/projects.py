@@ -354,6 +354,7 @@ def create_project(
         name=project.name,
         git_url=project.git_url or "",
         base_branch=project.base_branch,
+        description=project.description,
         secrets=_project_secrets_with_github_token(None, project.github_token),
         local_path=project.local_path,
     )

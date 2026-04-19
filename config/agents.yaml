@@ -54,7 +54,7 @@ agents:
     - code_review
     - reasoning
     command: opencode
-    default_model: zai-coding-plan/glm-4.6
+    default_model: zai-coding-plan/glm-5
     enabled: true
     format: default
     kind: cli
