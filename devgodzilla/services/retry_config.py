@@ -6,6 +6,10 @@ from typing import Any, Dict, Optional
 
 import yaml
 
+from devgodzilla.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class RetrySettings:

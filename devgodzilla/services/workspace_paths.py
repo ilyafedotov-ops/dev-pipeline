@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from devgodzilla.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class WorkspacePathError(RuntimeError):
     """Raised when a project/run has no safe workspace root."""

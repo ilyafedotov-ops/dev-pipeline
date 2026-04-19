@@ -8,6 +8,10 @@ Higher priority values are executed first.
 from enum import IntEnum
 from typing import List, Any
 
+from devgodzilla.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class Priority(IntEnum):
     """

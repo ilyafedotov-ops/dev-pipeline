@@ -13,7 +13,7 @@ from devgodzilla.api.run_context import enrich_run_with_agile_context, enrich_ru
 from devgodzilla.api.dependencies import get_db
 from devgodzilla.config import load_config
 from devgodzilla.db.database import Database
-from devgodzilla.logging import get_logger
+from devgodzilla.logging import get_logger, log_extra
 from devgodzilla.windmill.client import JobStatus, WindmillClient, WindmillConfig
 
 router = APIRouter(tags=["Runs"])
@@ -161,6 +161,17 @@ def list_runs(
     limit: int = 200,
     db: Database = Depends(get_db),
 ):
+    logger.info(
+        "runs_list_requested",
+        extra=log_extra(
+            project_id=project_id,
+            protocol_run_id=protocol_run_id,
+            step_run_id=step_run_id,
+            status=status,
+            job_type=job_type,
+            limit=limit,
+        ),
+    )
     runs = db.list_job_runs(
         limit=limit,
         project_id=project_id,
@@ -179,7 +190,19 @@ def list_runs(
                 runs = synced
         finally:
             windmill.close()
-    return [schemas.JobRunOut.model_validate(run) for run in enrich_runs_with_agile_context(db, runs)]
+    enriched = [schemas.JobRunOut.model_validate(run) for run in enrich_runs_with_agile_context(db, runs)]
+    logger.info(
+        "runs_list_completed",
+        extra=log_extra(
+            project_id=project_id,
+            protocol_run_id=protocol_run_id,
+            step_run_id=step_run_id,
+            status=status,
+            job_type=job_type,
+            result_count=len(enriched),
+        ),
+    )
+    return enriched
 
 
 @router.get("/runs/{run_id}", response_model=schemas.JobRunOut)
@@ -190,6 +213,7 @@ def get_run(
     try:
         run = db.get_job_run(run_id)
     except KeyError:
+        logger.warning("run_not_found", extra=log_extra(run_id=run_id))
         raise HTTPException(status_code=404, detail="Run not found")
     windmill = _build_windmill_client()
     if windmill:
@@ -197,7 +221,19 @@ def get_run(
             run = _sync_run_from_windmill(db, run, windmill)
         finally:
             windmill.close()
-    return schemas.JobRunOut.model_validate(enrich_run_with_agile_context(db, run))
+    enriched = schemas.JobRunOut.model_validate(enrich_run_with_agile_context(db, run))
+    logger.info(
+        "run_loaded",
+        extra=log_extra(
+            run_id=run.run_id,
+            project_id=run.project_id,
+            protocol_run_id=run.protocol_run_id,
+            step_run_id=run.step_run_id,
+            status=run.status,
+            job_type=run.job_type,
+        ),
+    )
+    return enriched
 
 
 @router.get("/runs/{run_id}/logs", response_model=schemas.ArtifactContentOut)
@@ -209,9 +245,11 @@ def get_run_logs(
     try:
         run = db.get_job_run(run_id)
     except KeyError:
+        logger.warning("run_logs_not_found", extra=log_extra(run_id=run_id))
         raise HTTPException(status_code=404, detail="Run not found")
 
     if not run.log_path:
+        logger.info("run_logs_missing_path", extra=log_extra(run_id=run.run_id))
         return schemas.ArtifactContentOut(
             id="logs",
             name="logs",
@@ -224,6 +262,10 @@ def get_run_logs(
     if not path.is_absolute():
         path = (Path.cwd() / path).resolve()
     if not path.exists() or not path.is_file():
+        logger.warning(
+            "run_logs_file_missing",
+            extra=log_extra(run_id=run.run_id, log_path=str(path)),
+        )
         raise HTTPException(status_code=404, detail="Run logs not found")
 
     max_bytes = max(1, min(int(max_bytes), 2_000_000))
@@ -236,6 +278,16 @@ def get_run_logs(
         content = raw.decode("utf-8")
     except Exception:
         content = raw.decode("utf-8", errors="replace")
+
+    logger.info(
+        "run_logs_loaded",
+        extra=log_extra(
+            run_id=run.run_id,
+            log_path=str(path),
+            returned_bytes=len(raw),
+            truncated=truncated,
+        ),
+    )
 
     return schemas.ArtifactContentOut(
         id="logs",

@@ -11,10 +11,12 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from devgodzilla.api.dependencies import get_db, get_service_context, Database
+from devgodzilla.logging import get_logger, log_extra
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.specification import SpecificationService
 
 router = APIRouter(tags=["specifications"])
+logger = get_logger(__name__)
 
 
 def _spec_value(item: Any, key: str, default: Any = None) -> Any:
@@ -336,14 +338,32 @@ def list_specifications(
                     sprint_id=spec_sprint_id,
                     sprint_name=spec_sprint_name,
                 ))
-        except Exception:
-            # Skip projects with errors
+        except Exception as exc:
+            logger.warning(
+                "specifications_project_scan_failed",
+                extra=log_extra(project_id=project.id, error=str(exc)),
+            )
             continue
     
     # Apply pagination
     total = len(all_specifications)
     paginated = all_specifications[offset:offset + limit]
     
+    logger.info(
+        "specifications_listed",
+        extra=log_extra(
+            project_id=project_id,
+            sprint_id=sprint_id,
+            status=status,
+            has_plan=has_plan,
+            has_tasks=has_tasks,
+            search=search,
+            limit=limit,
+            offset=offset,
+            total=total,
+            result_count=len(paginated),
+        ),
+    )
     return SpecificationsListOut(
         items=paginated,
         total=total,
@@ -383,7 +403,18 @@ def get_specification(
     service: SpecificationService = Depends(get_specification_service),
 ):
     """Get a single specification by ID."""
-    return _get_specification_by_id(spec_id=spec_id, db=db, service=service)
+    spec = _get_specification_by_id(spec_id=spec_id, db=db, service=service)
+    logger.info(
+        "specification_loaded",
+        extra=log_extra(
+            project_id=spec.project_id,
+            spec_id=spec.id,
+            spec_run_id=spec.spec_run_id,
+            sprint_id=spec.sprint_id,
+            status=spec.status,
+        ),
+    )
+    return spec
 
 
 @router.get("/specifications/{spec_id}/content", response_model=SpecificationContentOut)
@@ -399,9 +430,17 @@ def get_specification_content(
     try:
         project = db.get_project(spec.project_id)
     except (KeyError, Exception):
+        logger.warning(
+            "specification_content_project_not_found",
+            extra=log_extra(project_id=spec.project_id, spec_id=spec_id),
+        )
         raise HTTPException(status_code=404, detail=f"Project {spec.project_id} not found")
     
     if not project.local_path:
+        logger.warning(
+            "specification_content_missing_local_path",
+            extra=log_extra(project_id=spec.project_id, spec_id=spec_id),
+        )
         raise HTTPException(status_code=400, detail="Project has no local path")
     
     spec_dir = Path(spec.path)
@@ -454,6 +493,19 @@ def get_specification_content(
         except Exception:
             pass
     
+    logger.info(
+        "specification_content_loaded",
+        extra=log_extra(
+            project_id=spec.project_id,
+            spec_id=spec.id,
+            spec_run_id=spec.spec_run_id,
+            has_spec_content=spec_content is not None,
+            has_plan_content=plan_content is not None,
+            has_tasks_content=tasks_content is not None,
+            has_checklist_content=checklist_content is not None,
+            has_analysis_content=analysis_content is not None,
+        ),
+    )
     return SpecificationContentOut(
         id=spec_id,
         path=spec.path,
@@ -482,24 +534,74 @@ def link_specification_to_sprint(
             sprint = db.get_sprint(request.sprint_id)
             # Verify sprint belongs to same project
             if sprint.project_id != spec.project_id:
+                logger.warning(
+                    "specification_link_sprint_project_mismatch",
+                    extra=log_extra(
+                        project_id=spec.project_id,
+                        spec_id=spec.id,
+                        sprint_id=request.sprint_id,
+                        sprint_project_id=sprint.project_id,
+                    ),
+                )
                 raise HTTPException(
                     status_code=400,
                     detail="Sprint must belong to the same project as the specification"
                 )
         except KeyError:
+            logger.warning(
+                "specification_link_sprint_not_found",
+                extra=log_extra(project_id=spec.project_id, spec_id=spec.id, sprint_id=request.sprint_id),
+            )
             raise HTTPException(status_code=404, detail=f"Sprint {request.sprint_id} not found")
         except HTTPException:
             raise
         except Exception as exc:
+            logger.error(
+                "specification_link_sprint_load_failed",
+                extra=log_extra(
+                    project_id=spec.project_id,
+                    spec_id=spec.id,
+                    sprint_id=request.sprint_id,
+                    error=str(exc),
+                ),
+            )
             raise HTTPException(status_code=500, detail=f"Failed to load sprint {request.sprint_id}: {exc}")
     
     spec_ref_key = _spec_key(spec, spec.id)
     try:
         db.set_spec_sprint_link(spec.project_id, spec_ref_key, request.sprint_id)
     except ValueError as exc:
+        logger.warning(
+            "specification_link_sprint_invalid",
+            extra=log_extra(
+                project_id=spec.project_id,
+                spec_id=spec.id,
+                sprint_id=request.sprint_id,
+                error=str(exc),
+            ),
+        )
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        logger.error(
+            "specification_link_sprint_persist_failed",
+            extra=log_extra(
+                project_id=spec.project_id,
+                spec_id=spec.id,
+                sprint_id=request.sprint_id,
+                error=str(exc),
+            ),
+        )
         raise HTTPException(status_code=500, detail=f"Failed to persist spec-sprint link: {exc}")
+    logger.info(
+        "specification_sprint_link_updated",
+        extra=log_extra(
+            project_id=spec.project_id,
+            spec_id=spec.id,
+            spec_run_id=spec.spec_run_id,
+            sprint_id=request.sprint_id,
+            action="link" if request.sprint_id is not None else "unlink",
+        ),
+    )
 
     return {
         "success": True,

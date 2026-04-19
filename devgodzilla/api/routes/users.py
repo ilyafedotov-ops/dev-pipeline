@@ -12,8 +12,10 @@ from passlib.hash import pbkdf2_sha256
 from pydantic import BaseModel, Field
 
 from devgodzilla.api.auth_middleware import get_current_user
+from devgodzilla.logging import get_logger, log_extra
 
 router = APIRouter(prefix="/users", tags=["Users"])
+logger = get_logger(__name__)
 
 
 class UserProfile(BaseModel):
@@ -61,13 +63,15 @@ def get_user_profile(user: Dict[str, Any] = Depends(get_current_user)):
     """Return the current authenticated user's profile."""
     sub = user.get("sub", "")
     overrides = _profile_overrides.get(sub, {})
-    return UserProfile(
+    profile = UserProfile(
         sub=sub,
         username=user.get("username", ""),
         role=user.get("role", "admin"),
         name=overrides.get("name"),
         email=overrides.get("email"),
     )
+    logger.info("user_profile_loaded", extra=log_extra(user_sub=sub, username=profile.username))
+    return profile
 
 
 @router.put("/me", response_model=UserProfile)
@@ -82,13 +86,18 @@ def update_user_profile(
         overrides["name"] = body.name
     if body.email is not None:
         overrides["email"] = body.email
-    return UserProfile(
+    profile = UserProfile(
         sub=sub,
         username=user.get("username", ""),
         role=user.get("role", "admin"),
         name=overrides.get("name"),
         email=overrides.get("email"),
     )
+    logger.info(
+        "user_profile_updated",
+        extra=log_extra(user_sub=sub, username=profile.username, updated_fields=sorted(body.model_dump(exclude_unset=True).keys())),
+    )
+    return profile
 
 
 @router.post("/me/password", response_model=ChangePasswordResponse)
@@ -107,12 +116,14 @@ def change_password(
     )
 
     if not password_hash:
+        logger.warning("user_password_change_unconfigured", extra=log_extra(user_sub=user.get("sub", "")))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password management not configured",
         )
 
     if not _verify_current_password(body.current_password, password_hash):
+        logger.warning("user_password_change_rejected", extra=log_extra(user_sub=user.get("sub", "")))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",
@@ -126,4 +137,5 @@ def change_password(
     # Clear the plaintext fallback so the hash is always preferred
     config.admin_password = None
 
+    logger.info("user_password_changed", extra=log_extra(user_sub=user.get("sub", "")))
     return ChangePasswordResponse()

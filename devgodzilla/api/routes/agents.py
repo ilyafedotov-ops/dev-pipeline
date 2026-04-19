@@ -7,10 +7,12 @@ from devgodzilla.api import schemas
 from devgodzilla.api.dependencies import get_db, get_service_context
 from devgodzilla.db.database import Database
 from devgodzilla.engines.registry import get_registry
+from devgodzilla.logging import get_logger, log_extra
 from devgodzilla.services.agent_config import AgentConfigService
 from devgodzilla.services.base import ServiceContext
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 @router.get("/agents", response_model=List[schemas.AgentInfo])
 def list_agents(
@@ -44,10 +46,20 @@ def list_agents(
 
     # Fallback to registry metadata if config is empty.
     if agents or project_id is not None:
+        logger.info(
+            "agents_listed",
+            extra=log_extra(
+                request_id=ctx.request_id,
+                project_id=project_id,
+                enabled_only=enabled_only,
+                source="config",
+                result_count=len(agents),
+            ),
+        )
         return agents
 
     registry = get_registry()
-    return [
+    items = [
         schemas.AgentInfo(
             id=meta.id,
             name=meta.display_name,
@@ -57,6 +69,16 @@ def list_agents(
         )
         for meta in registry.list_metadata()
     ]
+    logger.info(
+        "agents_listed",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            enabled_only=enabled_only,
+            source="registry",
+            result_count=len(items),
+        ),
+    )
+    return items
 
 
 @router.get("/agents/health", response_model=List[schemas.AgentHealthOut])
@@ -90,6 +112,14 @@ def check_all_agents_health(
                 warnings=warnings,
             )
         )
+    logger.info(
+        "agents_health_checked",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            result_count=len(out),
+            available_count=sum(1 for item in out if item.available),
+        ),
+    )
     return out
 
 
@@ -121,7 +151,9 @@ def list_agent_metrics(
             if step.updated_at and (entry.last_activity_at is None or step.updated_at > entry.last_activity_at):
                 entry.last_activity_at = step.updated_at
 
-    return list(metrics.values())
+    results = list(metrics.values())
+    logger.info("agent_metrics_listed", extra=log_extra(project_id=project_id, result_count=len(results)))
+    return results
 
 
 @router.put("/agents/{agent_id}/config", response_model=schemas.AgentInfo)
@@ -151,7 +183,7 @@ def update_agent_config(
             max_retries=config.max_retries,
             project_id=project_id,
         )
-        return schemas.AgentInfo(
+        response = schemas.AgentInfo(
             id=updated_agent.id,
             name=updated_agent.name,
             kind=updated_agent.kind,
@@ -167,9 +199,28 @@ def update_agent_config(
             timeout_seconds=updated_agent.timeout_seconds,
             max_retries=updated_agent.max_retries,
         )
+        logger.info(
+            "agent_config_updated",
+            extra=log_extra(
+                request_id=ctx.request_id,
+                project_id=project_id,
+                agent_id=agent_id,
+                updated_fields=sorted(config.model_dump(exclude_unset=True).keys()),
+                enabled=response.enabled,
+            ),
+        )
+        return response
     except ValueError as e:
+        logger.warning(
+            "agent_config_update_not_found",
+            extra=log_extra(request_id=ctx.request_id, project_id=project_id, agent_id=agent_id, error=str(e)),
+        )
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.error(
+            "agent_config_update_failed",
+            extra=log_extra(request_id=ctx.request_id, project_id=project_id, agent_id=agent_id, error=str(e)),
+        )
         raise HTTPException(status_code=500, detail=f"Failed to update agent config: {str(e)}")
 
 
@@ -194,6 +245,10 @@ def get_agent_defaults(
     """Get agent defaults."""
     cfg = AgentConfigService(ctx, db=db)
     defaults = cfg.get_defaults(project_id=project_id)
+    logger.info(
+        "agent_defaults_loaded",
+        extra=log_extra(request_id=ctx.request_id, project_id=project_id, keys=sorted(defaults.keys())),
+    )
     return schemas.AgentDefaults(**defaults)
 
 
@@ -207,6 +262,14 @@ def update_agent_defaults(
     """Update agent defaults."""
     cfg = AgentConfigService(ctx, db=db)
     updated = cfg.update_defaults(defaults.model_dump(exclude_unset=True), project_id=project_id)
+    logger.info(
+        "agent_defaults_updated",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            project_id=project_id,
+            updated_fields=sorted(defaults.model_dump(exclude_unset=True).keys()),
+        ),
+    )
     return schemas.AgentDefaults(**updated)
 
 @router.get("/agents/assignments", response_model=schemas.AgentAssignments)
@@ -218,6 +281,14 @@ def list_agent_assignments(
     """List agent assignments (global or project-scoped)."""
     cfg = AgentConfigService(ctx, db=db)
     payload = cfg.get_assignments(project_id=project_id)
+    logger.info(
+        "agent_assignments_listed",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            project_id=project_id,
+            assignment_count=len(payload.get("assignments", {}) or {}),
+        ),
+    )
     return schemas.AgentAssignments(**payload)
 
 
@@ -237,6 +308,14 @@ def update_agent_assignments(
         updated = cfg.update_assignments(assignment_payload, project_id=project_id)
     else:
         updated = cfg.get_assignments(project_id=project_id)
+    logger.info(
+        "agent_assignments_updated",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            project_id=project_id,
+            assignment_count=len(updated.get("assignments", {}) or {}),
+        ),
+    )
     return schemas.AgentAssignments(**updated)
 
 
@@ -311,7 +390,7 @@ def list_agent_prompts(
         project_prompts = cfg.get_project_overrides(project_id).get("prompts", {}) or {}
         if isinstance(project_prompts, dict):
             sources = {pid: "project" for pid in project_prompts.keys()}
-    return [
+    items = [
         schemas.AgentPromptTemplate(
             id=p.get("id") or "",
             name=p.get("name") or p.get("id") or "",
@@ -326,6 +405,16 @@ def list_agent_prompts(
         )
         for p in prompts
     ]
+    logger.info(
+        "agent_prompts_listed",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            project_id=project_id,
+            enabled_only=enabled_only,
+            result_count=len(items),
+        ),
+    )
+    return items
 
 
 @router.put("/agents/prompts/{prompt_id}", response_model=schemas.AgentPromptTemplate)
@@ -385,6 +474,14 @@ def get_project_agent_overrides(
     """Get project-level agent overrides."""
     cfg = AgentConfigService(ctx, db=db)
     overrides = cfg.get_project_overrides(project_id)
+    logger.info(
+        "agent_project_overrides_loaded",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            project_id=project_id,
+            keys=sorted(overrides.keys()),
+        ),
+    )
     return schemas.AgentProjectOverrides(**overrides)
 
 
@@ -398,6 +495,14 @@ def update_project_agent_overrides(
     """Update project-level agent overrides."""
     cfg = AgentConfigService(ctx, db=db)
     updated = cfg.update_project_overrides(project_id, overrides.model_dump(exclude_unset=True))
+    logger.info(
+        "agent_project_overrides_updated",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            project_id=project_id,
+            updated_fields=sorted(overrides.model_dump(exclude_unset=True).keys()),
+        ),
+    )
     return schemas.AgentProjectOverrides(**updated)
 
 
@@ -412,7 +517,7 @@ def get_agent(
     cfg = AgentConfigService(ctx, db=db)
     agent = cfg.get_agent(agent_id, project_id=project_id)
     if agent:
-        return schemas.AgentInfo(
+        response = schemas.AgentInfo(
             id=agent.id,
             name=agent.name,
             kind=agent.kind,
@@ -428,20 +533,38 @@ def get_agent(
             timeout_seconds=agent.timeout_seconds,
             max_retries=agent.max_retries,
         )
+        logger.info(
+            "agent_loaded",
+            extra=log_extra(
+                request_id=ctx.request_id,
+                project_id=project_id,
+                agent_id=agent_id,
+                source="config",
+                enabled=response.enabled,
+            ),
+        )
+        return response
 
     if project_id is None:
         registry = get_registry()
         meta = next((m for m in registry.list_metadata() if m.id == agent_id), None)
         if meta is None:
+            logger.warning("agent_not_found", extra=log_extra(request_id=ctx.request_id, agent_id=agent_id))
             raise HTTPException(status_code=404, detail="Agent not found")
-        return schemas.AgentInfo(
+        response = schemas.AgentInfo(
             id=meta.id,
             name=meta.display_name,
             kind=meta.kind.value if hasattr(meta.kind, "value") else str(meta.kind),
             capabilities=meta.capabilities,
             status="available",
         )
+        logger.info("agent_loaded", extra=log_extra(request_id=ctx.request_id, agent_id=agent_id, source="registry"))
+        return response
 
+    logger.warning(
+        "agent_not_found",
+        extra=log_extra(request_id=ctx.request_id, project_id=project_id, agent_id=agent_id),
+    )
     raise HTTPException(status_code=404, detail="Agent not found")
 
 
@@ -508,6 +631,7 @@ def check_agent_health(
     cfg = AgentConfigService(ctx, db=db)
     res = cfg.check_health(agent_id)
     if res.error == "Agent not found":
+        logger.warning("agent_health_not_found", extra=log_extra(request_id=ctx.request_id, agent_id=agent_id))
         raise HTTPException(status_code=404, detail="Agent not found")
 
     warnings: list[str] = []
@@ -531,6 +655,15 @@ def check_agent_health(
                     "API key not set — agent available via assume_auth only"
                 )
 
+    logger.info(
+        "agent_health_checked",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            agent_id=agent_id,
+            available=res.available,
+            warning_count=len(warnings),
+        ),
+    )
     return {
         "status": "available" if res.available else "unavailable",
         "warnings": warnings,
@@ -550,7 +683,21 @@ def test_agent_setup(
     overrides = req.overrides.model_dump(exclude_unset=True) if req.overrides is not None else None
     res = cfg.test_setup(agent_id, project_id=project_id, overrides=overrides)
     if any((c.name == "agent" and not c.ok and c.error == "Agent not found") for c in (res.checks or [])):
+        logger.warning(
+            "agent_setup_test_not_found",
+            extra=log_extra(request_id=ctx.request_id, project_id=project_id, agent_id=agent_id),
+        )
         raise HTTPException(status_code=404, detail="Agent not found")
+    logger.info(
+        "agent_setup_tested",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            project_id=project_id,
+            agent_id=agent_id,
+            ok=res.ok,
+            check_count=len(res.checks or []),
+        ),
+    )
     return schemas.AgentTestOut(
         agent_id=res.agent_id,
         ok=res.ok,

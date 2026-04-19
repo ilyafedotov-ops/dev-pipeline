@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from devgodzilla.api.dependencies import get_db, get_service_context, get_windmill_client
+from devgodzilla.logging import get_logger
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.db.database import Database
 from devgodzilla.services.reconciliation import (
@@ -24,6 +25,7 @@ from devgodzilla.services.reconciliation import (
 from devgodzilla.windmill.client import WindmillClient
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 # Response Models

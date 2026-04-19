@@ -14,12 +14,14 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from devgodzilla.logging import get_logger
 from devgodzilla.services.cli_execution_tracker import (
     get_execution_tracker,
     ExecutionStatus,
 )
 
 router = APIRouter(tags=["cli-executions"])
+logger = get_logger(__name__)
 
 
 # =============================================================================

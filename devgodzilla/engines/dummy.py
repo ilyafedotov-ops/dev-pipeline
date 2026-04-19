@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
+from devgodzilla.logging import get_logger
 from devgodzilla.engines.interface import (
     Engine,
     EngineKind,
@@ -16,6 +17,8 @@ from devgodzilla.engines.interface import (
     EngineRequest,
     EngineResult,
 )
+
+logger = get_logger(__name__)
 
 
 class DummyEngine(Engine):

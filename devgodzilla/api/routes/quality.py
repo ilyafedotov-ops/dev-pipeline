@@ -8,10 +8,12 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends
 
 from devgodzilla.api.dependencies import get_db, get_service_context, Database
+from devgodzilla.logging import get_logger, log_extra
 from devgodzilla.speckit_metadata import extract_spec_run_id
 from devgodzilla.services.base import ServiceContext
 
 router = APIRouter(tags=["quality"])
+logger = get_logger(__name__)
 
 
 class QAOverview(BaseModel):
@@ -169,6 +171,19 @@ def get_quality_dashboard(
             )
         )
 
+    logger.info(
+        "quality_dashboard_loaded",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            total_protocols=overview.total_protocols,
+            passed=overview.passed,
+            warnings=overview.warnings,
+            failed=overview.failed,
+            average_score=overview.average_score,
+            recent_findings_count=len(recent_findings),
+            constitutional_gate_count=len(gates),
+        ),
+    )
     return QualityDashboard(
         overview=overview,
         recent_findings=recent_findings,

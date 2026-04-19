@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from devgodzilla.api import schemas
 from devgodzilla.api.run_context import enrich_runs_with_agile_context
 from devgodzilla.api.dependencies import get_db, get_service_context, get_windmill_client
+from devgodzilla.logging import get_logger
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.db.database import Database
 from devgodzilla.models.domain import ProtocolStatus, StepStatus
@@ -22,6 +23,7 @@ from devgodzilla.windmill.client import WindmillClient, WindmillConfig
 from devgodzilla.services.workspace_paths import WorkspacePathError, resolve_protocol_root, resolve_workspace_root
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 def _policy_location(metadata: Optional[dict]) -> Optional[str]:
     if not metadata:

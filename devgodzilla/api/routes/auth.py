@@ -22,8 +22,10 @@ from pydantic import BaseModel, Field
 
 from devgodzilla.api.auth_middleware import get_current_user, revoke_token
 from devgodzilla.config import get_config
+from devgodzilla.logging import get_logger
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas

@@ -1,6 +1,9 @@
 from fastapi import HTTPException
 
 from devgodzilla.db.database import Database
+from devgodzilla.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def get_project_or_404(db: Database, project_id: int):

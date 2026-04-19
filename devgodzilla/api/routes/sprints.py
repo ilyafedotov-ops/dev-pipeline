@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from devgodzilla.api import schemas
 from devgodzilla.db.database import Database
 from devgodzilla.api.dependencies import get_db
+from devgodzilla.logging import get_logger, log_extra
 from devgodzilla.services.sprint_integration import SprintIntegrationService
 from devgodzilla.models.domain import Sprint, AgileTask
 
 router = APIRouter(prefix="/sprints", tags=["sprints"])
+logger = get_logger(__name__)
 
 
 def get_sprint_integration(db: Database = Depends(get_db)) -> SprintIntegrationService:
@@ -18,7 +20,7 @@ def create_sprint(
     sprint: schemas.SprintCreate,
     db: Database = Depends(get_db)
 ):
-    return db.create_sprint(
+    created = db.create_sprint(
         project_id=sprint.project_id,
         name=sprint.name,
         goal=sprint.goal,
@@ -27,13 +29,33 @@ def create_sprint(
         end_date=sprint.end_date.isoformat() if sprint.end_date else None,
         velocity_planned=sprint.velocity_planned
     )
+    logger.info(
+        "sprint_created",
+        extra=log_extra(
+            project_id=created.project_id,
+            sprint_id=created.id,
+            status=created.status,
+            velocity_planned=created.velocity_planned,
+        ),
+    )
+    return created
 
 @router.get("/{sprint_id}", response_model=schemas.SprintOut)
 def get_sprint(sprint_id: int, db: Database = Depends(get_db)):
     try:
-        return db.get_sprint(sprint_id)
+        sprint = db.get_sprint(sprint_id)
     except KeyError:
+        logger.warning("sprint_not_found", extra=log_extra(sprint_id=sprint_id))
         raise HTTPException(status_code=404, detail="Sprint not found")
+    logger.info(
+        "sprint_loaded",
+        extra=log_extra(
+            project_id=sprint.project_id,
+            sprint_id=sprint.id,
+            status=sprint.status,
+        ),
+    )
+    return sprint
 
 @router.get("", response_model=List[schemas.SprintOut])
 def list_sprints(
@@ -41,7 +63,12 @@ def list_sprints(
     status: Optional[str] = None,
     db: Database = Depends(get_db)
 ):
-    return db.list_sprints(project_id=project_id, status=status)
+    sprints = db.list_sprints(project_id=project_id, status=status)
+    logger.info(
+        "sprints_listed",
+        extra=log_extra(project_id=project_id, status=status, result_count=len(sprints)),
+    )
+    return sprints
 
 @router.put("/{sprint_id}", response_model=schemas.SprintOut)
 def update_sprint(
@@ -55,16 +82,29 @@ def update_sprint(
             updates["start_date"] = updates["start_date"].isoformat()
         if "end_date" in updates and updates["end_date"]:
             updates["end_date"] = updates["end_date"].isoformat()
-        return db.update_sprint(sprint_id, **updates)
+        updated = db.update_sprint(sprint_id, **updates)
     except KeyError:
+        logger.warning("sprint_update_not_found", extra=log_extra(sprint_id=sprint_id))
         raise HTTPException(status_code=404, detail="Sprint not found")
+    logger.info(
+        "sprint_updated",
+        extra=log_extra(
+            project_id=updated.project_id,
+            sprint_id=updated.id,
+            status=updated.status,
+            updated_fields=sorted(updates.keys()),
+        ),
+    )
+    return updated
 
 @router.get("/{sprint_id}/tasks", response_model=List[schemas.AgileTaskOut])
 def list_sprint_tasks(
     sprint_id: int,
     db: Database = Depends(get_db)
 ):
-    return db.list_tasks(sprint_id=sprint_id)
+    tasks = db.list_tasks(sprint_id=sprint_id)
+    logger.info("sprint_tasks_listed", extra=log_extra(sprint_id=sprint_id, result_count=len(tasks)))
+    return tasks
 
 @router.get("/{sprint_id}/metrics", response_model=schemas.SprintMetricsOut)
 def get_sprint_metrics(
@@ -74,6 +114,7 @@ def get_sprint_metrics(
     try:
         sprint = db.get_sprint(sprint_id)
     except KeyError:
+        logger.warning("sprint_metrics_not_found", extra=log_extra(sprint_id=sprint_id))
         raise HTTPException(status_code=404, detail="Sprint not found")
 
     tasks = db.list_tasks(sprint_id=sprint_id)
@@ -88,6 +129,17 @@ def get_sprint_metrics(
     # Calculate velocity trend (simplified - using historical sprints from same project)
     velocity_trend = _calculate_velocity_trend(db, sprint.project_id, sprint_id)
 
+    logger.info(
+        "sprint_metrics_computed",
+        extra=log_extra(
+            project_id=sprint.project_id,
+            sprint_id=sprint_id,
+            total_tasks=total_tasks,
+            completed_tasks=completed_tasks,
+            total_points=total_points,
+            completed_points=completed_points,
+        ),
+    )
     return schemas.SprintMetricsOut(
         sprint_id=sprint_id,
         total_tasks=total_tasks,
@@ -102,9 +154,11 @@ def get_sprint_metrics(
 def delete_sprint(sprint_id: int, db: Database = Depends(get_db)):
     try:
         db.delete_sprint(sprint_id)
-        return {"status": "deleted"}
     except KeyError:
+        logger.warning("sprint_delete_not_found", extra=log_extra(sprint_id=sprint_id))
         raise HTTPException(status_code=404, detail="Sprint not found")
+    logger.info("sprint_deleted", extra=log_extra(sprint_id=sprint_id))
+    return {"status": "deleted"}
 
 
 # =============================================================================
@@ -125,6 +179,15 @@ async def link_protocol_to_sprint(
             tasks = await service.sync_protocol_to_sprint(
                 request.protocol_run_id, sprint_id, create_missing_tasks=True
             )
+        logger.info(
+            "protocol_linked_to_sprint",
+            extra=log_extra(
+                sprint_id=sprint_id,
+                protocol_run_id=request.protocol_run_id,
+                auto_sync=bool(request.auto_sync),
+                tasks_synced=len(tasks),
+            ),
+        )
         return schemas.SyncResult(
             sprint_id=sprint_id,
             protocol_run_id=request.protocol_run_id,
@@ -132,8 +195,16 @@ async def link_protocol_to_sprint(
             task_ids=[t.id for t in tasks],
         )
     except KeyError as e:
+        logger.warning(
+            "protocol_link_to_sprint_not_found",
+            extra=log_extra(sprint_id=sprint_id, protocol_run_id=request.protocol_run_id, error=str(e)),
+        )
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
+        logger.warning(
+            "protocol_link_to_sprint_invalid",
+            extra=log_extra(sprint_id=sprint_id, protocol_run_id=request.protocol_run_id, error=str(e)),
+        )
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -148,6 +219,14 @@ async def sync_sprint_from_protocol(
         tasks = await service.sync_protocol_to_sprint(
             request.protocol_run_id, sprint_id, create_missing_tasks=True
         )
+        logger.info(
+            "sprint_synced_from_protocol",
+            extra=log_extra(
+                sprint_id=sprint_id,
+                protocol_run_id=request.protocol_run_id,
+                tasks_synced=len(tasks),
+            ),
+        )
         return schemas.SyncResult(
             sprint_id=sprint_id,
             protocol_run_id=request.protocol_run_id,
@@ -155,8 +234,16 @@ async def sync_sprint_from_protocol(
             task_ids=[t.id for t in tasks],
         )
     except KeyError as e:
+        logger.warning(
+            "sprint_sync_from_protocol_not_found",
+            extra=log_extra(sprint_id=sprint_id, protocol_run_id=request.protocol_run_id, error=str(e)),
+        )
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
+        logger.warning(
+            "sprint_sync_from_protocol_invalid",
+            extra=log_extra(sprint_id=sprint_id, protocol_run_id=request.protocol_run_id, error=str(e)),
+        )
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -168,8 +255,9 @@ async def get_sprint_velocity(
 ):
     """Get sprint velocity metrics."""
     try:
-        db.get_sprint(sprint_id)
+        sprint = db.get_sprint(sprint_id)
     except KeyError:
+        logger.warning("sprint_velocity_not_found", extra=log_extra(sprint_id=sprint_id))
         raise HTTPException(status_code=404, detail="Sprint not found")
 
     velocity = await service.calculate_sprint_velocity(sprint_id)
@@ -177,6 +265,16 @@ async def get_sprint_velocity(
     total_points = sum(t.story_points or 0 for t in tasks)
     completed_points = sum(t.story_points or 0 for t in tasks if t.board_status == "done")
 
+    logger.info(
+        "sprint_velocity_computed",
+        extra=log_extra(
+            project_id=sprint.project_id,
+            sprint_id=sprint_id,
+            velocity_actual=velocity,
+            total_points=total_points,
+            completed_points=completed_points,
+        ),
+    )
     return schemas.SprintVelocityOut(
         sprint_id=sprint_id,
         velocity_actual=velocity,
@@ -193,9 +291,15 @@ async def complete_sprint(
 ):
     """Mark sprint as completed and finalize metrics."""
     try:
-        return await service.complete_sprint(sprint_id)
+        sprint = await service.complete_sprint(sprint_id)
     except KeyError:
+        logger.warning("sprint_complete_not_found", extra=log_extra(sprint_id=sprint_id))
         raise HTTPException(status_code=404, detail="Sprint not found")
+    logger.info(
+        "sprint_completed",
+        extra=log_extra(project_id=sprint.project_id, sprint_id=sprint.id, status=sprint.status),
+    )
+    return sprint
 
 
 from devgodzilla.services.task_sync import TaskSyncService
@@ -214,6 +318,7 @@ async def import_tasks_to_sprint(
     try:
         sprint = db.get_sprint(sprint_id)
     except KeyError:
+        logger.warning("sprint_import_tasks_not_found", extra=log_extra(sprint_id=sprint_id))
         raise HTTPException(status_code=404, detail="Sprint not found")
     
     try:
@@ -224,7 +329,26 @@ async def import_tasks_to_sprint(
             overwrite_existing=request.overwrite_existing,
         )
     except FileNotFoundError as e:
+        logger.warning(
+            "sprint_import_tasks_missing_file",
+            extra=log_extra(
+                project_id=sprint.project_id,
+                sprint_id=sprint_id,
+                spec_path=request.spec_path,
+                error=str(e),
+            ),
+        )
         raise HTTPException(status_code=404, detail=str(e))
+    logger.info(
+        "sprint_tasks_imported",
+        extra=log_extra(
+            project_id=sprint.project_id,
+            sprint_id=sprint_id,
+            spec_path=request.spec_path,
+            overwrite_existing=bool(request.overwrite_existing),
+            tasks_synced=len(tasks),
+        ),
+    )
     
     return schemas.SyncResult(
         sprint_id=sprint_id,

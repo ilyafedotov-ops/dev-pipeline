@@ -9,8 +9,10 @@ from fastapi import APIRouter, Depends
 from typing import List
 
 from devgodzilla.api.dependencies import get_db, Database
+from devgodzilla.logging import get_logger, log_extra
 
 router = APIRouter(tags=["profile"])
+logger = get_logger(__name__)
 
 
 class ActivityItem(BaseModel):
@@ -53,7 +55,7 @@ def get_user_profile(
             icon="activity",
         ))
     
-    return UserProfile(
+    profile = UserProfile(
         id=os.getenv("DEVGODZILLA_USER_ID", "default-user"),
         name=os.getenv("DEVGODZILLA_USER_NAME", "DevGodzilla User"),
         email=os.getenv("DEVGODZILLA_USER_EMAIL", "user@devgodzilla.dev"),
@@ -61,3 +63,5 @@ def get_user_profile(
         member_since=os.getenv("DEVGODZILLA_USER_MEMBER_SINCE", "Dec 2024"),
         activity=activity,
     )
+    logger.info("profile_loaded", extra=log_extra(user_id=profile.id, activity_count=len(activity)))
+    return profile

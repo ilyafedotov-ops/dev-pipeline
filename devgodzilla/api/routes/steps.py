@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from devgodzilla.api.dependencies import get_service_context
+from devgodzilla.logging import get_logger
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.agent_config import AgentConfigService
 from devgodzilla.services.execution import ExecutionService
@@ -21,6 +22,7 @@ from devgodzilla.api.dependencies import get_db
 from devgodzilla.db.database import Database
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 class StepQARequest(BaseModel):

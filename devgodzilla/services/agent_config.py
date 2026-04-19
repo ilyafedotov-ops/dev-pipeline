@@ -19,7 +19,10 @@ try:
 except ImportError:  # pragma: no cover
     yaml = None  # type: ignore
 
+from devgodzilla.logging import get_logger
 from devgodzilla.services.base import Service, ServiceContext
+
+logger = get_logger(__name__)
 
 
 @dataclass

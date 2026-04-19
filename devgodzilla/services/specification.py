@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from devgodzilla.engines import EngineNotFoundError, EngineRequest, SandboxMode, get_registry
+from devgodzilla.logging import get_logger
 from devgodzilla.services.base import Service, ServiceContext
 from devgodzilla.services.policy import PolicyService
 from devgodzilla.services.clarifier import ClarifierService
@@ -33,6 +34,8 @@ from devgodzilla.services.spec_to_protocol import SpecToProtocolService
 from devgodzilla.models.domain import SpecRun, SpecRunStatus
 from devgodzilla.speckit_metadata import with_spec_run_id
 from devgodzilla.spec import resolve_spec_path
+
+logger = get_logger(__name__)
 
 
 class SpecKitResult(BaseModel):

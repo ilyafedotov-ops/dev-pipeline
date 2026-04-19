@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from devgodzilla.config import Config
+from devgodzilla.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass

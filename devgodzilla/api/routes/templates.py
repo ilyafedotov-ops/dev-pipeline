@@ -11,10 +11,12 @@ import importlib.util
 MULTIPART_AVAILABLE = importlib.util.find_spec("multipart") is not None
 
 from devgodzilla.api.dependencies import get_service_context, Database
+from devgodzilla.logging import get_logger, log_extra
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.template_manager import TemplateManager, Template, get_template_manager
 
 router = APIRouter(prefix="/templates", tags=["templates"])
+logger = get_logger(__name__)
 
 
 # Pydantic models for request/response
@@ -120,6 +122,10 @@ def list_templates(
     # Validate category if provided
     valid_categories = ["specification", "plan", "protocol", "checklist"]
     if category and category not in valid_categories:
+        logger.warning(
+            "templates_list_invalid_category",
+            extra=log_extra(category=category, search=search),
+        )
         raise HTTPException(
             status_code=400,
             detail=f"Invalid category. Must be one of: {', '.join(valid_categories)}"
@@ -145,6 +151,10 @@ def list_templates(
     # Get unique categories
     categories = sorted(set(t.category for t in templates))
     
+    logger.info(
+        "templates_listed",
+        extra=log_extra(category=category, search=search, result_count=len(items), category_count=len(categories)),
+    )
     return TemplateListResponse(
         items=items,
         total=len(items),
@@ -159,7 +169,7 @@ def list_categories(
     """List all available template categories."""
     templates = manager.list_templates()
     categories = sorted(set(t.category for t in templates))
-    
+    logger.info("template_categories_listed", extra=log_extra(category_count=len(categories)))
     return {
         "categories": categories,
         "counts": {
@@ -177,9 +187,11 @@ def get_template(
     """Get a template by ID."""
     template = manager.get_template(template_id)
     if not template:
+        logger.warning("template_not_found", extra=log_extra(template_id=template_id))
         raise HTTPException(status_code=404, detail=f"Template not found: {template_id}")
     
     from devgodzilla.services.template_manager import DEFAULT_TEMPLATES
+    logger.info("template_loaded", extra=log_extra(template_id=template_id, category=template.category))
     return _template_to_response(template, is_default=(template_id in DEFAULT_TEMPLATES))
 
 
@@ -192,6 +204,7 @@ def create_template(
     # Check if template already exists
     existing = manager.get_template(template.id)
     if existing:
+        logger.warning("template_create_conflict", extra=log_extra(template_id=template.id, category=template.category))
         raise HTTPException(
             status_code=409,
             detail=f"Template already exists: {template.id}"
@@ -209,6 +222,7 @@ def create_template(
     )
     
     created = manager.create_template(new_template)
+    logger.info("template_created", extra=log_extra(template_id=created.id, category=created.category))
     return _template_to_response(created)
 
 
@@ -223,13 +237,19 @@ def update_template(
     update_dict = updates.model_dump(exclude_unset=True)
     
     if not update_dict:
+        logger.warning("template_update_empty", extra=log_extra(template_id=template_id))
         raise HTTPException(status_code=400, detail="No updates provided")
     
     updated = manager.update_template(template_id, **update_dict)
     if not updated:
+        logger.warning("template_update_not_found", extra=log_extra(template_id=template_id))
         raise HTTPException(status_code=404, detail=f"Template not found: {template_id}")
     
     from devgodzilla.services.template_manager import DEFAULT_TEMPLATES
+    logger.info(
+        "template_updated",
+        extra=log_extra(template_id=template_id, category=updated.category, updated_fields=sorted(update_dict.keys())),
+    )
     return _template_to_response(updated, is_default=(template_id in DEFAULT_TEMPLATES))
 
 
@@ -242,16 +262,19 @@ def delete_template(
     # Check if template exists
     template = manager.get_template(template_id)
     if not template:
+        logger.warning("template_delete_not_found", extra=log_extra(template_id=template_id))
         raise HTTPException(status_code=404, detail=f"Template not found: {template_id}")
     
     # Try to delete
     success = manager.delete_template(template_id)
     if not success:
+        logger.warning("template_delete_failed", extra=log_extra(template_id=template_id))
         raise HTTPException(
             status_code=400,
             detail="Cannot delete default template or template deletion failed"
         )
     
+    logger.info("template_deleted", extra=log_extra(template_id=template_id, category=template.category))
     return {"success": True, "message": f"Template {template_id} deleted"}
 
 
@@ -264,11 +287,19 @@ def render_template(
     """Render a template with variables."""
     try:
         content = manager.render_template(template_id, render.variables)
+        logger.info(
+            "template_rendered",
+            extra=log_extra(template_id=template_id, variable_count=len(render.variables), content_length=len(content)),
+        )
         return TemplateRenderResponse(
             content=content,
             template_id=template_id,
         )
     except ValueError as e:
+        logger.warning(
+            "template_render_failed",
+            extra=log_extra(template_id=template_id, variable_count=len(render.variables), error=str(e)),
+        )
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -283,10 +314,12 @@ def duplicate_template(
     # Get source template
     source = manager.get_template(template_id)
     if not source:
+        logger.warning("template_duplicate_source_not_found", extra=log_extra(template_id=template_id, new_id=new_id))
         raise HTTPException(status_code=404, detail=f"Template not found: {template_id}")
     
     # Check new ID doesn't exist
     if manager.get_template(new_id):
+        logger.warning("template_duplicate_conflict", extra=log_extra(template_id=template_id, new_id=new_id))
         raise HTTPException(
             status_code=409,
             detail=f"Template already exists: {new_id}"
@@ -304,6 +337,7 @@ def duplicate_template(
     )
     
     created = manager.create_template(duplicate)
+    logger.info("template_duplicated", extra=log_extra(template_id=template_id, new_id=new_id, category=created.category))
     return _template_to_response(created)
 
 
@@ -361,6 +395,7 @@ def export_template(
     
     template = manager.get_template(template_id)
     if not template:
+        logger.warning("template_export_not_found", extra=log_extra(template_id=template_id, format=format))
         raise HTTPException(status_code=404, detail=f"Template not found: {template_id}")
     
     if format == "json":
@@ -374,6 +409,10 @@ def export_template(
         media_type = "text/yaml"
         filename = f"{template_id}.yaml"
     
+    logger.info(
+        "template_exported",
+        extra=log_extra(template_id=template_id, category=template.category, format=format, content_length=len(content)),
+    )
     from fastapi.responses import Response
     return Response(
         content=content,

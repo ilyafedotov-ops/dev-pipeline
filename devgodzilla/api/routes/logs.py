@@ -11,9 +11,10 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from fastapi import APIRouter, Header, Query
 from fastapi.responses import StreamingResponse
 
-from devgodzilla.logging import get_log_buffer
+from devgodzilla.logging import get_log_buffer, get_logger
 
 router = APIRouter(tags=["Logs"])
+logger = get_logger(__name__)
 
 
 def _log_to_sse(log: Dict[str, Any]) -> str:

@@ -11,6 +11,10 @@ from pathlib import Path
 import subprocess
 from typing import Dict, List, Optional
 
+from devgodzilla.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class SpecKitScriptResult:

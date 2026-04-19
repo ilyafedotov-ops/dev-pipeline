@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 from typing import List, Optional
 
+from devgodzilla.logging import get_logger
 from devgodzilla.engines.interface import (
     EngineKind,
     EngineMetadata,
@@ -18,6 +19,8 @@ from devgodzilla.engines.interface import (
 )
 from devgodzilla.engines.cli_adapter import CLIEngine
 from devgodzilla.engines.registry import register_engine
+
+logger = get_logger(__name__)
 
 
 class RooEngine(CLIEngine):
