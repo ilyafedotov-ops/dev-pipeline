@@ -51,10 +51,11 @@ export function initSentry(): boolean {
   }
 
   try {
-    // Dynamic import would be nicer but @sentry/nextjs is designed for static
-    // top-level import.  Keep this as a regular require so the bundler can
-    // tree-shake when the package is absent.
-    const Sentry = require("@sentry/nextjs") as typeof import("@sentry/nextjs");
+    // Dynamic require wrapped in try/catch so the module is optional.
+    // We intentionally avoid `typeof import("@sentry/nextjs")` so that
+    // TypeScript does *not* need the package installed to type-check.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Sentry = require("@sentry/nextjs") as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     Sentry.init({
       dsn: config.dsn,

@@ -423,6 +423,11 @@ sentry = [
     { name = "sentry-sdk", extra = ["fastapi"] },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest-timeout" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = "==1.17.2" },
@@ -461,6 +466,9 @@ requires-dist = [
     { name = "websockets", specifier = "==12.0" },
 ]
 provides-extras = ["otel", "sentry", "dev", "all"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest-timeout", specifier = ">=2.4.0" }]
 
 [[package]]
 name = "fastapi"

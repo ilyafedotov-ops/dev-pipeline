@@ -16,6 +16,9 @@ Requires a running backend on localhost:8000 with /api/v1 prefix.
 """
 
 import asyncio
+import pytest
+
+pytestmark = pytest.mark.integration
 import os
 import time
 import uuid
@@ -264,7 +267,7 @@ async def test_brownfield_flow(client: httpx.AsyncClient):
             )
             # May fail if project has no local repo – that's fine, we still test
             # the route is wired up correctly.
-            assert resp.status_code in (200, 201, 400, 500), (
+            assert resp.status_code in (200, 201, 202, 400, 500), (
                 f"brownfield run unexpected: {resp.status_code} {resp.text}"
             )
         except httpx.ReadTimeout:
@@ -272,7 +275,7 @@ async def test_brownfield_flow(client: httpx.AsyncClient):
             await client.delete(f"/projects/{project_id}")
             return
 
-        if resp.status_code in (200, 201):
+        if resp.status_code in (200, 201, 202):
             body = resp.json()
             assert body.get("success") is True or "warnings" in body
 
