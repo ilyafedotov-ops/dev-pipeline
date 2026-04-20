@@ -1,5 +1,5 @@
 "use client";
-
+import { use } from "react";
 import Link from "next/link";
 
 import { ArrowLeft } from "lucide-react";
@@ -11,8 +11,12 @@ import { useProtocolDetail } from "@/lib/api";
 
 import { SpecTab } from "../components/spec-tab";
 
-export default function ProtocolSpecPage({ params }: { params: { id: string } }) {
-  const { id } = params;
+export default function ProtocolSpecPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = use(params);
   const protocolId = Number.parseInt(id);
   const { data: protocol, isLoading } = useProtocolDetail(protocolId);
 

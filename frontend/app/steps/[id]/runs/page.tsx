@@ -1,5 +1,6 @@
 "use client";
 
+import { use } from "react";
 import Link from "next/link";
 
 import type { ColumnDef } from "@tanstack/react-table";
@@ -15,9 +16,9 @@ import { useStepRuns } from "@/lib/api";
 import type { CodexRun } from "@/lib/api/types";
 import { formatDate } from "@/lib/format";
 
-export default function StepRunsPage({ params }: { params: { id: string } }) {
-  const { id } = params;
-  const stepId = Number.parseInt(id);
+export default function StepRunsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  const stepId = Number.parseInt(id, 10);
   const { data: runs, isLoading } = useStepRuns(stepId);
 
   if (isLoading) {

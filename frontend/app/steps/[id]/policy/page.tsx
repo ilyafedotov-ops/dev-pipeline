@@ -1,5 +1,6 @@
 "use client";
 
+import { use } from "react";
 import Link from "next/link";
 
 import { AlertTriangle, ArrowLeft, Info } from "lucide-react";
@@ -11,9 +12,9 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { useStepPolicyFindings } from "@/lib/api";
 import type { PolicyFinding } from "@/lib/api/types";
 
-export default function StepPolicyPage({ params }: { params: { id: string } }) {
-  const { id } = params;
-  const stepId = Number.parseInt(id);
+export default function StepPolicyPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  const stepId = Number.parseInt(id, 10);
   const { data: findings, isLoading } = useStepPolicyFindings(stepId);
 
   if (isLoading) {

@@ -112,13 +112,24 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
     <div className="container py-8">
       <div className="mb-6">
         {protocol && (
-          <Link
-            href={`/protocols/${protocol.id}`}
-            className="text-muted-foreground hover:text-foreground mb-4 inline-flex items-center gap-1 text-sm"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to {protocol.protocol_name}
-          </Link>
+          <>
+            {protocol.project_id && (
+              <Link
+                href={`/projects/${protocol.project_id}`}
+                className="text-muted-foreground hover:text-foreground mb-4 inline-flex items-center gap-1 text-sm"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to Project
+              </Link>
+            )}
+            <Link
+              href={`/protocols/${protocol.id}`}
+              className="text-muted-foreground hover:text-foreground mb-4 ml-4 inline-flex items-center gap-1 text-sm"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to {protocol.protocol_name}
+            </Link>
+          </>
         )}
 
         <div className="flex items-start justify-between">

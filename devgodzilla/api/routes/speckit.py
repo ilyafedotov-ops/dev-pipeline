@@ -545,7 +545,7 @@ def run_tasks(
 
     # --- Background path ---------------------------------------------------
     if background_tasks is None:
-        raise
+        raise HTTPException(status_code=500, detail="Background tasks not available")
 
     def _run_in_background() -> None:
         try:
@@ -685,7 +685,7 @@ def run_analyze(
 
     # --- Background path ---------------------------------------------------
     if background_tasks is None:
-        raise
+        raise HTTPException(status_code=500, detail="Background tasks not available")
 
     def _run_in_background() -> None:
         try:
