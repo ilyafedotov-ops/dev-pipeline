@@ -68,8 +68,9 @@ For smaller brownfield work, the supported path is a compressed version of the a
 
 1. onboard project
 2. define the feature
-3. generate tasks or a protocol
-4. optionally sync to sprint
+3. choose an `output_mode`: `task_cycle`, `tasks_only`, `tasks_to_sprint`, `protocol`, or `protocol_to_sprint`
+4. let the backend or Windmill flow generate SpecKit artifacts and branch into the requested delivery mode
+5. poll the mode-appropriate surface for completion: task-cycle board, protocol list, sprint views, or SpecKit status
 
 The Windmill `brownfield_feature` flow is the clearest current expression of that path.
 
