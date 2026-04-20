@@ -584,8 +584,21 @@ class TaskCycleService(Service):
         runtime_state = dict(step.runtime_state or {})
         current = dict(runtime_state.get(self.RUNTIME_KEY) or {})
         refs = self._artifact_refs(project, step)
+
+        # Derive task_cycle status from step.status when step was executed
+        # via auto-advance (task cycle never explicitly managed it).
+        # Only override if the explicit task_cycle status is still "queued".
+        from devgodzilla.models import StepStatus
+        explicit_status = current.get("status", self.STATUS_QUEUED)
+        derived_status = explicit_status
+        if explicit_status == self.STATUS_QUEUED:
+            if step.status == StepStatus.RUNNING:
+                derived_status = self.STATUS_IN_PROGRESS
+            elif step.status in (StepStatus.COMPLETED, StepStatus.NEEDS_QA):
+                derived_status = self.STATUS_AWAITING_REVIEW
+
         state = {
-            "status": current.get("status", self.STATUS_QUEUED),
+            "status": derived_status,
             "context_status": current.get("context_status", "ready" if Path(refs["context_pack_json"]).exists() else "missing"),
             "review_status": current.get("review_status", "pending"),
             "qa_status": current.get("qa_status", "pending"),

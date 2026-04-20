@@ -105,11 +105,12 @@ def start_brownfield_run(
                 if isinstance(_sync_exc[0], TaskCycleError):
                     raise HTTPException(status_code=400, detail=str(_sync_exc[0]))
                 raise _sync_exc[0]
-            # For other errors, log and fall through to background
-            logger.warning(
-                "brownfield_sync_error_switching_to_background",
+            # Unexpected error during sync — raise rather than silently retry
+            logger.exception(
+                "brownfield_sync_failed",
                 extra={"project_id": project_id, "error": str(_sync_exc[0])},
             )
+            raise HTTPException(status_code=500, detail="Brownfield run failed: " + str(_sync_exc[0]))
         else:
             return _sync_result[0]
 
