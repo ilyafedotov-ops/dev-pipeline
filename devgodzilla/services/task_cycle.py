@@ -636,7 +636,7 @@ class TaskCycleService(Service):
         # exists in DB and passed, we materialise the JSON artifact on-the-fly so
         # that mark-pr-ready succeeds.
         if not Path(refs["test_report_json"]).exists():
-            qa_row = self.db.get_qa_result_by_step(step.id)
+            qa_row = self.db.get_latest_qa_result(step_run_id=step.id)
             if qa_row is not None and qa_row.verdict == "pass":
                 Path(refs["task_dir"]).mkdir(parents=True, exist_ok=True)
                 qa_report = {
@@ -678,7 +678,7 @@ class TaskCycleService(Service):
         # state doesn't record an explicit qa_status.
         qa_ok = state.get("qa_status") == "passed"
         if not qa_ok:
-            qa_row = self.db.get_qa_result_by_step(step.id)
+            qa_row = self.db.get_latest_qa_result(step_run_id=step.id)
             if qa_row is not None and qa_row.verdict == "pass":
                 qa_ok = True
         if not qa_ok:
