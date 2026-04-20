@@ -6,7 +6,7 @@ import { defineConfig, devices } from "@playwright/test";
  * By default, tests connect to the dev server already running on port 3000.
  * Set PLAYWRIGHT_START_SERVER=1 to let Playwright start its own Next.js instance.
  */
-const port = process.env.PLAYWRIGHT_START_SERVER ? 3107 : 3000;
+const port = process.env.PLAYWRIGHT_START_SERVER ? 3107 : (process.env.PLAYWRIGHT_PORT ? parseInt(process.env.PLAYWRIGHT_PORT) : 8080);
 const serverURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
