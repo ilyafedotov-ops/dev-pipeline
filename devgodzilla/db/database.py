@@ -288,6 +288,7 @@ class DatabaseProtocol(Protocol):
         status: Optional[str] = None,
         job_type: Optional[str] = None,
         windmill_job_id: Optional[str] = None,
+        run_kind: Optional[str] = None,
     ) -> List[JobRun]: ...
 
     def update_job_run(self, run_id: str, **kwargs: Any) -> JobRun: ...
@@ -1961,6 +1962,7 @@ class SQLiteDatabase:
         status: Optional[str] = None,
         job_type: Optional[str] = None,
         windmill_job_id: Optional[str] = None,
+        run_kind: Optional[str] = None,
     ) -> List[JobRun]:
         limit = max(1, min(int(limit), 500))
         where = []
@@ -1983,6 +1985,9 @@ class SQLiteDatabase:
         if windmill_job_id is not None:
             where.append("jr.windmill_job_id = ?")
             params.append(windmill_job_id)
+        if run_kind is not None:
+            where.append("jr.run_kind = ?")
+            params.append(run_kind)
 
         clause = f"WHERE {' AND '.join(where)}" if where else ""
         rows = self._fetchall(
@@ -4934,6 +4939,7 @@ class PostgresDatabase:
         status: Optional[str] = None,
         job_type: Optional[str] = None,
         windmill_job_id: Optional[str] = None,
+        run_kind: Optional[str] = None,
     ) -> List[JobRun]:
         limit = max(1, min(int(limit), 500))
         where = []
@@ -4956,6 +4962,9 @@ class PostgresDatabase:
         if windmill_job_id is not None:
             where.append("jr.windmill_job_id = %s")
             params.append(windmill_job_id)
+        if run_kind is not None:
+            where.append("jr.run_kind = %s")
+            params.append(run_kind)
 
         clause = f"WHERE {' AND '.join(where)}" if where else ""
         rows = self._fetchall(

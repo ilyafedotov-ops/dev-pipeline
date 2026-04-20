@@ -372,6 +372,21 @@ class ExecutionService(Service):
                 resolution,
             )
             
+            # Register with CLI execution tracker
+            from devgodzilla.services.cli_execution_tracker import get_execution_tracker
+            tracker = get_execution_tracker()
+            execution = tracker.start_execution(
+                execution_type="step",
+                engine_id=engine.metadata.id,
+                project_id=project.id,
+                command=f"execute_step:{step.step_name}",
+            )
+            tracker.complete(
+                execution.execution_id,
+                success=result.success,
+                error=result.error,
+            )
+            
             return result
             
         except Exception as e:
@@ -382,6 +397,20 @@ class ExecutionService(Service):
                     error=str(e),
                 ),
             )
+            
+            # Register failure with CLI execution tracker
+            try:
+                from devgodzilla.services.cli_execution_tracker import get_execution_tracker
+                tracker = get_execution_tracker()
+                execution = tracker.start_execution(
+                    execution_type="step",
+                    engine_id=engine_id or step.engine_id or "unknown",
+                    project_id=project.id if 'project' in dir() else None,
+                    command=f"execute_step:{step.step_name}",
+                )
+                tracker.complete(execution.execution_id, success=False, error=str(e))
+            except Exception:
+                pass
             
             # Mark as failed
             self.db.update_step_status(

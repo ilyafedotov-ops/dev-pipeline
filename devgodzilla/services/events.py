@@ -110,6 +110,36 @@ class StepQARequired(StepEvent):
     pass
 
 
+# Run Events
+
+@dataclass
+class RunEvent(Event):
+    """Base class for run-related events."""
+    run_id: str = ""
+    job_type: str = ""
+    step_run_id: Optional[int] = None
+    protocol_run_id: Optional[int] = None
+    project_id: Optional[int] = None
+
+
+@dataclass
+class RunStarted(RunEvent):
+    """Fired when a job run starts."""
+    run_kind: Optional[str] = None
+
+
+@dataclass
+class RunCompleted(RunEvent):
+    """Fired when a job run completes successfully."""
+    pass
+
+
+@dataclass
+class RunFailed(RunEvent):
+    """Fired when a job run fails."""
+    error: Optional[str] = None
+
+
 # QA Events
 
 @dataclass

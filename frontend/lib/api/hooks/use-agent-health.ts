@@ -14,7 +14,9 @@ import type { AgentHealth, AgentMetrics } from "../types";
 export interface AgentHealthCheckResponse {
   available: boolean;
   version: string;
-  responseTimeMs: number;
+  error?: string | null;
+  response_time_ms: number;
+  warnings?: string[];
 }
 
 // =============================================================================

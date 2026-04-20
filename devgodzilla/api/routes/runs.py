@@ -158,6 +158,7 @@ def list_runs(
     step_run_id: Optional[int] = None,
     status: Optional[str] = None,
     job_type: Optional[str] = None,
+    run_kind: Optional[str] = None,
     limit: int = 200,
     db: Database = Depends(get_db),
 ):
@@ -169,6 +170,7 @@ def list_runs(
             step_run_id=step_run_id,
             status=status,
             job_type=job_type,
+            run_kind=run_kind,
             limit=limit,
         ),
     )
@@ -179,6 +181,7 @@ def list_runs(
         step_run_id=step_run_id,
         status=status,
         job_type=job_type,
+        run_kind=run_kind,
     )
     windmill = _build_windmill_client()
     if windmill:

@@ -132,7 +132,7 @@ export default function RunsPage() {
   const linkageStats = getRunLinkageStats(runs ?? []);
 
   // WebSocket real-time updates: invalidate runs list on run status changes
-  useWebSocketEvent("events", ["run_started", "run_completed", "run_failed"], (qc) => {
+  useWebSocketEvent("events", ["step_started", "step_completed", "step_failed"], (qc) => {
     qc.invalidateQueries({ queryKey: ["runs"] });
   });
 

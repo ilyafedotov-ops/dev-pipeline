@@ -20,7 +20,7 @@ from devgodzilla.models.domain import (
     StepStatus,
 )
 from devgodzilla.services.base import Service, ServiceContext
-from devgodzilla.services.events import get_event_bus, ProtocolStarted, ProtocolCompleted, StepStarted, StepCompleted
+from devgodzilla.services.events import get_event_bus, ProtocolStarted, ProtocolCompleted, StepStarted, StepCompleted, RunStarted, RunCompleted, RunFailed
 from devgodzilla.services.priority import sort_by_priority, DEFAULT_PRIORITY
 from devgodzilla.windmill.client import WindmillClient, JobStatus
 from devgodzilla.windmill.flow_generator import DAGBuilder, FlowGenerator
@@ -408,10 +408,62 @@ class OrchestratorService(Service):
             return OrchestratorResult(success=True, job_id=job_id)
         elif self.execution_service:
             # Local mode
-            result = self.execution_service.execute_step(step_run_id)
+            job_run_id = str(uuid.uuid4())
+            try:
+                step = self.db.get_step_run(step_run_id)
+                prun = self.db.get_protocol_run(step.protocol_run_id)
+                self.db.create_job_run(
+                    run_id=job_run_id,
+                    job_type="execute_step",
+                    status="running",
+                    run_kind="local",
+                    project_id=prun.project_id,
+                    protocol_run_id=step.protocol_run_id,
+                    step_run_id=step_run_id,
+                    params={},
+                )
+                # Emit run event
+                event_bus.publish(RunStarted(
+                    run_id=job_run_id,
+                    job_type="execute_step",
+                    step_run_id=step_run_id,
+                    protocol_run_id=step.protocol_run_id,
+                    project_id=prun.project_id,
+                    run_kind="local",
+                ))
+            except Exception as exc:
+                self.logger.error("job_run_create_failed", extra=self.log_extra(step_run_id=step_run_id, error=str(exc)))
+
+            result = self.execution_service.execute_step(step_run_id, job_id=job_run_id)
+
+            # Update job_run with result
+            try:
+                self.db.update_job_run(
+                    job_run_id,
+                    status="succeeded" if result.success else "failed",
+                    finished_at=datetime.now(timezone.utc),
+                    error=result.error,
+                )
+                if result.success:
+                    event_bus.publish(RunCompleted(
+                        run_id=job_run_id,
+                        job_type="execute_step",
+                        step_run_id=step_run_id,
+                    ))
+                else:
+                    event_bus.publish(RunFailed(
+                        run_id=job_run_id,
+                        job_type="execute_step",
+                        step_run_id=step_run_id,
+                        error=result.error,
+                    ))
+            except Exception as exc:
+                self.logger.error("job_run_update_failed", extra=self.log_extra(step_run_id=step_run_id, error=str(exc)))
+
             return OrchestratorResult(
-                success=result.get("success", False),
-                error=result.get("error"),
+                success=result.success,
+                job_id=job_run_id,
+                error=result.error,
             )
         
         return OrchestratorResult(success=True)
@@ -460,9 +512,60 @@ class OrchestratorService(Service):
             return OrchestratorResult(success=True, job_id=job_id)
         elif self.quality_service:
             # Local mode
+            job_run_id = str(uuid.uuid4())
+            try:
+                step = self.db.get_step_run(step_run_id)
+                prun = self.db.get_protocol_run(step.protocol_run_id)
+                self.db.create_job_run(
+                    run_id=job_run_id,
+                    job_type="run_qa",
+                    status="running",
+                    run_kind="local",
+                    project_id=prun.project_id,
+                    protocol_run_id=step.protocol_run_id,
+                    step_run_id=step_run_id,
+                )
+                # Emit run event
+                event_bus.publish(RunStarted(
+                    run_id=job_run_id,
+                    job_type="run_qa",
+                    step_run_id=step_run_id,
+                    protocol_run_id=step.protocol_run_id,
+                    project_id=prun.project_id,
+                    run_kind="local",
+                ))
+            except Exception as exc:
+                self.logger.error("job_run_create_failed", extra=self.log_extra(step_run_id=step_run_id, error=str(exc)))
+
             result = self.quality_service.validate_step(step_run_id)
+
+            # Update job_run with result
+            try:
+                self.db.update_job_run(
+                    job_run_id,
+                    status="succeeded" if result.passed else "failed",
+                    finished_at=datetime.now(timezone.utc),
+                    error=result.error if not result.passed else None,
+                )
+                if result.passed:
+                    event_bus.publish(RunCompleted(
+                        run_id=job_run_id,
+                        job_type="run_qa",
+                        step_run_id=step_run_id,
+                    ))
+                else:
+                    event_bus.publish(RunFailed(
+                        run_id=job_run_id,
+                        job_type="run_qa",
+                        step_run_id=step_run_id,
+                        error=result.error,
+                    ))
+            except Exception as exc:
+                self.logger.error("job_run_update_failed", extra=self.log_extra(step_run_id=step_run_id, error=str(exc)))
+
             return OrchestratorResult(
                 success=result.passed,
+                job_id=job_run_id,
                 error=result.error if not result.passed else None,
             )
         

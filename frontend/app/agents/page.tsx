@@ -911,7 +911,7 @@ function AgentCardWithHealth({
             <span className="text-muted-foreground text-xs">
               {healthCheck
                 ? healthCheck.available
-                  ? `Up (${Math.round(healthCheck.responseTimeMs)}ms)`
+                  ? `Up (${Math.round(healthCheck.response_time_ms ?? 0)}ms)`
                   : "Down"
                 : colors[agent.healthStatus].text}
             </span>

@@ -665,7 +665,10 @@ def check_agent_health(
         ),
     )
     return {
-        "status": "available" if res.available else "unavailable",
+        "available": res.available,
+        "version": res.version,
+        "error": res.error,
+        "response_time_ms": res.response_time_ms,
         "warnings": warnings,
     }
 
