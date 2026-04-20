@@ -1,9 +1,13 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from devgodzilla.api import schemas
+from devgodzilla.config import load_config
 from devgodzilla.db.database import Database
 from devgodzilla.api.dependencies import get_db
 from devgodzilla.logging import get_logger, log_extra
+from devgodzilla.services.base import ServiceContext
+from devgodzilla.services.orchestrator import OrchestratorMode, OrchestratorService
+from devgodzilla.windmill.client import WindmillClient, WindmillConfig
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 logger = get_logger(__name__)
@@ -133,3 +137,59 @@ def delete_task(task_id: int, db: Database = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Task not found")
     logger.info("task_deleted", extra=log_extra(task_id=task_id))
     return {"status": "deleted"}
+
+
+def _build_orchestrator(db: Database) -> OrchestratorService:
+    config = load_config()
+    ctx = ServiceContext(config=config)
+    windmill_client = None
+    mode = OrchestratorMode.LOCAL
+    if getattr(config, "windmill_enabled", False):
+        windmill_client = WindmillClient(
+            WindmillConfig(
+                base_url=config.windmill_url or "http://localhost:8000",
+                token=config.windmill_token or "",
+                workspace=getattr(config, "windmill_workspace", "devgodzilla"),
+            )
+        )
+        mode = OrchestratorMode.WINDMILL
+    return OrchestratorService(context=ctx, db=db, windmill_client=windmill_client, mode=mode)
+
+
+@router.post("/{task_id}/execute", response_model=dict)
+def execute_task(task_id: int, db: Database = Depends(get_db)):
+    """Start implementation execution for a task."""
+    # 1. Get the task
+    try:
+        task = db.get_task(task_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # 2. Check task has step_run_id linked
+    if not task.step_run_id:
+        # If no step_run linked, just update board_status to in_progress
+        db.update_task(task_id, board_status="in_progress")
+        logger.info("task_moved_to_in_progress", extra=log_extra(task_id=task_id, note="no_step_run_linked"))
+        return {"status": "moved", "message": "Task moved to in_progress (no step run linked)", "task_id": task_id}
+
+    # 3. Update task board_status
+    db.update_task(task_id, board_status="in_progress")
+
+    # 4. Execute the step via orchestrator
+    try:
+        orchestrator = _build_orchestrator(db)
+        result = orchestrator.run_step(task.step_run_id)
+        logger.info("task_execution_started", extra=log_extra(
+            task_id=task_id, step_run_id=task.step_run_id,
+            protocol_run_id=task.protocol_run_id, job_id=result.job_id
+        ))
+        return {
+            "status": "executing",
+            "message": "Task execution started",
+            "task_id": task_id,
+            "step_run_id": task.step_run_id,
+            "job_id": result.job_id,
+        }
+    except Exception as e:
+        logger.error("task_execution_failed", extra=log_extra(task_id=task_id, error=str(e)))
+        raise HTTPException(status_code=500, detail=f"Execution failed: {e}")

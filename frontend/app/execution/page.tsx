@@ -48,6 +48,7 @@ import {
   useAllTasks,
   useCreateSprintFromProtocol,
   useCreateTask,
+  useExecuteTask,
   useProjectProtocols,
   useProjects,
   useUpdateTask,
@@ -69,6 +70,7 @@ export default function ExecutionPage() {
   const { data: projects = [] } = useProjects();
   const updateTask = useUpdateTask();
   const createTask = useCreateTask();
+  const executeTask = useExecuteTask();
   const [filterProject, setFilterProject] = useState<string>("all");
   const [filterSprint, setFilterSprint] = useState<string>("active");
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -133,6 +135,16 @@ export default function ExecutionPage() {
     await updateTask.mutateAsync(taskId, data);
     mutateTasks();
     toast.success("Task updated");
+  };
+
+  const handleTaskExecute = async (taskId: number) => {
+    try {
+      await executeTask.mutateAsync(taskId);
+      mutateTasks();
+      toast.success("Task execution started");
+    } catch {
+      toast.error("Failed to start task execution");
+    }
   };
 
   const toggleFullscreen = () => {
@@ -348,6 +360,7 @@ export default function ExecutionPage() {
               onTaskUpdate={handleTaskUpdate}
               onTaskCreate={handleTaskCreate}
               onTaskEdit={handleTaskEdit}
+              onTaskExecute={handleTaskExecute}
               showBacklog={filterSprint === "backlog" || filterSprint === "all"}
               canCreate={!!selectedProjectId}
             />

@@ -76,6 +76,7 @@ import {
   useCreateSprintFromProtocol,
   useCreateTask,
   useDeleteTask,
+  useExecuteTask,
   useProject,
   useProjectProtocols,
   useSprintMetrics,
@@ -156,6 +157,7 @@ export default function ProjectExecutionPage() {
   const updateTask = useUpdateTask();
   const createTask = useCreateTask();
   const deleteTaskHook = useDeleteTask();
+  const executeTask = useExecuteTask();
   const createSprintFromProtocol = useCreateSprintFromProtocol(projectId);
 
   // UI State
@@ -180,6 +182,8 @@ export default function ProjectExecutionPage() {
   // Drag & Drop State
   const [draggedTask, setDraggedTask] = useState<AgileTask | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<TaskBoardStatus | null>(null);
+  const [confirmExecute, setConfirmExecute] = useState<{ task: AgileTask; targetStatus: TaskBoardStatus } | null>(null);
+  const [isExecuting, setIsExecuting] = useState(false);
 
   const currentSprint =
     selectedSprintId != null
@@ -240,6 +244,11 @@ export default function ProjectExecutionPage() {
     e.preventDefault();
     setDragOverColumn(null);
     if (draggedTask && draggedTask.board_status !== status) {
+      if (status === "in_progress") {
+        setConfirmExecute({ task: draggedTask, targetStatus: status });
+        setDraggedTask(null);
+        return;
+      }
       try {
         await updateTask.mutateAsync(draggedTask.id, { board_status: status });
         mutateTasks();
@@ -268,6 +277,16 @@ export default function ProjectExecutionPage() {
     await updateTask.mutateAsync(taskId, data);
     mutateTasks();
     toast.success("Task updated");
+  };
+
+  const handleTaskExecute = async (taskId: number) => {
+    try {
+      await executeTask.mutateAsync(taskId);
+      mutateTasks();
+      toast.success("Task execution started");
+    } catch {
+      toast.error("Failed to start task execution");
+    }
   };
 
   const handleCreateSprint = async () => {
@@ -1054,6 +1073,70 @@ export default function ProjectExecutionPage() {
         }}
         mode={taskModalMode}
       />
+
+      {/* Execution Confirmation Dialog */}
+      <Dialog open={!!confirmExecute} onOpenChange={(open) => { if (!open) setConfirmExecute(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Start Task Execution</DialogTitle>
+            <DialogDescription>
+              Do you want to start implementation for &quot;{confirmExecute?.task.title}&quot;?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            <div className="flex w-full flex-col gap-2">
+              <Button
+                className="w-full"
+                disabled={isExecuting}
+                onClick={async () => {
+                  if (!confirmExecute) return;
+                  setIsExecuting(true);
+                  try {
+                    await updateTask.mutateAsync(confirmExecute.task.id, { board_status: confirmExecute.targetStatus });
+                    mutateTasks();
+                    toast.success(`Execution started for "${confirmExecute.task.title}"`);
+                  } catch {
+                    toast.error("Failed to start execution");
+                  } finally {
+                    setIsExecuting(false);
+                    setConfirmExecute(null);
+                  }
+                }}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                {isExecuting ? "Starting..." : "Start Execution"}
+              </Button>
+              <Button
+                variant="secondary"
+                className="w-full"
+                disabled={isExecuting}
+                onClick={async () => {
+                  if (!confirmExecute) return;
+                  try {
+                    await updateTask.mutateAsync(confirmExecute.task.id, { board_status: confirmExecute.targetStatus });
+                    mutateTasks();
+                    toast.success(`Task moved to ${columns.find((c) => c.id === confirmExecute.targetStatus)?.title}`);
+                  } catch {
+                    toast.error("Failed to move task");
+                  } finally {
+                    setConfirmExecute(null);
+                  }
+                }}
+              >
+                Move Only
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={isExecuting}
+                onClick={() => setConfirmExecute(null)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

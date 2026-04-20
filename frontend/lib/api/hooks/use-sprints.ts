@@ -203,6 +203,22 @@ export function useDeleteTask() {
   };
 }
 
+export function useExecuteTask() {
+  return {
+    mutateAsync: async (taskId: number) => {
+      const result = await apiClient.post<{
+        status: string;
+        message: string;
+        task_id: number;
+        job_id?: string;
+      }>(`/tasks/${taskId}/execute`);
+      mutate(queryKeys.tasks.all);
+      return result;
+    },
+    isPending: false,
+  };
+}
+
 export function useLinkProtocolToSprint() {
   return {
     mutateAsync: async (sprintId: number, protocolId: number) => {

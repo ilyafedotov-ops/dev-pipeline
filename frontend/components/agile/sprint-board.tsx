@@ -16,6 +16,7 @@ import {
   Layers,
   MoreHorizontal,
   Pencil,
+  Play,
   Plus,
   Trash2,
   User,
@@ -25,6 +26,14 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -104,6 +113,7 @@ interface SprintBoardProps {
   onTaskDelete?: (taskId: number) => Promise<void>;
   showBacklog?: boolean;
   canCreate?: boolean;
+  onTaskExecute?: (taskId: number) => Promise<void>;
 }
 
 export function SprintBoard({
@@ -115,12 +125,15 @@ export function SprintBoard({
   onTaskDelete,
   showBacklog = true,
   canCreate = true,
+  onTaskExecute,
 }: SprintBoardProps) {
   const [draggedTask, setDraggedTask] = useState<AgileTask | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<TaskBoardStatus | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit" | "view">("create");
   const [selectedTask, setSelectedTask] = useState<AgileTask | null>(null);
+  const [confirmExecute, setConfirmExecute] = useState<{ task: AgileTask; targetStatus: TaskBoardStatus } | null>(null);
+  const [isExecuting, setIsExecuting] = useState(false);
 
   const isMobile = useIsMobile();
 
@@ -152,8 +165,12 @@ export function SprintBoard({
   const handleDrop = async (e: React.DragEvent, status: TaskBoardStatus) => {
     e.preventDefault();
     setDragOverColumn(null);
-
     if (draggedTask && draggedTask.board_status !== status) {
+      if (status === "in_progress" && onTaskExecute) {
+        setConfirmExecute({ task: draggedTask, targetStatus: status });
+        setDraggedTask(null);
+        return;
+      }
       try {
         await onTaskUpdate(draggedTask.id, { board_status: status });
         toast.success(`Task moved to ${columns.find((c) => c.id === status)?.title}`);
@@ -415,6 +432,69 @@ export function SprintBoard({
         onDelete={onTaskDelete}
         mode={modalMode}
       />
+
+      {/* Execution Confirmation Dialog */}
+      <Dialog open={!!confirmExecute} onOpenChange={(open) => { if (!open) setConfirmExecute(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Start Task Execution</DialogTitle>
+            <DialogDescription>
+              Do you want to start implementation for &quot;{confirmExecute?.task.title}&quot;?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            <div className="flex w-full flex-col gap-2">
+              <Button
+                className="w-full"
+                disabled={isExecuting}
+                onClick={async () => {
+                  if (!confirmExecute) return;
+                  setIsExecuting(true);
+                  try {
+                    await onTaskUpdate(confirmExecute.task.id, { board_status: confirmExecute.targetStatus });
+                    await onTaskExecute!(confirmExecute.task.id);
+                    toast.success(`Execution started for "${confirmExecute.task.title}"`);
+                  } catch {
+                    toast.error("Failed to start execution");
+                  } finally {
+                    setIsExecuting(false);
+                    setConfirmExecute(null);
+                  }
+                }}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                {isExecuting ? "Starting..." : "Start Execution"}
+              </Button>
+              <Button
+                variant="secondary"
+                className="w-full"
+                disabled={isExecuting}
+                onClick={async () => {
+                  if (!confirmExecute) return;
+                  try {
+                    await onTaskUpdate(confirmExecute.task.id, { board_status: confirmExecute.targetStatus });
+                    toast.success(`Task moved to ${columns.find((c) => c.id === confirmExecute.targetStatus)?.title}`);
+                  } catch {
+                    toast.error("Failed to move task");
+                  } finally {
+                    setConfirmExecute(null);
+                  }
+                }}
+              >
+                Move Only
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={isExecuting}
+                onClick={() => setConfirmExecute(null)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
