@@ -164,6 +164,7 @@ describe("protocol API boundary adapters", () => {
       plan_path: null,
       tasks_path: null,
       protocol: rawProtocolResponse,
+      task_ids: [],
       work_items: [],
       next_work_item_id: null,
       warnings: [],

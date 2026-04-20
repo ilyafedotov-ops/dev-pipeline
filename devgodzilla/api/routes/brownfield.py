@@ -69,6 +69,14 @@ def start_brownfield_run(
     Falls back to background execution for real AI engine calls that take minutes,
     returning 202 Accepted with a background task.
     """
+    poll_hint = {
+        "task_cycle": f"/projects/{project_id}/task-cycle",
+        "tasks_only": f"/speckit/status/{project_id}",
+        "tasks_to_sprint": f"/sprints/{request.sprint_id}/tasks" if request.sprint_id else f"/projects/{project_id}/sprints",
+        "protocol": f"/projects/{project_id}/protocols",
+        "protocol_to_sprint": f"/projects/{project_id}/sprints",
+    }[request.output_mode]
+
     # Validate project exists synchronously
     try:
         project = db.get_project(project_id)
@@ -165,7 +173,8 @@ def start_brownfield_run(
             success=True,
             project_id=project_id,
             output_mode=request.output_mode,
-            warnings=["Brownfield run started in background. Poll /task-cycle for results."],
+            warnings=[f"Brownfield run started in background. Poll {poll_hint} for results."],
+            poll_hint=poll_hint,
         ).model_dump(),
     )
 

@@ -459,6 +459,207 @@ def test_task_cycle_start_brownfield_run_creates_protocol_and_work_items(monkeyp
 
 
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_brownfield_tasks_to_sprint_imports_generated_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
+    from devgodzilla.api.dependencies import get_db
+    from devgodzilla.config import _reset_config_for_tests
+    from devgodzilla.db.database import SQLiteDatabase
+    from devgodzilla.services.specification import PlanResult, SpecifyResult, TasksResult
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        repo = tmp / "repo"
+        projects_root = tmp / "projects-root"
+        _init_repo(repo)
+
+        spec_dir = repo / "specs" / "001-demo-feature"
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        spec_path = spec_dir / "spec.md"
+        plan_path = spec_dir / "plan.md"
+        tasks_path = spec_dir / "tasks.md"
+        spec_path.write_text("# Demo feature\n", encoding="utf-8")
+        plan_path.write_text("# Plan\n", encoding="utf-8")
+        tasks_path.write_text(
+            "## Phase 1\n- [ ] update README.md\n- [ ] add tests/test_demo.py\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setenv("DEVGODZILLA_DB_PATH", str(db_path))
+        monkeypatch.setenv("DEVGODZILLA_PROJECTS_ROOT", str(projects_root))
+        monkeypatch.delenv("DEVGODZILLA_API_TOKEN", raising=False)
+        _reset_config_for_tests()
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+        project = db.create_project(
+            name="demo",
+            git_url=str(repo),
+            base_branch="main",
+            local_path=str(repo),
+        )
+        sprint = db.create_sprint(project_id=project.id, name="Sprint 1", goal="Ship tasks", status="active")
+
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_specify",
+            lambda self, project_path, description, feature_name=None, base_branch=None, project_id=None: SpecifyResult(
+                success=True,
+                spec_path=str(spec_path),
+                spec_number=1,
+                feature_name="demo-feature",
+                spec_run_id=None,
+                worktree_path=str(repo),
+                branch_name="001-demo-feature",
+                base_branch="main",
+                spec_root=str(spec_dir),
+            ),
+        )
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_plan",
+            lambda self, project_path, spec_path, spec_run_id=None, project_id=None: PlanResult(
+                success=True,
+                plan_path=str(plan_path),
+                spec_run_id=spec_run_id,
+                worktree_path=str(repo),
+            ),
+        )
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_tasks",
+            lambda self, project_path, plan_path, spec_run_id=None, project_id=None: TasksResult(
+                success=True,
+                tasks_path=str(tasks_path),
+                task_count=2,
+                parallelizable_count=0,
+                spec_run_id=spec_run_id,
+                worktree_path=str(repo),
+            ),
+        )
+
+        app.dependency_overrides[get_db] = lambda: db
+        try:
+            with TestClient(app) as client:  # type: ignore[arg-type]
+                resp = client.post(
+                    f"/projects/{project.id}/brownfield/run",
+                    json={
+                        "feature_request": "Import generated tasks into a sprint",
+                        "feature_name": "demo-feature",
+                        "output_mode": "tasks_to_sprint",
+                        "sprint_id": sprint.id,
+                    },
+                )
+                assert resp.status_code == 200
+                payload = resp.json()
+                assert payload["success"] is True
+                assert payload["protocol"] is None
+                assert payload["sprint"]["id"] == sprint.id
+                assert payload["tasks_synced"] == 2
+                assert len(payload["task_ids"]) == 2
+                assert len(db.list_tasks(sprint_id=sprint.id)) == 2
+        finally:
+            app.dependency_overrides.clear()
+            _reset_config_for_tests()
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_brownfield_protocol_to_sprint_creates_sprint_and_syncs_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
+    from devgodzilla.api.dependencies import get_db
+    from devgodzilla.config import _reset_config_for_tests
+    from devgodzilla.db.database import SQLiteDatabase
+    from devgodzilla.services.specification import PlanResult, SpecifyResult, TasksResult
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        repo = tmp / "repo"
+        projects_root = tmp / "projects-root"
+        _init_repo(repo)
+
+        spec_dir = repo / "specs" / "001-demo-feature"
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        spec_path = spec_dir / "spec.md"
+        plan_path = spec_dir / "plan.md"
+        tasks_path = spec_dir / "tasks.md"
+        spec_path.write_text("# Demo feature\n", encoding="utf-8")
+        plan_path.write_text("# Plan\n", encoding="utf-8")
+        tasks_path.write_text(
+            "## Phase 1\n- [ ] update README.md\n- [ ] add tests/test_demo.py\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setenv("DEVGODZILLA_DB_PATH", str(db_path))
+        monkeypatch.setenv("DEVGODZILLA_PROJECTS_ROOT", str(projects_root))
+        monkeypatch.delenv("DEVGODZILLA_API_TOKEN", raising=False)
+        _reset_config_for_tests()
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+        project = db.create_project(
+            name="demo",
+            git_url=str(repo),
+            base_branch="main",
+            local_path=str(repo),
+        )
+
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_specify",
+            lambda self, project_path, description, feature_name=None, base_branch=None, project_id=None: SpecifyResult(
+                success=True,
+                spec_path=str(spec_path),
+                spec_number=1,
+                feature_name="demo-feature",
+                spec_run_id=None,
+                worktree_path=str(repo),
+                branch_name="001-demo-feature",
+                base_branch="main",
+                spec_root=str(spec_dir),
+            ),
+        )
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_plan",
+            lambda self, project_path, spec_path, spec_run_id=None, project_id=None: PlanResult(
+                success=True,
+                plan_path=str(plan_path),
+                spec_run_id=spec_run_id,
+                worktree_path=str(repo),
+            ),
+        )
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_tasks",
+            lambda self, project_path, plan_path, spec_run_id=None, project_id=None: TasksResult(
+                success=True,
+                tasks_path=str(tasks_path),
+                task_count=2,
+                parallelizable_count=0,
+                spec_run_id=spec_run_id,
+                worktree_path=str(repo),
+            ),
+        )
+
+        app.dependency_overrides[get_db] = lambda: db
+        try:
+            with TestClient(app) as client:  # type: ignore[arg-type]
+                resp = client.post(
+                    f"/projects/{project.id}/brownfield/run",
+                    json={
+                        "feature_request": "Create a sprint from the brownfield protocol",
+                        "feature_name": "demo-feature",
+                        "output_mode": "protocol_to_sprint",
+                        "sprint_name": "Brownfield Sprint",
+                    },
+                )
+                assert resp.status_code == 200
+                payload = resp.json()
+                assert payload["success"] is True
+                assert payload["protocol"] is not None
+                assert payload["sprint"]["name"] == "Brownfield Sprint"
+                assert payload["tasks_synced"] >= 1
+                assert len(payload["task_ids"]) == payload["tasks_synced"]
+                assert payload["work_items"] == []
+        finally:
+            app.dependency_overrides.clear()
+            _reset_config_for_tests()
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_task_cycle_failed_review_writes_rework_pack_and_exposes_artifact_content(monkeypatch: pytest.MonkeyPatch) -> None:
     from devgodzilla.api.dependencies import get_db
     from devgodzilla.config import _reset_config_for_tests
@@ -666,6 +867,69 @@ def test_task_cycle_qa_requires_reviewable_implementation_artifacts(monkeypatch:
                 qa_resp = client.post(f"/work-items/{step.id}/actions/qa", json={"gates": ["lint"]})
                 assert qa_resp.status_code == 400
                 assert "qa-ready state" in qa_resp.json()["detail"].lower()
+        finally:
+            app.dependency_overrides.clear()
+            _reset_config_for_tests()
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+@pytest.mark.parametrize("step_status", ["failed", "timeout", "blocked"])
+def test_task_cycle_derives_awaiting_review_for_terminal_step_statuses(
+    monkeypatch: pytest.MonkeyPatch, step_status: str
+) -> None:
+    from devgodzilla.api.dependencies import get_db
+    from devgodzilla.config import _reset_config_for_tests
+    from devgodzilla.db.database import SQLiteDatabase
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        repo = tmp / "repo"
+        projects_root = tmp / "projects-root"
+        _init_repo(repo)
+
+        monkeypatch.setenv("DEVGODZILLA_DB_PATH", str(db_path))
+        monkeypatch.setenv("DEVGODZILLA_PROJECTS_ROOT", str(projects_root))
+        monkeypatch.delenv("DEVGODZILLA_API_TOKEN", raising=False)
+        _reset_config_for_tests()
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+        project = db.create_project(
+            name="demo",
+            git_url=str(repo),
+            base_branch="main",
+            local_path=str(repo),
+        )
+        protocol_root = repo / "specs" / "demo-feature" / "_runtime"
+        protocol_root.mkdir(parents=True, exist_ok=True)
+        (protocol_root / "step-01-demo.md").write_text("# Demo step\n", encoding="utf-8")
+        run = db.create_protocol_run(
+            project_id=project.id,
+            protocol_name="demo-feature",
+            status="planned",
+            base_branch="main",
+            worktree_path=str(repo),
+            protocol_root=str(protocol_root),
+        )
+        step = db.create_step_run(
+            protocol_run_id=run.id,
+            step_index=1,
+            step_name="step-01-demo",
+            step_type="execute",
+            status=step_status,
+            assigned_agent="dev",
+        )
+
+        app.dependency_overrides[get_db] = lambda: db
+        try:
+            with TestClient(app) as client:  # type: ignore[arg-type]
+                resp = client.get(f"/work-items/{step.id}")
+                assert resp.status_code == 200
+                payload = resp.json()
+                assert payload["status"] == "awaiting_review"
+                assert payload["review_status"] == "pending"
+                assert payload["qa_status"] == "pending"
         finally:
             app.dependency_overrides.clear()
             _reset_config_for_tests()

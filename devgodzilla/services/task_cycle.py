@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import shlex
@@ -18,6 +19,8 @@ from devgodzilla.services.policy import PolicyService
 from devgodzilla.services.quality import QAResult, QAVerdict, QualityService
 from devgodzilla.services.spec_to_protocol import SpecToProtocolService
 from devgodzilla.services.specification import SpecificationService
+from devgodzilla.services.sprint_integration import SprintIntegrationService
+from devgodzilla.services.task_sync import TaskSyncService
 from devgodzilla.services.workspace_paths import (
     WorkspacePathError,
     resolve_protocol_root,
@@ -135,10 +138,14 @@ class TaskCycleService(Service):
 
         warnings: List[str] = []
         protocol_out = None
+        sprint_out = None
+        tasks_synced: Optional[int] = None
+        task_ids: List[int] = []
         work_items: List[schemas.WorkItemOut] = []
         next_work_item_id: Optional[int] = None
+        protocol_run_id: Optional[int] = None
 
-        if request.output_mode in {"task_cycle", "protocol"}:
+        if request.output_mode in {"task_cycle", "protocol", "protocol_to_sprint"}:
             protocol = protocol_service.create_protocol_from_spec(
                 project_id=project_id,
                 spec_path=specify.spec_path,
@@ -150,7 +157,8 @@ class TaskCycleService(Service):
             if not protocol.success or not protocol.protocol_run_id:
                 raise TaskCycleError(protocol.error or "Protocol creation failed")
             warnings.extend(protocol.warnings)
-            protocol_run = self.db.get_protocol_run(protocol.protocol_run_id)
+            protocol_run_id = protocol.protocol_run_id
+            protocol_run = self.db.get_protocol_run(protocol_run_id)
             protocol_metadata = dict(protocol_run.speckit_metadata or {})
             protocol_metadata.update(
                 {
@@ -163,22 +171,20 @@ class TaskCycleService(Service):
                 }
             )
             protocol_run = self.db.update_protocol_windmill(
-                protocol.protocol_run_id,
+                protocol_run_id,
                 speckit_metadata=protocol_metadata,
             )
             protocol_out = schemas.ProtocolOut.model_validate(protocol_run)
-            self._seed_task_cycle_metadata(
-                protocol.protocol_run_id,
-                owner_agent=resolved_owner_agent,
-                helper_agents=request.helper_agents if (request.allow_helper_agents or request.helper_agents) else [],
-            )
+            if request.output_mode == "task_cycle":
+                self._seed_task_cycle_metadata(
+                    protocol_run_id,
+                    owner_agent=resolved_owner_agent,
+                    helper_agents=request.helper_agents if (request.allow_helper_agents or request.helper_agents) else [],
+                )
 
-            # Auto-advance the first pending step.
-            # Without this, protocol steps created by brownfield run stay in
-            # "pending" forever because nothing dispatches them.
-            if True:
+                # Auto-advance the first pending step for task-cycle mode.
                 try:
-                    steps = self.db.list_step_runs(protocol.protocol_run_id)
+                    steps = self.db.list_step_runs(protocol_run_id)
                     completed_ids = {s.id for s in steps if s.status == StepStatus.COMPLETED}
                     pending = [s for s in steps if s.status == StepStatus.PENDING]
                     first_runnable = next(
@@ -194,7 +200,7 @@ class TaskCycleService(Service):
                         logger.info(
                             "brownfield_auto_advanced_step",
                             extra={
-                                "protocol_run_id": protocol.protocol_run_id,
+                                "protocol_run_id": protocol_run_id,
                                 "step_run_id": first_runnable.id,
                                 "step_name": first_runnable.step_name,
                             },
@@ -203,13 +209,55 @@ class TaskCycleService(Service):
                     logger.warning(
                         "brownfield_auto_advance_failed",
                         extra={
-                            "protocol_run_id": protocol.protocol_run_id,
+                            "protocol_run_id": protocol_run_id,
                             "error": str(exc),
                         },
                     )
 
-            work_items = self.list_work_items(project_id, protocol_run_id=protocol.protocol_run_id)
-            next_work_item_id = next((item.id for item in work_items if not item.pr_ready), None)
+                work_items = self.list_work_items(project_id, protocol_run_id=protocol_run_id)
+                next_work_item_id = next((item.id for item in work_items if not item.pr_ready), None)
+
+        if request.output_mode == "tasks_to_sprint":
+            if request.sprint_id is None:
+                raise TaskCycleError("sprint_id is required when output_mode=tasks_to_sprint")
+            task_sync = TaskSyncService(self.db)
+            imported_tasks = asyncio.run(
+                task_sync.import_speckit_tasks(
+                    project_id=project_id,
+                    spec_path=tasks.tasks_path,
+                    sprint_id=request.sprint_id,
+                    overwrite_existing=request.overwrite_existing_tasks,
+                )
+            )
+            tasks_synced = len(imported_tasks)
+            task_ids = [task.id for task in imported_tasks]
+            sprint_out = schemas.SprintOut.model_validate(self.db.get_sprint(request.sprint_id))
+
+        if request.output_mode == "protocol_to_sprint":
+            if protocol_run_id is None:
+                raise TaskCycleError("Protocol creation did not produce a protocol run")
+            sprint_service = SprintIntegrationService(self.db)
+            sprint = asyncio.run(
+                sprint_service.create_sprint_from_protocol(
+                    protocol_run_id=protocol_run_id,
+                    sprint_name=request.sprint_name,
+                    auto_sync=False,
+                )
+            )
+            sprint_out = schemas.SprintOut.model_validate(sprint)
+            if request.auto_sync_sprint:
+                synced_tasks = asyncio.run(
+                    sprint_service.sync_protocol_to_sprint(
+                        protocol_run_id=protocol_run_id,
+                        sprint_id=sprint.id,
+                        create_missing_tasks=True,
+                    )
+                )
+                tasks_synced = len(synced_tasks)
+                task_ids = [task.id for task in synced_tasks]
+
+        if request.output_mode == "tasks_only":
+            warnings.append("Brownfield run completed without creating a protocol or sprint")
 
         return schemas.BrownfieldRunOut(
             success=True,
@@ -220,6 +268,9 @@ class TaskCycleService(Service):
             plan_path=plan.plan_path,
             tasks_path=tasks.tasks_path,
             protocol=protocol_out,
+            sprint=sprint_out,
+            tasks_synced=tasks_synced,
+            task_ids=task_ids,
             work_items=work_items,
             next_work_item_id=next_work_item_id,
             warnings=warnings,
@@ -595,6 +646,8 @@ class TaskCycleService(Service):
             if step.status == StepStatus.RUNNING:
                 derived_status = self.STATUS_IN_PROGRESS
             elif step.status in (StepStatus.COMPLETED, StepStatus.NEEDS_QA):
+                derived_status = self.STATUS_AWAITING_REVIEW
+            elif step.status in (StepStatus.FAILED, StepStatus.TIMEOUT, StepStatus.BLOCKED):
                 derived_status = self.STATUS_AWAITING_REVIEW
 
         state = {

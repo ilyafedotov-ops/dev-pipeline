@@ -14,6 +14,9 @@ vi.mock("@/lib/api", () => ({
     data: [],
     isLoading: false,
   }),
+  useSprints: () => ({
+    data: [],
+  }),
   useStartBrownfieldRun: () => ({
     mutateAsync: startBrownfieldRunMock,
     isPending: false,
@@ -41,7 +44,9 @@ describe("TaskCycleTab", () => {
   it("starts a brownfield run from the tab", async () => {
     startBrownfieldRunMock.mockResolvedValue({
       success: true,
+      output_mode: "task_cycle",
       protocol: { id: 41, protocol_name: "brownfield-auth" },
+      task_ids: [],
       work_items: [],
       warnings: [],
     });
@@ -62,6 +67,9 @@ describe("TaskCycleTab", () => {
         data: {
           feature_name: "Auth hardening",
           feature_request: "Tighten the auth review flow for existing users.",
+          output_mode: "task_cycle",
+          sprint_id: undefined,
+          sprint_name: undefined,
         },
       });
     });

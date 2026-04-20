@@ -20,6 +20,7 @@ import {
   useMarkPrReady,
   useProjectProtocols,
   useProjectTaskCycle,
+  useSprints,
   useQaWorkItem,
   useReviewWorkItem,
   useStartBrownfieldRun,
@@ -29,6 +30,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading-state";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 interface TaskCycleTabProps {
@@ -52,6 +60,7 @@ function toneClass(value: string | null | undefined): string {
 export function TaskCycleTab({ projectId }: TaskCycleTabProps) {
   const { data: protocols = [], isLoading: protocolsLoading } = useProjectProtocols(projectId);
   const { data: workItems = [], isLoading: workItemsLoading } = useProjectTaskCycle(projectId);
+  const { data: sprints = [] } = useSprints(projectId);
   const startBrownfieldRun = useStartBrownfieldRun();
   const buildContext = useBuildContextWorkItem();
   const implementWorkItem = useImplementWorkItem();
@@ -61,6 +70,11 @@ export function TaskCycleTab({ projectId }: TaskCycleTabProps) {
 
   const [featureName, setFeatureName] = useState("");
   const [featureRequest, setFeatureRequest] = useState("");
+  const [outputMode, setOutputMode] = useState<
+    "task_cycle" | "tasks_only" | "tasks_to_sprint" | "protocol" | "protocol_to_sprint"
+  >("task_cycle");
+  const [selectedSprintId, setSelectedSprintId] = useState<string>("");
+  const [sprintName, setSprintName] = useState("");
 
   const protocolNames = useMemo(
     () =>
@@ -80,6 +94,10 @@ export function TaskCycleTab({ projectId }: TaskCycleTabProps) {
       toast.error("Describe the brownfield change before starting");
       return;
     }
+    if (outputMode === "tasks_to_sprint" && !selectedSprintId) {
+      toast.error("Select a sprint before importing tasks");
+      return;
+    }
 
     try {
       const result = await startBrownfieldRun.mutateAsync({
@@ -87,15 +105,21 @@ export function TaskCycleTab({ projectId }: TaskCycleTabProps) {
         data: {
           feature_request: trimmedRequest,
           feature_name: featureName.trim() || undefined,
+          output_mode: outputMode,
+          sprint_id: outputMode === "tasks_to_sprint" ? Number(selectedSprintId) : undefined,
+          sprint_name: outputMode === "protocol_to_sprint" ? sprintName.trim() || undefined : undefined,
         },
       });
-      if (result.protocol) {
+      if (result.sprint) {
+        toast.success(`Brownfield run created sprint: ${result.sprint.name}`);
+      } else if (result.protocol) {
         toast.success(`Brownfield run created: ${result.protocol.protocol_name}`);
       } else {
         toast.success("Brownfield run created");
       }
       setFeatureRequest("");
       setFeatureName("");
+      setSprintName("");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to start brownfield run");
     }
@@ -134,7 +158,7 @@ export function TaskCycleTab({ projectId }: TaskCycleTabProps) {
         <CardHeader>
           <CardTitle className="text-base">Start Brownfield Run</CardTitle>
           <CardDescription>
-            Seed a brownfield task-cycle protocol from a concrete feature request.
+            Run a brownfield feature request into task-cycle work items, tasks, a protocol, or a sprint.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -149,6 +173,39 @@ export function TaskCycleTab({ projectId }: TaskCycleTabProps) {
             onChange={(event) => setFeatureRequest(event.target.value)}
             rows={5}
           />
+          <Select value={outputMode} onValueChange={(value) => setOutputMode(value as typeof outputMode)}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select output mode" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="task_cycle">Task Cycle</SelectItem>
+              <SelectItem value="tasks_only">Tasks Only</SelectItem>
+              <SelectItem value="tasks_to_sprint">Tasks To Sprint</SelectItem>
+              <SelectItem value="protocol">Protocol</SelectItem>
+              <SelectItem value="protocol_to_sprint">Protocol To Sprint</SelectItem>
+            </SelectContent>
+          </Select>
+          {outputMode === "tasks_to_sprint" && (
+            <Select value={selectedSprintId} onValueChange={setSelectedSprintId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select existing sprint" />
+              </SelectTrigger>
+              <SelectContent>
+                {sprints.map((sprint) => (
+                  <SelectItem key={sprint.id} value={String(sprint.id)}>
+                    {sprint.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {outputMode === "protocol_to_sprint" && (
+            <Input
+              placeholder="Sprint name (optional)"
+              value={sprintName}
+              onChange={(event) => setSprintName(event.target.value)}
+            />
+          )}
           <div className="flex justify-end">
             <Button onClick={handleStart} disabled={startBrownfieldRun.isPending}>
               <PlayCircle className="mr-2 h-4 w-4" />
@@ -172,7 +229,7 @@ export function TaskCycleTab({ projectId }: TaskCycleTabProps) {
             <CardTitle className="text-sm">Awaiting Review</CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-semibold">
-            {workItems.filter((item) => item.review_status !== "approved").length}
+            {workItems.filter((item) => item.status === "awaiting_review").length}
           </CardContent>
         </Card>
         <Card>

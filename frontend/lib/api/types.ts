@@ -324,10 +324,14 @@ export interface WorkItemQA {
 export interface BrownfieldRunRequest {
   feature_request: string;
   feature_name?: string;
-  output_mode?: string;
+  output_mode?: "task_cycle" | "tasks_only" | "tasks_to_sprint" | "protocol" | "protocol_to_sprint";
   branch?: string;
   protocol_name?: string;
   overwrite_protocol?: boolean;
+  sprint_id?: number;
+  sprint_name?: string;
+  auto_sync_sprint?: boolean;
+  overwrite_existing_tasks?: boolean;
   owner_agent?: string;
   helper_agents?: string[];
   allow_helper_agents?: boolean;
@@ -336,15 +340,19 @@ export interface BrownfieldRunRequest {
 export interface BrownfieldRunResponse {
   success: boolean;
   project_id: number;
-  output_mode: string;
+  output_mode: "task_cycle" | "tasks_only" | "tasks_to_sprint" | "protocol" | "protocol_to_sprint";
   spec_run_id: number | null;
   spec_path: string | null;
   plan_path: string | null;
   tasks_path: string | null;
   protocol: ProtocolRun | null;
+  sprint?: Sprint | null;
+  tasks_synced?: number | null;
+  task_ids: number[];
   work_items: WorkItem[];
   next_work_item_id: number | null;
   warnings: string[];
+  poll_hint?: string | null;
 }
 
 export interface DiffHunk {

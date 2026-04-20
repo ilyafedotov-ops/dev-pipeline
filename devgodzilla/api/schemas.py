@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict, model_validator
@@ -516,10 +516,14 @@ class WorkItemQAOut(BaseModel):
 class BrownfieldRunRequest(BaseModel):
     feature_request: str
     feature_name: Optional[str] = None
-    output_mode: str = "task_cycle"
+    output_mode: Literal["task_cycle", "tasks_only", "tasks_to_sprint", "protocol", "protocol_to_sprint"] = "task_cycle"
     branch: Optional[str] = None
     protocol_name: Optional[str] = None
     overwrite_protocol: bool = False
+    sprint_id: Optional[int] = None
+    sprint_name: Optional[str] = None
+    auto_sync_sprint: bool = True
+    overwrite_existing_tasks: bool = False
     owner_agent: Optional[str] = None
     helper_agents: List[str] = Field(default_factory=list)
     allow_helper_agents: bool = False
@@ -528,15 +532,19 @@ class BrownfieldRunRequest(BaseModel):
 class BrownfieldRunOut(BaseModel):
     success: bool
     project_id: int
-    output_mode: str
+    output_mode: Literal["task_cycle", "tasks_only", "tasks_to_sprint", "protocol", "protocol_to_sprint"]
     spec_run_id: Optional[int] = None
     spec_path: Optional[str] = None
     plan_path: Optional[str] = None
     tasks_path: Optional[str] = None
     protocol: Optional[ProtocolOut] = None
+    sprint: Optional["SprintOut"] = None
+    tasks_synced: Optional[int] = None
+    task_ids: List[int] = Field(default_factory=list)
     work_items: List[WorkItemOut] = Field(default_factory=list)
     next_work_item_id: Optional[int] = None
     warnings: List[str] = Field(default_factory=list)
+    poll_hint: Optional[str] = None
 
 
 # =============================================================================

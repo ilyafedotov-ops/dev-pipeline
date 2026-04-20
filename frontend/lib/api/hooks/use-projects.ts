@@ -402,6 +402,9 @@ export function useStartBrownfieldRun() {
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.projects.taskCycleRoot(projectId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.projects.protocols(projectId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sprints.byProject(projectId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sprints.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all });
     },
   });
 }
