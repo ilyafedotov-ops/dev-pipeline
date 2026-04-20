@@ -126,8 +126,11 @@ def start_brownfield_run(
                 "brownfield_bg_starting",
                 extra={"project_id": project_id},
             )
-            # Wait for sync thread to finish before starting background work
-            _sync_done.wait(timeout=120)
+            # Wait indefinitely for sync thread to finish — it is doing the
+            # real work (spec→plan→tasks→protocol→auto-advance which can take
+            # 5+ minutes with opencode).  We only start a *second* run if the
+            # sync thread actually failed (exception, not still-running).
+            _sync_done.wait()
             # Guard: if sync thread already completed successfully, skip
             if _sync_result[0] is not None and _sync_result[0].success:
                 logger.info(
