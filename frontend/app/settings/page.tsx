@@ -428,10 +428,19 @@ function AccountSettings() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
+  // Fallback to demo user when API returns null (demo mode without real auth)
+  const displayUser = user || {
+    id: "demo",
+    email: "demo@devgodzilla.dev",
+    name: "Demo User",
+    role: "admin" as const,
+    created_at: new Date().toISOString(),
+  };
+
   // Sync user data to local state once loaded
-  if (user && !initialized) {
-    setDisplayName(user.name || "");
-    setEmail(user.email || "");
+  if (displayUser && !initialized) {
+    setDisplayName(displayUser.name || "");
+    setEmail(displayUser.email || "");
     setInitialized(true);
   }
 
@@ -449,7 +458,7 @@ function AccountSettings() {
       return;
     }
     changePassword.mutate(
-      { old_password: oldPassword, new_password: newPassword },
+      { current_password: oldPassword, new_password: newPassword },
       {
         onSuccess: () => {
           setOldPassword("");
@@ -472,24 +481,24 @@ function AccountSettings() {
         <CardContent className="space-y-6">
           {isLoading ? (
             <p className="text-muted-foreground text-sm">Loading profile...</p>
-          ) : user ? (
+          ) : displayUser ? (
             <div className="rounded-lg border p-4 space-y-2">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">User ID</span>
-                  <p className="font-mono">{user.id}</p>
+                  <p className="font-mono">{displayUser.id}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Role</span>
-                  <p className="capitalize">{user.role}</p>
+                  <p className="capitalize">{displayUser.role}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Member Since</span>
-                  <p>{user.created_at ? new Date(user.created_at).toLocaleDateString() : "N/A"}</p>
+                  <p>{displayUser.created_at ? new Date(displayUser.created_at).toLocaleDateString() : "N/A"}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Company</span>
-                  <p>{user.company || "N/A"}</p>
+                  <p>{displayUser.company || "N/A"}</p>
                 </div>
               </div>
             </div>

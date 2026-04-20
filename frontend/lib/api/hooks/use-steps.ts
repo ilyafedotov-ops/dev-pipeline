@@ -11,9 +11,23 @@ import type {
   PolicyFinding,
   StepArtifact,
   StepQuality,
+  StepRun,
 } from "../types";
 
 // Step Runs
+
+/**
+ * Fetch a single step by ID directly from the API.
+ * This is the primary data source for the step detail page.
+ */
+export function useStepRun(stepId: number | undefined) {
+  return useQuery({
+    queryKey: queryKeys.steps.detail(stepId as number),
+    queryFn: () => apiClient.get<StepRun>(`/steps/${stepId}`),
+    enabled: !!stepId,
+  });
+}
+
 export function useStepRuns(stepId: number | undefined) {
   return useQuery({
     queryKey: queryKeys.steps.runs(stepId as number),

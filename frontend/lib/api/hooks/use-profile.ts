@@ -54,10 +54,25 @@ export function useProfile() {
 }
 
 // Get User Account (from /users/me)
+// Uses raw fetch instead of apiClient to avoid triggering the global
+// onUnauthorized callback (which redirects to login page).
 export function useUserProfile() {
   return useQuery({
     queryKey: queryKeys.users.me(),
-    queryFn: () => apiClient.get<UserAccount>("/users/me"),
+    queryFn: async () => {
+      try {
+        const baseUrl = "/api/v1";
+        const response = await fetch(`${baseUrl}/users/me`);
+        if (!response.ok) {
+          // 401 or other error — return null (AccountSettings shows demo user)
+          return null;
+        }
+        return response.json() as Promise<UserAccount>;
+      } catch {
+        return null;
+      }
+    },
+    retry: false,
   });
 }
 

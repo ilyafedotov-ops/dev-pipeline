@@ -162,6 +162,7 @@ class DatabaseProtocol(Protocol):
         depends_on: Optional[List[int]] = None,
         parallel_group: Optional[str] = None,
         assigned_agent: Optional[str] = None,
+        engine_id: Optional[str] = None,
     ) -> StepRun: ...
     
     def get_step_run(self, step_run_id: int) -> StepRun: ...
@@ -1211,19 +1212,21 @@ class SQLiteDatabase:
         depends_on: Optional[List[int]] = None,
         parallel_group: Optional[str] = None,
         assigned_agent: Optional[str] = None,
+        engine_id: Optional[str] = None,
     ) -> StepRun:
         with self._transaction() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO step_runs (
                     protocol_run_id, step_index, step_name, step_type, status,
-                    depends_on, parallel_group, assigned_agent
+                    depends_on, parallel_group, assigned_agent, engine_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     protocol_run_id, step_index, step_name, step_type, status,
                     json.dumps(depends_on or []), parallel_group, assigned_agent,
+                    engine_id,
                 ),
             )
             step_id = cur.lastrowid
@@ -4260,6 +4263,7 @@ class PostgresDatabase:
         depends_on: Optional[List[int]] = None,
         parallel_group: Optional[str] = None,
         assigned_agent: Optional[str] = None,
+        engine_id: Optional[str] = None,
     ) -> StepRun:
         with self._transaction() as conn:
             with conn.cursor() as cur:
@@ -4267,14 +4271,15 @@ class PostgresDatabase:
                     """
                     INSERT INTO step_runs (
                         protocol_run_id, step_index, step_name, step_type, status,
-                        depends_on, parallel_group, assigned_agent
+                        depends_on, parallel_group, assigned_agent, engine_id
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
                         protocol_run_id, step_index, step_name, step_type, status,
                         json.dumps(depends_on or []), parallel_group, assigned_agent,
+                        engine_id,
                     ),
                 )
                 step_id = cur.fetchone()["id"]

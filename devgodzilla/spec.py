@@ -169,6 +169,7 @@ def create_steps_from_spec(
         depends_on = step_spec.get("depends_on", [])
         parallel_group = step_spec.get("parallel_group")
         assigned_agent = step_spec.get("engine_id") or step_spec.get("agent")
+        engine_id = step_spec.get("engine_id")
         
         step = db.create_step_run(
             protocol_run_id=protocol_run_id,
@@ -179,6 +180,7 @@ def create_steps_from_spec(
             depends_on=depends_on,
             parallel_group=parallel_group,
             assigned_agent=assigned_agent,
+            engine_id=engine_id,
         )
         created_ids.append(step.id)
     

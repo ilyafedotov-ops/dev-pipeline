@@ -34,6 +34,7 @@ export function formatTime(dateString: string | null | undefined): string {
 export function formatRelativeTime(dateString: string | null | undefined): string {
   if (!dateString) return "-";
   const date = new Date(dateString);
+  if (isNaN(date.getTime())) return "-";
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffSecs = Math.floor(diffMs / 1000);
@@ -41,6 +42,8 @@ export function formatRelativeTime(dateString: string | null | undefined): strin
   const diffHours = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHours / 24);
 
+  // Handle future timestamps or very recent ones (< 5s) as "just now"
+  if (diffMs < 5000) return "just now";
   if (diffSecs < 60) return `${diffSecs}s ago`;
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;

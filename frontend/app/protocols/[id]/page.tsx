@@ -309,7 +309,7 @@ export default function ProtocolDetailPage({ params }: { params: Promise<{ id: s
             <CardDescription>Spec Status</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="font-medium capitalize">{protocol.spec_validation_status || "Unknown"}</p>
+            <p className="font-medium capitalize">{protocol.spec_validation_status || "N/A"}</p>
           </CardContent>
         </Card>
         <Card>

@@ -142,7 +142,12 @@ def get_step_policy_findings(
     except KeyError:
         raise HTTPException(status_code=404, detail="Step not found")
 
-    repo_root = _workspace_root(run, project)
+    try:
+        repo_root = _workspace_root(run, project)
+    except HTTPException:
+        # Workspace not available yet (step not executed) — return empty findings
+        return []
+
     policy_service = PolicyService(ctx, db)
     findings = policy_service.evaluate_step(step_id, repo_root=repo_root)
 
@@ -430,7 +435,11 @@ def list_step_artifacts(
     except KeyError:
         raise HTTPException(status_code=404, detail="Step not found")
 
-    artifacts_dir = _step_artifacts_dir(db, step_id)
+    try:
+        artifacts_dir = _step_artifacts_dir(db, step_id)
+    except HTTPException:
+        # Workspace not available yet (step not executed) — return empty list
+        return []
     if not artifacts_dir.exists():
         return []
 
@@ -539,10 +548,16 @@ def list_step_feedback(
     except KeyError:
         raise HTTPException(status_code=404, detail="Step not found")
 
-    rows = db._fetchall(
-        "SELECT * FROM feedback_events WHERE step_run_id = ? ORDER BY created_at DESC",
-        (step_run_id,),
-    )
+    try:
+        rows = db._fetchall(
+            "SELECT * FROM feedback_events WHERE step_run_id = %s ORDER BY created_at DESC",
+            (step_run_id,),
+        )
+    except Exception:
+        # Table may not exist yet — return empty list gracefully
+        logger.warning("feedback_events query failed for step_run_id=%s, returning empty", step_run_id, exc_info=True)
+        return schemas.FeedbackListOut(events=[])
+
     events = []
     for row in rows:
         events.append(schemas.FeedbackEventOut(

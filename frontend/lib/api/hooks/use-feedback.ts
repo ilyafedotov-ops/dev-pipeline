@@ -88,7 +88,11 @@ export function useStepFeedbackEvents(
 
   return useQuery({
     queryKey: feedbackKeys.byStep(stepRunId),
-    queryFn: () => apiClient.get<FeedbackEvent[]>(`/steps/${stepRunId}/feedback`),
+    queryFn: async () => {
+      const result = await apiClient.get<{ events: FeedbackEvent[] }>(`/steps/${stepRunId}/feedback`);
+      // API returns {events: [...]} — extract the array
+      return Array.isArray(result?.events) ? result.events : Array.isArray(result) ? result : [];
+    },
     enabled: enabled && !!stepRunId,
   });
 }

@@ -42,6 +42,7 @@ import {
   useStepFeedbackEvents,
   useStepPolicyFindings,
   useStepQuality,
+  useStepRun,
   useStepRuns,
   useSubmitStepFeedback,
   useTriggerRetry,
@@ -54,13 +55,14 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
   const { id } = use(params);
   const stepId = Number.parseInt(id, 10);
 
-  // We need to find the step within protocol steps
-  // First, get the step runs to find the protocol_run_id
+  // Primary data source: fetch the step directly from the API
+  const { data: stepData, isLoading: stepLoading } = useStepRun(stepId);
+
+  // Secondary: get step runs (Codex runs) for this step
   const { data: runs, isLoading: runsLoading } = useStepRuns(stepId);
 
-  // Get the protocol_run_id from the first run or URL param
-  const protocolRunId = runs?.[0]?.protocol_run_id;
-
+  // Get protocol info for context (back links, protocol name)
+  const protocolRunId = stepData?.protocol_run_id;
   const { data: protocol } = useProtocol(protocolRunId ?? undefined);
   const { data: steps } = useProtocolSteps(protocolRunId ?? undefined);
   const { data: findings } = useStepPolicyFindings(stepId);
@@ -74,13 +76,15 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
 
   const [stepFeedbackMessage, setStepFeedbackMessage] = useState("");
 
+  // Use the direct step data as primary, fall back to protocol steps
   const step = steps?.find((s) => s.id === stepId);
+  const resolvedData = stepData || step;
 
-  if (runsLoading && !step) return <LoadingState message="Loading step..." />;
+  if (stepLoading && !resolvedData) return <LoadingState message="Loading step..." />;
 
   // If we can't find the step, show basic view with runs
   const displayStep =
-    step ||
+    resolvedData ||
     ({
       id: stepId,
       step_name: `Step ${stepId}`,
@@ -142,7 +146,7 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
               <span>Index: {displayStep.step_index}</span>
               <span className="text-muted-foreground">•</span>
               <span className="capitalize">Type: {displayStep.step_type}</span>
-              {displayStep.engine_id && (
+              {(displayStep.assigned_agent || displayStep.engine_id) && (
                 <>
                   <span className="text-muted-foreground">•</span>
                   <span>Engine: {displayStep.assigned_agent || displayStep.engine_id}</span>
