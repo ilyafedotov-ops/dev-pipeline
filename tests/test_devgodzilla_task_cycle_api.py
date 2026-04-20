@@ -933,3 +933,239 @@ def test_task_cycle_derives_awaiting_review_for_terminal_step_statuses(
         finally:
             app.dependency_overrides.clear()
             _reset_config_for_tests()
+
+
+# ---------------------------------------------------------------------------
+# Brownfield validation & missing-mode tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_brownfield_rejects_missing_local_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /projects/{id}/brownfield/run returns 400 when project has no local_path."""
+    from devgodzilla.api.dependencies import get_db
+    from devgodzilla.config import _reset_config_for_tests
+    from devgodzilla.db.database import SQLiteDatabase
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+
+        # Create project WITHOUT local_path
+        project = db.create_project(name="no-path", git_url="https://example.com/repo", base_branch="main")
+
+        app.dependency_overrides[get_db] = lambda: db
+        try:
+            with TestClient(app) as client:  # type: ignore[arg-type]
+                resp = client.post(
+                    f"/projects/{project.id}/brownfield/run",
+                    json={
+                        "feature_request": "Add hello",
+                        "output_mode": "task_cycle",
+                    },
+                )
+                assert resp.status_code == 400
+                assert "no local path" in resp.json()["detail"].lower()
+        finally:
+            app.dependency_overrides.clear()
+            _reset_config_for_tests()
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_brownfield_rejects_unknown_project() -> None:
+    """POST /projects/{id}/brownfield/run returns 404 for non-existent project."""
+    from devgodzilla.api.dependencies import get_db
+    from devgodzilla.config import _reset_config_for_tests
+    from devgodzilla.db.database import SQLiteDatabase
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+
+        app.dependency_overrides[get_db] = lambda: db
+        try:
+            with TestClient(app) as client:  # type: ignore[arg-type]
+                resp = client.post(
+                    "/projects/99999/brownfield/run",
+                    json={
+                        "feature_request": "Add hello",
+                        "output_mode": "task_cycle",
+                    },
+                )
+                assert resp.status_code == 404
+                assert "not found" in resp.json()["detail"].lower()
+        finally:
+            app.dependency_overrides.clear()
+            _reset_config_for_tests()
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_brownfield_tasks_only_mode_returns_spec_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /projects/{id}/brownfield/run with output_mode=tasks_only returns spec info."""
+    from devgodzilla.api.dependencies import get_db
+    from devgodzilla.config import _reset_config_for_tests
+    from devgodzilla.db.database import SQLiteDatabase
+    from devgodzilla.services.specification import PlanResult, SpecifyResult, TasksResult
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        repo = tmp / "repo"
+        _init_repo(repo)
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+        project = db.create_project(
+            name="tasks-only-proj",
+            git_url=str(repo),
+            base_branch="main",
+            local_path=str(repo),
+        )
+
+        spec_dir = repo / "specs" / "001-hello"
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        spec_path = spec_dir / "spec.md"
+        plan_path = spec_dir / "plan.md"
+        tasks_path = spec_dir / "tasks.md"
+        spec_path.write_text("# Hello\n", encoding="utf-8")
+        plan_path.write_text("# Plan\n", encoding="utf-8")
+        tasks_path.write_text("# Tasks\n", encoding="utf-8")
+
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_specify",
+            lambda self, project_path, description, feature_name=None, base_branch=None, project_id=None: SpecifyResult(
+                success=True,
+                spec_path=str(spec_path),
+                spec_number=1,
+                feature_name="hello",
+                project_path=str(repo),
+                base_branch="main",
+                spec_root=str(spec_dir),
+            ),
+        )
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_plan",
+            lambda self, project_path, spec_path, spec_run_id=None, project_id=None: PlanResult(
+                success=True,
+                plan_path=str(plan_path),
+                spec_run_id=spec_run_id,
+                worktree_path=str(repo),
+            ),
+        )
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_tasks",
+            lambda self, project_path, plan_path, spec_run_id=None, project_id=None: TasksResult(
+                success=True,
+                tasks_path=str(tasks_path),
+                task_count=1,
+                parallelizable_count=0,
+            ),
+        )
+
+        app.dependency_overrides[get_db] = lambda: db
+        try:
+            with TestClient(app) as client:  # type: ignore[arg-type]
+                resp = client.post(
+                    f"/projects/{project.id}/brownfield/run",
+                    json={
+                        "feature_request": "Add a hello endpoint",
+                        "output_mode": "tasks_only",
+                    },
+                )
+                assert resp.status_code in (200, 202)
+                payload = resp.json()
+                assert payload["success"] is True
+                assert payload["output_mode"] == "tasks_only"
+        finally:
+            app.dependency_overrides.clear()
+            _reset_config_for_tests()
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_brownfield_protocol_mode_returns_protocol_info(monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /projects/{id}/brownfield/run with output_mode=protocol creates a protocol."""
+    from devgodzilla.api.dependencies import get_db
+    from devgodzilla.config import _reset_config_for_tests
+    from devgodzilla.db.database import SQLiteDatabase
+    from devgodzilla.services.specification import PlanResult, SpecifyResult, TasksResult
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        repo = tmp / "repo"
+        _init_repo(repo)
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+        project = db.create_project(
+            name="protocol-mode-proj",
+            git_url=str(repo),
+            base_branch="main",
+            local_path=str(repo),
+        )
+
+        spec_dir = repo / "specs" / "001-hello"
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        spec_path = spec_dir / "spec.md"
+        plan_path = spec_dir / "plan.md"
+        tasks_path = spec_dir / "tasks.md"
+        spec_path.write_text("# Hello\n", encoding="utf-8")
+        plan_path.write_text("# Plan\n", encoding="utf-8")
+        tasks_path.write_text(
+            "# Tasks\n\n## Phase 1: Setup\n- [ ] T1: Create hello.py - Add hello endpoint\n\n## Phase 2: Tests\n- [ ] T2: Add test_hello.py - Write tests\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_specify",
+            lambda self, project_path, description, feature_name=None, base_branch=None, project_id=None: SpecifyResult(
+                success=True,
+                spec_path=str(spec_path),
+                spec_number=1,
+                feature_name="hello",
+                project_path=str(repo),
+                base_branch="main",
+                spec_root=str(spec_dir),
+            ),
+        )
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_plan",
+            lambda self, project_path, spec_path, spec_run_id=None, project_id=None: PlanResult(
+                success=True,
+                plan_path=str(plan_path),
+                spec_run_id=spec_run_id,
+                worktree_path=str(repo),
+                steps=[{"name": "step-01", "type": "execute"}],
+            ),
+        )
+        monkeypatch.setattr(
+            "devgodzilla.services.task_cycle.SpecificationService.run_tasks",
+            lambda self, project_path, plan_path, spec_run_id=None, project_id=None: TasksResult(
+                success=True,
+                tasks_path=str(tasks_path),
+                task_count=1,
+                parallelizable_count=0,
+            ),
+        )
+
+        app.dependency_overrides[get_db] = lambda: db
+        try:
+            with TestClient(app) as client:  # type: ignore[arg-type]
+                resp = client.post(
+                    f"/projects/{project.id}/brownfield/run",
+                    json={
+                        "feature_request": "Add a hello endpoint",
+                        "output_mode": "protocol",
+                    },
+                )
+                assert resp.status_code in (200, 201, 202), f"Got {resp.status_code}: {resp.text}"
+                payload = resp.json()
+                assert payload["success"] is True
+                assert payload["output_mode"] == "protocol"
+        finally:
+            app.dependency_overrides.clear()
+            _reset_config_for_tests()
