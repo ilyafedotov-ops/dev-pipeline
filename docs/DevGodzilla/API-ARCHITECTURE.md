@@ -41,6 +41,12 @@ Current access model by route category:
 - `/auth/*` handles session/JWT-oriented login flow
 - `/users/*` uses its own auth dependencies rather than the global API-token dependency
 
+Accepted API-token mechanisms are currently:
+
+- `Authorization: Bearer <token>`
+- `X-DevGodzilla-Token: <token>`
+- `?token=<token>` for stream-friendly use cases
+
 ## Route Domains
 
 ### Core lifecycle
@@ -161,5 +167,8 @@ Primary service domains used behind the API include:
 
 - Runtime truth: `docs/DevGodzilla/CURRENT_STATE.md`
 - System architecture: `docs/DevGodzilla/ARCHITECTURE.md`
+- API reference: `docs/DevGodzilla/API-REFERENCE.md`
+- Backend flows: `docs/DevGodzilla/BACKEND-FLOWS.md`
+- State semantics: `docs/DevGodzilla/STATE-MODELS.md`
 - Windmill workflows: `docs/DevGodzilla/WINDMILL-WORKFLOWS.md`
 - CI notes: `docs/ci.md`

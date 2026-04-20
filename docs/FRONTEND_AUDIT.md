@@ -1,5 +1,9 @@
 # Frontend Audit Report — dev-pipeline
 
+> Status: Audit snapshot
+> Scope: Point-in-time parity and dead-hook audit from 2026-04-19
+> Canonical replacements: `docs/DevGodzilla/FRONTEND-ARCHITECTURE.md`, `docs/DevGodzilla/FRONTEND-WORKSPACES.md`, `docs/DevGodzilla/FRONTEND-API-CONTRACTS.md`, `docs/DevGodzilla/FRONTEND-COMPONENT-SYSTEM.md`, `docs/DevGodzilla/FRONTEND-TEST-MAP.md`
+
 **Date:** 2026-04-19  
 **Pages audited:** 48 page.tsx files  
 **Hooks audited:** 22 hook files, 169 exported hooks  

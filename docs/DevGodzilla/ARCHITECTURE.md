@@ -42,6 +42,21 @@ The repo contains config for both topologies. The default compose startup path i
 
 ## Layer Responsibilities
 
+### Startup and lifespan responsibilities
+
+FastAPI startup in `devgodzilla/api/app.py` currently does more than router registration. During startup the app:
+
+- bootstraps default engines
+- initializes DB schema access
+- installs the DB event sink when available
+- migrates YAML-backed agent defaults into DB-backed state
+- recovers stuck protocols through the orchestrator
+- registers sprint event handlers
+- validates the path contract
+- initializes telemetry and FastAPI instrumentation
+
+When architecture docs and runtime logs disagree, trust the startup behavior in `app.py`.
+
 ### 1. Edge and Routing
 
 - `nginx.devgodzilla.conf` proxies to containerized backend/frontend services.
@@ -108,3 +123,10 @@ When docs conflict, use this order:
 2. `docs/DevGodzilla/CURRENT_STATE.md`
 3. Other active docs under `docs/DevGodzilla/`
 4. Archived docs under `docs/legacy/`
+
+## Related Docs
+
+- `API-ARCHITECTURE.md`
+- `BACKEND-FLOWS.md`
+- `SUBSYSTEMS.md`
+- `FRONTEND-ARCHITECTURE.md`

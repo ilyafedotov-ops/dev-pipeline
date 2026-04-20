@@ -14,7 +14,20 @@ This directory contains architecture/layer documents that were useful during mig
 - `docs/DevGodzilla/CURRENT_STATE.md`
 - `docs/DevGodzilla/ARCHITECTURE.md`
 - `docs/DevGodzilla/API-ARCHITECTURE.md`
+- `docs/DevGodzilla/API-REFERENCE.md`
+- `docs/DevGodzilla/BACKEND-FLOWS.md`
+- `docs/DevGodzilla/STATE-MODELS.md`
+- `docs/DevGodzilla/SUBSYSTEMS.md`
+- `docs/DevGodzilla/OPERATIONS-OBSERVABILITY.md`
+- `docs/DevGodzilla/FRONTEND-ARCHITECTURE.md`
+- `docs/DevGodzilla/FRONTEND-WORKSPACES.md`
+- `docs/DevGodzilla/FRONTEND-API-CONTRACTS.md`
+- `docs/DevGodzilla/FRONTEND-COMPONENT-SYSTEM.md`
 - `docs/DevGodzilla/WINDMILL-WORKFLOWS.md`
+- `docs/DevGodzilla/WINDMILL-CONTRACTS.md`
+- `docs/DevGodzilla/WINDMILL-OPERATIONS.md`
+- `docs/DevGodzilla/FRONTEND-TEST-MAP.md`
+- `docs/DevGodzilla/DOCS-MAINTENANCE.md`
 
 ## Migration Map
 
@@ -30,8 +43,8 @@ This directory contains architecture/layer documents that were useful during mig
 | `docs/implementation-plan.md` | `docs/legacy/2026-02-21-implementation-plan.md` | `docs/DevGodzilla/ARCHITECTURE.md` |
 | `docs/DevGodzilla/IMPLEMENTATION-PLAN.md` | `docs/legacy/2026-02-21-DevGodzilla-IMPLEMENTATION-PLAN.md` | `docs/DevGodzilla/ARCHITECTURE.md` |
 | `docs/api-reference.md` | `docs/legacy/2026-02-21-api-reference.md` | `docs/DevGodzilla/API-ARCHITECTURE.md` + `/openapi.json` |
-| `docs/frontend-solution-architecture.md` | `docs/legacy/2026-02-21-frontend-solution-architecture.md` | `docs/DevGodzilla/CURRENT_STATE.md` |
-| `docs/DevGodzilla/subsystems/*` | `docs/legacy/2026-02-21-DevGodzilla-subsystems/*` | `docs/DevGodzilla/ARCHITECTURE.md` |
+| `docs/frontend-solution-architecture.md` | `docs/legacy/2026-02-21-frontend-solution-architecture.md` | `docs/DevGodzilla/FRONTEND-ARCHITECTURE.md` |
+| `docs/DevGodzilla/subsystems/*` | `docs/legacy/2026-02-21-DevGodzilla-subsystems/*` | `docs/DevGodzilla/SUBSYSTEMS.md` |
 | `docs/DevGodzilla/INTEGRATED_SOLUTION_DESIGN.md` | `docs/legacy/2026-02-21-DevGodzilla-INTEGRATED_SOLUTION_DESIGN.md` | `docs/DevGodzilla/ARCHITECTURE.md` |
 | `docs/DevGodzilla/AGENTS.md` | `docs/legacy/2026-02-21-DevGodzilla-AGENTS.md` | `docs/DevGodzilla/ARCHITECTURE.md` |
 | `docs/cli-workflow-harness-usage.md` | `docs/legacy/2026-02-21-cli-workflow-harness-usage.md` | `docs/cli.md` |
@@ -46,3 +59,5 @@ This directory contains architecture/layer documents that were useful during mig
 ## Notes
 
 Some archived content contains historical `tasksgodzilla` naming and aspirational designs that are intentionally preserved.
+
+Use `python3 scripts/docs_inventory.py` when reviewing or refreshing the canonical docs to compare the live code surface against the active doc set.

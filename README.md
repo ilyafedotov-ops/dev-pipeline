@@ -7,7 +7,20 @@ DevGodzilla is an AI-assisted development orchestration platform built from a Fa
 - `docs/DevGodzilla/CURRENT_STATE.md`: what is implemented and how the local runtime is wired today
 - `docs/DevGodzilla/ARCHITECTURE.md`: system boundaries and current architecture
 - `docs/DevGodzilla/API-ARCHITECTURE.md`: API mounting, auth model, and route domains
+- `docs/DevGodzilla/API-REFERENCE.md`: human-oriented backend route reference
+- `docs/DevGodzilla/BACKEND-FLOWS.md`: onboarding, SpecKit, protocol, QA, and sprint lifecycles
+- `docs/DevGodzilla/STATE-MODELS.md`: protocol, step, spec-run, and onboarding state semantics
+- `docs/DevGodzilla/SUBSYSTEMS.md`: backend service-domain ownership
+- `docs/DevGodzilla/OPERATIONS-OBSERVABILITY.md`: health, logs, events, runs, queues, and reconciliation
+- `docs/DevGodzilla/FRONTEND-ARCHITECTURE.md`: console architecture and route groups
+- `docs/DevGodzilla/FRONTEND-WORKSPACES.md`: project and protocol workspace model
+- `docs/DevGodzilla/FRONTEND-API-CONTRACTS.md`: client, hooks, query keys, and websocket invalidation
+- `docs/DevGodzilla/FRONTEND-COMPONENT-SYSTEM.md`: component taxonomy and extension points
 - `docs/DevGodzilla/WINDMILL-WORKFLOWS.md`: Windmill assets, flows, and integration model
+- `docs/DevGodzilla/WINDMILL-CONTRACTS.md`: per-flow purpose and script-chain contracts
+- `docs/DevGodzilla/WINDMILL-OPERATIONS.md`: Windmill bootstrap and troubleshooting runbook
+- `docs/DevGodzilla/FRONTEND-TEST-MAP.md`: UI behavior mapped to tests
+- `docs/DevGodzilla/DOCS-MAINTENANCE.md`: canonical-doc ownership and drift checks
 - `docs/ci.md`: CI wrappers, local parity, and live harness notes
 
 Historical material lives under `docs/legacy/` and should not be treated as authoritative.

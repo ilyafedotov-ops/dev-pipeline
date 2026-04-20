@@ -171,4 +171,6 @@ The default token-file path for local imports is:
 - Runtime truth: `docs/DevGodzilla/CURRENT_STATE.md`
 - API architecture: `docs/DevGodzilla/API-ARCHITECTURE.md`
 - System architecture: `docs/DevGodzilla/ARCHITECTURE.md`
+- Flow contracts: `docs/DevGodzilla/WINDMILL-CONTRACTS.md`
+- Operations runbook: `docs/DevGodzilla/WINDMILL-OPERATIONS.md`
 - CI notes: `docs/ci.md`

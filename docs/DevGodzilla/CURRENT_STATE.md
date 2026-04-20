@@ -12,7 +12,20 @@ This document describes what is implemented in this repository today.
 - Runtime truth: `docs/DevGodzilla/CURRENT_STATE.md`
 - Architecture boundaries: `docs/DevGodzilla/ARCHITECTURE.md`
 - API architecture: `docs/DevGodzilla/API-ARCHITECTURE.md`
+- API route reference: `docs/DevGodzilla/API-REFERENCE.md`
+- Backend lifecycle flows: `docs/DevGodzilla/BACKEND-FLOWS.md`
+- State semantics: `docs/DevGodzilla/STATE-MODELS.md`
+- Backend subsystem ownership: `docs/DevGodzilla/SUBSYSTEMS.md`
+- Operations and observability: `docs/DevGodzilla/OPERATIONS-OBSERVABILITY.md`
+- Frontend architecture: `docs/DevGodzilla/FRONTEND-ARCHITECTURE.md`
+- Frontend workspaces: `docs/DevGodzilla/FRONTEND-WORKSPACES.md`
+- Frontend data layer: `docs/DevGodzilla/FRONTEND-API-CONTRACTS.md`
+- Frontend component taxonomy: `docs/DevGodzilla/FRONTEND-COMPONENT-SYSTEM.md`
 - Windmill integration and assets: `docs/DevGodzilla/WINDMILL-WORKFLOWS.md`
+- Windmill flow contracts: `docs/DevGodzilla/WINDMILL-CONTRACTS.md`
+- Windmill operations: `docs/DevGodzilla/WINDMILL-OPERATIONS.md`
+- Frontend behavior test map: `docs/DevGodzilla/FRONTEND-TEST-MAP.md`
+- Documentation maintenance: `docs/DevGodzilla/DOCS-MAINTENANCE.md`
 - Historical material: `docs/legacy/README.md`
 
 ## Supported Local Topologies
