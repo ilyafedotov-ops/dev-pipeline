@@ -11,10 +11,22 @@ import {
   Loader2,
   Play,
   RefreshCw,
+  StopCircle,
   Terminal,
   XCircle,
 } from "lucide-react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +49,7 @@ import {
 } from "@/components/ui/select";
 import {
   useActiveCLIExecutions,
+  useCancelCLIExecution,
   useCLIExecution,
   useCLIExecutionLogs,
   useCLIExecutionLogStream,
@@ -227,6 +240,7 @@ export default function ExecutionsPage() {
 
   const { data: activeData } = useActiveCLIExecutions();
   const { data: selectedExecution } = useCLIExecution(selectedExecutionId ?? undefined);
+  const cancelExecution = useCancelCLIExecution();
 
   const executions = executionsData?.executions ?? [];
   const activeCount = activeData?.active_count ?? 0;
@@ -311,6 +325,64 @@ export default function ExecutionsPage() {
         return <span className="text-muted-foreground text-xs">—</span>;
       },
       size: 100,
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => {
+        const exec = row.original;
+        const isCancellable = exec.status === "running" || exec.status === "pending";
+        if (!isCancellable) return null;
+        return (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={cancelExecution.isPending}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <StopCircle className="mr-1 h-3 w-3" />
+                Cancel
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Cancel Execution</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to cancel this execution? This will send SIGTERM to the
+                  running process and mark it as cancelled. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>No, keep running</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-white hover:bg-destructive/90"
+                  disabled={cancelExecution.isPending}
+                  onClick={async () => {
+                    try {
+                      await cancelExecution.mutateAsync(exec.execution_id);
+                    } catch {
+                      // Error is handled by the mutation
+                    }
+                  }}
+                >
+                  {cancelExecution.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                      Cancelling...
+                    </>
+                  ) : (
+                    "Yes, cancel execution"
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        );
+      },
+      size: 120,
     },
   ];
 

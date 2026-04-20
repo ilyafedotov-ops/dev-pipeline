@@ -92,6 +92,7 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
 interface ApiClientConfig {
   baseUrl: string;
   token?: string;
+  refreshToken?: string;
   projectTokens?: Record<number, string>;
   onUnauthorized?: () => void;
   retry?: Partial<RetryConfig>;
@@ -102,6 +103,7 @@ const STORAGE_KEY = "devgodzilla_config";
 interface StoredConfig {
   apiBase: string;
   token: string;
+  refreshToken: string;
   projectTokens: Record<number, string>;
 }
 
@@ -117,13 +119,20 @@ function getStoredConfig(): StoredConfig | null {
 
 function setStoredConfig(config: Partial<StoredConfig>) {
   if (typeof window === "undefined") return;
-  const current = getStoredConfig() || { apiBase: "", token: "", projectTokens: {} };
+  const current = getStoredConfig() || { apiBase: "", token: "", refreshToken: "", projectTokens: {} };
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...config }));
 }
 
 class ApiClient {
   private config: ApiClientConfig;
   private retryConfig: RetryConfig;
+
+  /**
+   * Mutex-like lock to prevent concurrent refresh requests.
+   * If a refresh is already in-flight, other 401 errors will
+   * queue up and wait for the single in-flight refresh to complete.
+   */
+  private refreshPromise: Promise<boolean> | null = null;
 
   constructor() {
     const stored = getStoredConfig();
@@ -137,6 +146,7 @@ class ApiClient {
     this.config = {
       baseUrl: stored?.apiBase || defaultBaseUrl,
       token: stored?.token,
+      refreshToken: stored?.refreshToken,
       projectTokens: stored?.projectTokens || {},
     };
     this.retryConfig = DEFAULT_RETRY_CONFIG;
@@ -149,7 +159,8 @@ class ApiClient {
     }
     setStoredConfig({
       apiBase: this.config.baseUrl,
-      token: this.config.token,
+      token: this.config.token || "",
+      refreshToken: this.config.refreshToken || "",
       projectTokens: this.config.projectTokens,
     });
   }
@@ -167,14 +178,81 @@ class ApiClient {
   }
 
   /**
-   * Make a fetch request with automatic retry logic.
+   * Attempt to silently refresh the access token using the stored refresh token.
+   * Returns true if a new access token was obtained, false otherwise.
+   *
+   * This method is concurrency-safe: if multiple requests hit 401 at the same
+   * time, only one refresh call is made; the others wait for its result.
+   */
+  private async tryRefreshToken(): Promise<boolean> {
+    // If a refresh is already in-flight, piggyback on it
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = this._doRefresh();
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+
+  private async _doRefresh(): Promise<boolean> {
+    const refreshToken = this.config.refreshToken;
+    if (!refreshToken) {
+      return false;
+    }
+
+    try {
+      const baseUrl = this.config.baseUrl;
+      const response = await fetch(`${baseUrl}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      if (!response.ok) {
+        // Refresh failed — refresh token is probably expired/revoked
+        console.warn("[apiClient] Token refresh failed:", response.status);
+        this.config.refreshToken = undefined;
+        setStoredConfig({ refreshToken: "" });
+        return false;
+      }
+
+      const data = await response.json();
+      if (data.access_token) {
+        this.config.token = data.access_token;
+
+        // If the backend also returns a new refresh token (rotation), store it
+        if (data.refresh_token) {
+          this.config.refreshToken = data.refresh_token;
+        }
+
+        setStoredConfig({
+          token: data.access_token,
+          refreshToken: this.config.refreshToken || "",
+        });
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.warn("[apiClient] Token refresh network error:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Make a fetch request with automatic retry logic and silent token refresh
+   * on 401 errors.
    */
   async fetch<T>(
     path: string,
     options?: RequestInit & { projectId?: number; skipRetry?: boolean }
   ): Promise<T> {
     const { skipRetry, ...fetchOptions } = options || {};
-    
+
     if (skipRetry) {
       return this.singleFetch<T>(path, fetchOptions);
     }
@@ -187,6 +265,30 @@ class ApiClient {
         return await this.singleFetch<T>(path, fetchOptions);
       } catch (error) {
         lastError = error;
+
+        // On 401, attempt silent refresh before giving up
+        if (error instanceof ApiError && error.status === 401) {
+          // Don't try to refresh if we're already hitting the refresh endpoint
+          if (path === "/auth/refresh") {
+            throw error;
+          }
+
+          const refreshed = await this.tryRefreshToken();
+          if (refreshed) {
+            // Retry the original request once with the new token
+            try {
+              return await this.singleFetch<T>(path, fetchOptions);
+            } catch (retryError) {
+              // Refresh succeeded but original request still failed — give up
+              this.config.onUnauthorized?.();
+              throw retryError;
+            }
+          }
+
+          // Refresh also failed — trigger logout redirect
+          this.config.onUnauthorized?.();
+          throw error;
+        }
 
         // Don't retry on client errors (4xx) except 429
         if (error instanceof ApiError) {
@@ -240,7 +342,6 @@ class ApiClient {
       });
 
       if (response.status === 401) {
-        this.config.onUnauthorized?.();
         throw new ApiError("Unauthorized", 401);
       }
 

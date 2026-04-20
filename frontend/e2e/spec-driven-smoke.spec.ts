@@ -458,6 +458,7 @@ async function installApiMocks(page: Page) {
         protocol_id: 42,
         protocol_root: IMPLEMENT_PATH,
         step_count: 3,
+        sprint_id: 5,
         spec_run_id: SPEC_RUN_ID,
         worktree_path: "/tmp/demo-project",
         error: null,
@@ -473,7 +474,7 @@ async function installApiMocks(page: Page) {
   return state;
 }
 
-test.skip("drives the deterministic SpecKit happy path", async ({ page }) => {
+test("drives the deterministic SpecKit happy path", async ({ page }) => {
   test.setTimeout(60_000);
   const state = await installApiMocks(page);
 

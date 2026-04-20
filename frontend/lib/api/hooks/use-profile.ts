@@ -41,7 +41,7 @@ export interface UpdateProfilePayload {
 }
 
 export interface ChangePasswordPayload {
-  old_password: string;
+  current_password: string;
   new_password: string;
 }
 

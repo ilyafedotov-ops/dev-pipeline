@@ -409,6 +409,33 @@ export function useCleanupSpecRun() {
   });
 }
 
+// Response type for the stop spec run endpoint
+export interface SpecRunStopResponse {
+  success: boolean;
+  spec_run_id?: number | null;
+  previous_status?: string | null;
+  status?: string | null;
+  error?: string | null;
+}
+
+/**
+ * Stop a running spec run
+ */
+export function useStopSpecRun() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (specRunId: number) =>
+      apiClient.post<SpecRunStopResponse>(`/speckit/spec-runs/${specRunId}/stop`),
+    onSuccess: () => {
+      // Invalidate all speckit-related queries
+      queryClient.invalidateQueries({ queryKey: ["speckit", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["speckit", "specs"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.specifications.all });
+    },
+  });
+}
+
 /**
  * Run the full SpecKit workflow: spec → plan → tasks
  * Use stop_after to run partial pipelines

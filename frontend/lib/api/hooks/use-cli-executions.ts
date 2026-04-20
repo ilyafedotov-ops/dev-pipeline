@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "../client";
 import {
@@ -144,4 +144,33 @@ export function useCLIExecutionLogStream(executionId: string | undefined) {
   }, [executionId, queryClient]);
 
   return { logs, status, isConnected };
+}
+
+// Response type for the cancel endpoint
+export interface CancelExecutionResponse {
+  execution_id: string;
+  status: string;
+  message: string;
+  pid: number | null;
+  termination_attempted: boolean;
+  termination_result: string;
+  termination_error?: string;
+}
+
+/**
+ * Cancel a running CLI execution
+ */
+export function useCancelCLIExecution() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (executionId: string) =>
+      apiClient.post<CancelExecutionResponse>(`/cli-executions/${executionId}/cancel`),
+    onSuccess: (_, executionId) => {
+      // Invalidate the specific execution detail
+      queryClient.invalidateQueries({ queryKey: cliExecutionKeys.detail(executionId) });
+      // Invalidate the lists to reflect the status change
+      queryClient.invalidateQueries({ queryKey: cliExecutionKeys.all });
+    },
+  });
 }

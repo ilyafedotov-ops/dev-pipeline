@@ -552,6 +552,8 @@ export interface MetricsSummary {
   success_rate: number;
   job_type_metrics: JobTypeMetric[];
   recent_events_count: number;
+  degraded: boolean;
+  errors: string[];
 }
 
 // =============================================================================

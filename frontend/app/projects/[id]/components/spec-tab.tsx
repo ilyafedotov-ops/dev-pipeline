@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { SpecKitWorkflowPanel } from "./speckit-workflow-panel";
 
 import {
@@ -13,14 +12,27 @@ import {
   Download,
   FileSearch,
   FileText,
+  Loader2,
   MessageSquare,
   PlayCircle,
   RefreshCw,
   RotateCcw,
   Sparkles,
+  StopCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +57,7 @@ import {
   useRunImplement,
   useSpecifications,
   useSpecKitStatus,
+  useStopSpecRun,
 } from "@/lib/api";
 import { getProjectSpecWorkflowPath, getSpecificationReviewPath } from "@/lib/project-routes";
 import { getImplementSuccessOutcome } from "@/lib/workflow/implement-result";
@@ -75,7 +88,6 @@ function getReviewState(spec: {
 }
 
 export function SpecTab({ projectId }: SpecTabProps) {
-  const router = useRouter();
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const {
     data: status,
@@ -93,6 +105,7 @@ export function SpecTab({ projectId }: SpecTabProps) {
   const runImplement = useRunImplement();
   const generateSpec = useGenerateSpec();
   const initSpecKit = useInitSpecKit();
+  const stopSpecRun = useStopSpecRun();
 
   const [clarifyOpen, setClarifyOpen] = useState(false);
   const [clarifySpecPath, setClarifySpecPath] = useState<string | null>(null);
@@ -239,9 +252,9 @@ export function SpecTab({ projectId }: SpecTabProps) {
       if (result.success) {
         const outcome = getImplementSuccessOutcome(result);
         toast.success(outcome.message);
-        if (outcome.targetPath) {
-          router.push(outcome.targetPath);
-        }
+        // Do NOT redirect — stay on spec tab so the user can click
+        // "Review Implementation" inline. React Query will refetch
+        // the specs list and the review link will appear automatically.
       } else {
         toast.error(result.error || "Implement initialization failed");
       }
@@ -598,6 +611,58 @@ export function SpecTab({ projectId }: SpecTabProps) {
                       <PlayCircle className="mr-2 h-3.5 w-3.5" />
                       Implement
                     </Button>
+                    {spec.spec_run_id && spec.status === "in-progress" && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={stopSpecRun.isPending}
+                          >
+                            <StopCircle className="mr-2 h-3.5 w-3.5" />
+                            Stop Run
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Stop Spec Run</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to stop this spec run? The run will be
+                              marked as stopped and any in-progress work will be halted.
+                              This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>No, keep running</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-white hover:bg-destructive/90"
+                              disabled={stopSpecRun.isPending}
+                              onClick={async () => {
+                                try {
+                                  const result = await stopSpecRun.mutateAsync(spec.spec_run_id!);
+                                  if (result.success) {
+                                    toast.success("Spec run stopped successfully");
+                                  } else {
+                                    toast.error(result.error || "Failed to stop spec run");
+                                  }
+                                } catch {
+                                  toast.error("Failed to stop spec run");
+                                }
+                              }}
+                            >
+                              {stopSpecRun.isPending ? (
+                                <>
+                                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                  Stopping...
+                                </>
+                              ) : (
+                                "Yes, stop run"
+                              )}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                   </div>
                 </div>
               );
@@ -675,6 +740,58 @@ export function SpecTab({ projectId }: SpecTabProps) {
                         <PlayCircle className="mr-2 h-3.5 w-3.5" />
                         Implement
                       </Button>
+                      {spec.spec_run_id && spec.status === "in-progress" && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              disabled={stopSpecRun.isPending}
+                            >
+                              <StopCircle className="mr-2 h-3.5 w-3.5" />
+                              Stop Run
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Stop Spec Run</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to stop this spec run? The run will be
+                                marked as stopped and any in-progress work will be halted.
+                                This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>No, keep running</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-white hover:bg-destructive/90"
+                                disabled={stopSpecRun.isPending}
+                                onClick={async () => {
+                                  try {
+                                    const result = await stopSpecRun.mutateAsync(spec.spec_run_id!);
+                                    if (result.success) {
+                                      toast.success("Spec run stopped successfully");
+                                    } else {
+                                      toast.error(result.error || "Failed to stop spec run");
+                                    }
+                                  } catch {
+                                    toast.error("Failed to stop spec run");
+                                  }
+                                }}
+                              >
+                                {stopSpecRun.isPending ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                    Stopping...
+                                  </>
+                                ) : (
+                                  "Yes, stop run"
+                                )}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
                     </div>
                   </div>
                   <div className="text-muted-foreground flex gap-4 text-xs">
