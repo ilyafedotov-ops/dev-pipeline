@@ -35,10 +35,22 @@ from devgodzilla.api.dependencies import get_db, get_service_context, require_ap
 from devgodzilla.config import get_config
 from devgodzilla.engines.bootstrap import bootstrap_default_engines
 from devgodzilla.db.database import Database
-from devgodzilla.logging import get_logger, get_log_buffer
+from devgodzilla.logging import (
+    get_log_buffer,
+    get_logger,
+    json_logging_from_env,
+    setup_logging,
+)
 from devgodzilla.services.orchestrator import OrchestratorMode, OrchestratorService
 from devgodzilla.services.path_contract import validate_path_contract
 from devgodzilla.windmill.client import WindmillClient, WindmillConfig
+
+# Configure logging at module import so uvicorn-launched entrypoints
+# (Dockerfile CMD runs `uvicorn devgodzilla.api.app:app` directly, bypassing
+# scripts/api_server.py) still get the root handler, level, and ring buffer.
+# Without this, the root level stays at WARNING and every logger.info() in the
+# request path is silently dropped before reaching stdout.
+setup_logging(json_output=json_logging_from_env())
 
 logger = get_logger(__name__)
 
