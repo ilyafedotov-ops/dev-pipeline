@@ -122,6 +122,12 @@
 
 - `GET /projects/{project_id}/task-cycle`
 - `POST /projects/{project_id}/brownfield/run`
+  - Required request field: `feature_request`
+  - Supported `output_mode` values: `task_cycle`, `tasks_only`, `tasks_to_sprint`, `protocol`, `protocol_to_sprint`
+  - Optional protocol controls: `feature_name`, `protocol_name`, `branch`, `overwrite_protocol`
+  - Optional sprint controls: `sprint_id`, `sprint_name`, `auto_sync_sprint`, `overwrite_existing_tasks`
+  - `200 OK` returns `BrownfieldRunOut` with artifact paths plus mode-specific payload such as `protocol`, `sprint`, `tasks_synced`, `task_ids`, `work_items`, and `next_work_item_id`
+  - `202 Accepted` returns the same envelope with `warnings` and a `poll_hint`; callers should follow that hint because polling differs by mode
 - Work-item actions under `/work-items/{work_item_id}`:
   - detail
   - artifact content

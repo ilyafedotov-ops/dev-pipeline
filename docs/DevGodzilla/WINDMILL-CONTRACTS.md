@@ -249,7 +249,7 @@ Frontend touchpoints:
 
 Purpose:
 
-- one-entry brownfield flow covering onboarding, SpecKit, protocol option, and sprint option
+- one-entry brownfield flow covering onboarding, SpecKit, task-cycle, protocol, and sprint delivery options
 
 Script chain:
 
@@ -268,7 +268,7 @@ Script chain:
 
 Backend effect:
 
-- end-to-end brownfield feature delivery from repo understanding to tasks, protocol, or sprint outputs
+- end-to-end brownfield feature delivery from repo understanding to `task_cycle`, `tasks_only`, `tasks_to_sprint`, `protocol`, or `protocol_to_sprint` outputs
 
 Frontend touchpoints:
 

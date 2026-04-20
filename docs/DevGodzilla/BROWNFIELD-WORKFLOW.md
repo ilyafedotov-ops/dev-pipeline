@@ -2,7 +2,7 @@
 
 > Status: Active design direction, exported as `f/devgodzilla/brownfield_feature`
 > Scope: Small brownfield project and feature-delivery journey
-> Last updated: 2026-03-07
+> Last updated: 2026-04-20
 
 ## Why this flow exists
 
@@ -75,6 +75,7 @@ Base path:
 
 Delivery branch:
 
+- `task_cycle`
 - `tasks_only`
 - `tasks_to_sprint`
 - `protocol`
@@ -100,10 +101,34 @@ The existing wizard components show the current fragmentation:
 - `frontend/components/wizards/generate-specs-wizard.tsx`
 - `frontend/components/wizards/implement-feature-wizard.tsx`
 
-## Backend/API follow-up
+## Backend/API contract
 
-The flow works without backend changes, but the next backend improvement should be a compound intent-based endpoint, for example:
+The compound backend endpoint now exists:
 
 - `POST /projects/{id}/brownfield/run`
 
-That endpoint should accept the same high-level inputs as the Windmill flow and internally decide whether to stop at tasks, create a protocol, or create or sync a sprint. That would remove backend leakage of SpecKit and protocol internals from the UI.
+Implemented request shape:
+
+- required: `feature_request`
+- optional naming and routing: `feature_name`, `protocol_name`, `branch`
+- mode selection: `output_mode`
+- sprint inputs: `sprint_id`, `sprint_name`, `auto_sync_sprint`, `overwrite_existing_tasks`
+- protocol overwrite control: `overwrite_protocol`
+
+Implemented `output_mode` values:
+
+- `task_cycle`: create a protocol, seed task-cycle metadata, and auto-advance the first runnable step
+- `tasks_only`: stop after SpecKit tasks are generated
+- `tasks_to_sprint`: import generated tasks into an existing sprint
+- `protocol`: create and plan a protocol without task-cycle auto-advance
+- `protocol_to_sprint`: create a protocol, create a sprint from it, and optionally sync tasks into that sprint
+
+Implemented response shape:
+
+- artifact paths: `spec_path`, `plan_path`, `tasks_path`
+- protocol output when relevant: `protocol`
+- sprint output when relevant: `sprint`, `tasks_synced`, `task_ids`
+- task-cycle output when relevant: `work_items`, `next_work_item_id`
+- async hinting: `warnings`, `poll_hint`
+
+Long-running runs can still return `202 Accepted`. The caller should follow the returned `poll_hint`, because the correct polling endpoint depends on `output_mode` rather than always being the task-cycle board.

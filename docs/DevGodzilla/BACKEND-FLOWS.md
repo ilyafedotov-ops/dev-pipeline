@@ -111,14 +111,20 @@ Entry points:
 Sequence:
 
 1. `TaskCycleService.start_brownfield_run()` uses the same SpecKit pipeline: specify -> plan -> tasks.
-2. When `output_mode` requests protocol-backed delivery, `SpecToProtocolService` creates a protocol and seeds task-cycle metadata into step runtime state.
-3. The first runnable step is auto-advanced so the brownfield run does not stall in all-pending state.
-4. Each step is exposed as a work item with task-cycle status, context state, review state, QA state, and artifact references.
-5. Work-item actions build curated context packs, execute implementation, run review, run QA, and mark PR readiness.
+2. `output_mode=tasks_only` returns after artifacts are generated and does not create a protocol or sprint.
+3. `output_mode=tasks_to_sprint` imports generated tasks into the requested sprint through `TaskSyncService`.
+4. `output_mode in {protocol, task_cycle, protocol_to_sprint}` creates a protocol through `SpecToProtocolService`.
+5. Only `output_mode=task_cycle` seeds task-cycle metadata into step runtime state and auto-advances the first runnable step so the board is actionable immediately.
+6. `output_mode=protocol_to_sprint` creates a sprint from the protocol and can auto-sync protocol tasks into that sprint through `SprintIntegrationService`.
+7. Each task-cycle step is exposed as a work item with task-cycle status, context state, review state, QA state, and artifact references.
+8. Work-item actions build curated context packs, execute implementation, run review, run QA, and mark PR readiness.
 
 Important behavior:
 
+- `POST /projects/{project_id}/brownfield/run` is a compound intent endpoint, not just a task-cycle launcher.
+- The route may return `202 Accepted` for slow runs and includes a mode-specific `poll_hint` so callers can poll the right resource.
 - Task-cycle state is persisted in step runtime state rather than in a separate table.
+- `protocol` mode creates a protocol without task-cycle auto-advance.
 - Artifact references under each work item are part of the contract; UI and Windmill scripts should treat them as generated runtime paths, not hand-authored docs.
 
 ## 5. Sprint and Task Sync Flow
