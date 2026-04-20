@@ -47,6 +47,7 @@ Startup hooks currently handle:
 Primary files:
 
 - `services/specification.py`
+- `services/discovery_agent.py`
 - `services/clarifier.py`
 - `services/policy.py`
 - `services/template_manager.py`
@@ -58,14 +59,17 @@ Primary files:
 Responsibilities:
 
 - onboarding repositories and `.specify/`
+- running repository discovery and writing `specs/discovery/_runtime/*` artifacts
 - managing constitutions and effective policy
 - generating spec/plan/tasks/checklist/analyze artifacts
 - persisting spec-run state and cross-project specification inventory
 - handling clarifications and repo-level policy findings
+- exposing discovery retry and log-retrieval routes for operators
 
 Key invariant:
 
 - project-scoped SpecKit routes are the primary implementation surface; `/speckit/*` wrappers should stay thin.
+- onboarding and discovery may create filesystem artifacts, but DB events and project-scoped status routes remain the recovery surface.
 
 ## Orchestration and Planning Subsystem
 

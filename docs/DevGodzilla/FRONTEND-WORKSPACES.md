@@ -43,6 +43,20 @@ Key responsibilities:
 - launch SpecKit, design, and implementation wizard flows
 - provide access to sprint, branch/PR, workflow, task-cycle, and clarification surfaces
 
+Current project-scoped route entrypoints also include:
+
+- `/projects/[id]/branches`
+- `/projects/[id]/clarifications`
+- `/projects/[id]/constitution`
+- `/projects/[id]/design-solution`
+- `/projects/[id]/execution`
+- `/projects/[id]/generate-specs`
+- `/projects/[id]/implement-feature`
+- `/projects/[id]/onboarding`
+- `/projects/[id]/policy`
+- `/projects/[id]/protocols`
+- `/projects/[id]/sprint-board`
+
 ## Protocol Workspace
 
 Primary route:
@@ -75,6 +89,15 @@ Current detail tabs and drill-down areas:
 - Clarifications
 - Feedback
 - Artifacts
+
+Current protocol-scoped route entrypoints also include:
+
+- `/protocols/[id]/steps`
+- `/protocols/[id]/runs`
+- `/protocols/[id]/events`
+- `/protocols/[id]/spec`
+- `/protocols/[id]/policy`
+- `/protocols/[id]/clarifications`
 
 Key responsibilities:
 
@@ -124,6 +147,9 @@ These pages support the main workspaces:
 - `/specifications/[id]`: artifact review
 - `/steps/[id]`: step-level detail
 - `/runs/[runId]`: run-level drill-down
+- `/execution` and `/executions`: cross-project execution and CLI execution surfaces
+- `/clarifications`: global clarification inbox
+- `/quality`: aggregate QA dashboard
 - `/windmill/*`: flow and job visibility
 - `/ops/*`: global operations visibility
 

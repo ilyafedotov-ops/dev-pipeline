@@ -97,6 +97,21 @@ Current examples:
 
 These are workflow entry components, not long-lived workspace views.
 
+## `components/skeletons`
+
+Purpose:
+
+- page-level loading placeholders
+- reusable skeleton compositions for workspace and list views
+
+Examples:
+
+- project detail skeletons
+- protocol detail skeletons
+- list and dashboard loading shells
+
+Keep these components display-only. They should not fetch data or encode workflow logic.
+
 ## `components/visualizations`
 
 Purpose:
@@ -117,6 +132,16 @@ Examples:
 - shared error boundaries
 - clarification dialog
 - wizard skeletons
+
+## Root-Level Infrastructure Components
+
+Some active components live directly under `frontend/components/` rather than a subdirectory, for example:
+
+- `providers.tsx`
+- `theme-provider.tsx`
+- `cli-executions-list.tsx`
+
+Use this top level for app-wide infrastructure or a small number of cross-cutting composites that do not fit the directory taxonomy cleanly. Do not treat it as a generic dumping ground.
 
 ## Page-Coupled Components
 

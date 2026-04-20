@@ -3,7 +3,7 @@
 > Status: Active
 > Scope: Current implemented architecture with a small target-state section
 > Source of truth: `docs/DevGodzilla/CURRENT_STATE.md`, `devgodzilla/`, `frontend/`, `windmill/`, `docker-compose*.yml`, `nginx*.conf`
-> Last updated: 2026-04-19
+> Last updated: 2026-04-20
 
 ## Summary
 
@@ -67,7 +67,7 @@ When architecture docs and runtime logs disagree, trust the startup behavior in 
 
 - Primary product console: `frontend/`
 - Framework: Next.js App Router with `basePath: "/console"`
-- Current major route families: projects, protocols, specifications, steps, runs, ops, policy packs, templates, agents, settings, Windmill views
+- Current major route families: projects, protocols, specifications, steps, runs, execution, executions, clarifications, quality, ops, policy packs, templates, agents, settings, Windmill views
 - Windmill UI remains available as an operator-facing companion interface at the site root
 
 ### 3. API Layer
@@ -83,7 +83,7 @@ Implemented service modules include:
 
 - orchestration and planning: `orchestrator.py`, `planning.py`, `protocol_generation.py`, `spec_to_protocol.py`, `task_cycle.py`
 - execution and QA: `execution.py`, `quality.py`, `retry_config.py`, `cli_execution_tracker.py`
-- project/spec flows: `specification.py`, `speckit_adapter.py`, `clarifier.py`, `template_manager.py`
+- project/spec flows: `specification.py`, `discovery_agent.py`, `speckit_adapter.py`, `clarifier.py`, `template_manager.py`
 - coordination and persistence: `event_persistence.py`, `events.py`, `reconciliation.py`, `onboarding_queue.py`, `sprint_integration.py`, `task_sync.py`
 - platform services: `agent_config.py`, `git.py`, `health.py`, `telemetry.py`, `path_contract.py`, `workspace_paths.py`, `worktree.py`
 

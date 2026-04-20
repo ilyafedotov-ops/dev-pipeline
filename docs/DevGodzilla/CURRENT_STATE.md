@@ -3,7 +3,7 @@
 > Status: Active
 > Scope: Current runtime and supported local topologies
 > Source of truth: `devgodzilla/api/app.py`, `devgodzilla/api/routes/`, `frontend/next.config.mjs`, `frontend/package.json`, `docker-compose*.yml`, `nginx*.conf`, `scripts/run-local-dev.sh`, `windmill/`
-> Last updated: 2026-04-19
+> Last updated: 2026-04-20
 
 This document describes what is implemented in this repository today.
 
@@ -75,9 +75,12 @@ Current frontend facts:
 Current page groups include:
 
 - `/console/projects` and `/console/projects/[id]`
+- project-scoped workflows such as `/console/projects/[id]/branches`, `/constitution`, `/design-solution`, `/execution`, `/generate-specs`, `/implement-feature`, `/onboarding`, `/policy`, `/protocols`, and `/sprint-board`
 - `/console/protocols` and `/console/protocols/[id]`
+- protocol drill-down pages such as `/console/protocols/[id]/steps`, `/runs`, `/events`, `/spec`, `/policy`, and `/clarifications`
 - `/console/specifications` and `/console/specifications/[id]`
 - `/console/steps`, `/console/runs`, `/console/sprints`
+- `/console/execution` and `/console/executions`
 - `/console/ops/*`
 - `/console/policy-packs/*`
 - `/console/templates`
@@ -101,9 +104,10 @@ Current implemented route groups:
 - Health: `/health`, `/health/live`, `/health/ready`, `/health/agents`
 - Core lifecycle: `/projects`, `/protocols`, `/steps`, `/agents`, `/clarifications`
 - SpecKit and specs: `/speckit/*`, `/projects/{id}/speckit/*`, `/specifications*`
+- Project onboarding and discovery: `/projects/{id}/actions/onboard`, `/projects/{id}/onboarding`, `/projects/{id}/discovery/actions/retry`, `/projects/{id}/discovery/logs`
 - Agile execution: `/sprints*`, `/tasks*`
 - Governance and quality: `/policy_packs*`, `/quality*`, project policy endpoints
-- Brownfield and template flows: `/brownfield*`, `/templates*`
+- Brownfield and template flows: `/projects/{id}/brownfield/run`, `/projects/{id}/task-cycle`, `/work-items/*`, `/templates*`
 - Operations: `/events*`, `/logs*`, `/metrics*`, `/queues*`, `/cli-executions*`, `/runs*`
 - Windmill passthrough and maintenance: `/flows*`, `/jobs*`, `/reconciliation*`
 - Identity: `/auth/*`, `/users/*`, `/profile`

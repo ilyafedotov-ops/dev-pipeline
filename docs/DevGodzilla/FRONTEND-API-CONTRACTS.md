@@ -61,6 +61,7 @@ Important rule:
 Current query-key families include:
 
 - projects
+- workItems
 - protocols
 - steps
 - runs
@@ -74,6 +75,8 @@ Current query-key families include:
 - specifications
 - speckit
 - quality
+- templates
+- CLI executions
 - profile
 - users
 
@@ -84,14 +87,18 @@ Shared domain hooks live in `frontend/lib/api/hooks/`.
 Current families include:
 
 - projects and onboarding
+- constitution and discovery-related project helpers
 - protocols
 - steps
 - runs
 - quality
 - clarifications and feedback
-- agents
+- agents, agent health, and agent metrics
 - policy packs
 - specs and SpecKit
+- sprints and agile tasks
+- templates
+- CLI executions and streaming logs
 - ops, events, logs, queues
 - reconciliation
 - Windmill flows and jobs
@@ -127,6 +134,8 @@ Current pattern:
 - pages subscribe to channels such as `protocol:<id>` or `step:<id>`
 - `useWebSocketEvent()` invalidates affected query keys
 - TanStack Query refetches the latest backend truth
+
+For CLI execution logs, the frontend also uses dedicated streaming hooks in the API layer instead of inventing a separate client transport.
 
 This is the preferred pattern for execution-heavy pages such as protocol detail, not direct mutation of local caches from socket payloads.
 

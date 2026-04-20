@@ -33,6 +33,9 @@
 - Project creation/update masks `github_token` from responses and persists it in project secrets. Tests cover this masking contract.
 - Onboarding entrypoints are `POST /projects/{id}/actions/onboard` and the alias `POST /projects/{id}/onboarding/actions/start`.
 - Onboarding tries a synchronous path first and falls back to `202 Accepted` background work when it cannot finish quickly; callers then poll `GET /projects/{id}/onboarding`.
+- Onboarding can also run repository discovery and surface discovery state through:
+  - `POST /projects/{id}/discovery/actions/retry`
+  - `GET /projects/{id}/discovery/logs`
 - Project-scope convenience routes expose related resources and repo state:
   - `/projects/{id}/protocols`
   - `/projects/{id}/sprints`
@@ -41,7 +44,6 @@
   - `/projects/{id}/branches`, branch create/delete actions
   - `/projects/{id}/clarifications`
   - `/projects/{id}/commits`, `/pulls`, `/worktrees`
-  - discovery retry and discovery log retrieval
 
 ### Protocols
 
@@ -57,6 +59,7 @@
   - `GET /protocols/{id}/events`
   - `GET /protocols/{id}/spec`
   - `GET /protocols/{id}/flow`
+  - `POST /protocols/{id}/flow`
   - `GET /protocols/{id}/artifacts`
   - `GET /protocols/{id}/quality`
   - `GET /protocols/{id}/policy/findings`
@@ -148,6 +151,13 @@
   - `actions/complete`
   - `actions/import-tasks`
 - Tasks: create/get/list/update/patch/delete under `/tasks`.
+
+### Quality
+
+- `GET /quality/dashboard`
+- Step- and protocol-scoped quality views are also available under:
+  - `/steps/{id}/quality`
+  - `/protocols/{id}/quality`
 
 ### Agents, Templates, Policy, Profile
 

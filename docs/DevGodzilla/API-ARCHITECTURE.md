@@ -3,7 +3,7 @@
 > Status: Active
 > Scope: Current API architecture and access model
 > Source of truth: `devgodzilla/api/app.py`, `devgodzilla/api/routes/*.py`, `GET /openapi.json`
-> Last updated: 2026-04-19
+> Last updated: 2026-04-20
 
 ## Summary
 
@@ -62,8 +62,20 @@ Accepted API-token mechanisms are currently:
 - `/speckit/*`
 - `/projects/{project_id}/speckit/*`
 - `/specifications*`
-- `/brownfield*`
 - `/templates*`
+
+### Project onboarding and discovery
+
+- `/projects/{project_id}/actions/onboard`
+- `/projects/{project_id}/onboarding`
+- `/projects/{project_id}/discovery/actions/retry`
+- `/projects/{project_id}/discovery/logs`
+
+### Brownfield and task-cycle delivery
+
+- `/projects/{project_id}/brownfield/run`
+- `/projects/{project_id}/task-cycle`
+- `/work-items/*`
 
 Current compatibility behavior:
 
@@ -159,7 +171,7 @@ Primary service domains used behind the API include:
 
 - orchestration and planning
 - execution and QA
-- specification and SpecKit flows
+- specification, discovery, and SpecKit flows
 - template and reconciliation flows
 - telemetry, events, and health
 

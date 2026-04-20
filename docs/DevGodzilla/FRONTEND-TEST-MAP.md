@@ -11,6 +11,8 @@ A meaningful part of the real frontend specification currently lives in tests.
 
 Use this page to understand which behavior is already contract-tested before changing routes, hooks, workspaces, or Windmill-connected views.
 
+The active frontend-specific suite lives primarily under `frontend/__tests__/`, with additional backend API and e2e coverage under `tests/` and `tests/e2e/`.
+
 ## Frontend-Facing Behavior Covered By Tests
 
 ### Project and protocol workflows
@@ -25,10 +27,12 @@ Representative coverage areas:
 
 Relevant test families include:
 
+- `frontend/__tests__/workflow/project-route-helpers.test.ts`
+- `frontend/__tests__/workflow/generate-specs-workflow.test.tsx`
+- `frontend/__tests__/workflow/manual-wizard-recovery-links.test.tsx`
+- `frontend/__tests__/workflow/protocol-sync-sprint.test.tsx`
 - protocol/state transition tests
 - step and protocol UI API tests
-- protocol action API tests
-- protocol artifact API tests
 
 ### Onboarding and discovery
 
@@ -60,6 +64,8 @@ Relevant test families include:
 - `test_devgodzilla_speckit.py`
 - `test_devgodzilla_spec_run_statuses.py`
 - project SpecKit API and integration tests
+- `frontend/__tests__/workflow/generate-specs-wizard-validation.test.tsx`
+- `frontend/__tests__/workflow/spec-workflow-entrypoints.test.tsx`
 
 ### Runs, logs, quality, and feedback
 
@@ -77,6 +83,24 @@ Relevant test families include:
 - quality service tests
 - feedback router and feedback API tests
 - CLI execution lifecycle tests
+- `frontend/__tests__/websocket/websocket-properties.test.tsx`
+- `frontend/__tests__/ui/data-table-properties.test.tsx`
+
+### Dedicated frontend component and visualization coverage
+
+Representative coverage areas:
+
+- feature-level cards, feeds, and quality widgets
+- agile task forms and sprint-linked UI
+- charts and pipeline visualizations
+- route helper formatting and review-link generation
+
+Relevant test families include:
+
+- `frontend/__tests__/features/*`
+- `frontend/__tests__/agile/*`
+- `frontend/__tests__/visualizations/*`
+- `frontend/__tests__/workflow/*`
 
 ### Windmill and reconciliation
 

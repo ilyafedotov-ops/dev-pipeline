@@ -62,15 +62,15 @@ Recent projects are also surfaced directly from the sidebar via `useProjects()`.
 Major route families under `frontend/app/`:
 
 - dashboard: `/`
-- projects: `/projects`, `/projects/[id]`, and project-scoped subpages
-- protocols: `/protocols`, `/protocols/[id]`, and protocol drill-down pages
+- projects: `/projects`, `/projects/[id]`, and project-scoped flows such as `/branches`, `/constitution`, `/design-solution`, `/execution`, `/generate-specs`, `/implement-feature`, `/onboarding`, `/policy`, `/protocols`, and `/sprint-board`
+- protocols: `/protocols`, `/protocols/[id]`, and drill-down pages such as `/steps`, `/runs`, `/events`, `/spec`, `/policy`, and `/clarifications`
 - specifications: `/specifications`, `/specifications/[id]`
 - steps: `/steps`, `/steps/[id]`
 - runs: `/runs`, `/runs/[runId]`
-- execution and clarifications summary pages
+- execution surfaces: `/execution`, `/executions`, `/clarifications`, `/quality`
 - ops pages: `/ops/events`, `/ops/logs`, `/ops/metrics`, `/ops/queues`
 - policy packs, agents, templates, profile, settings, login
-- Windmill pages: `/windmill/flows`, `/windmill/jobs`, `/windmill/reconciliation`
+- Windmill pages: `/windmill`, `/windmill/flows`, `/windmill/flows/[flowPath]`, `/windmill/jobs`, `/windmill/jobs/[jobId]`, `/windmill/reconciliation`
 
 The frontend uses route groups for product structure, but the most important contributor work happens in the project and protocol workspaces.
 
