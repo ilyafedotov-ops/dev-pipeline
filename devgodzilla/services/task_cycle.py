@@ -182,10 +182,13 @@ class TaskCycleService(Service):
                     helper_agents=request.helper_agents if (request.allow_helper_agents or request.helper_agents) else [],
                 )
 
-                # Auto-advance the first pending step for task-cycle mode.
-                try:
+                # Auto-advance: chain through all pending steps sequentially.
+                # After each step completes, find the next runnable step and
+                # execute it, until there are no more or a step fails.
+                execution_svc = ExecutionService(self.context, self.db)
+                for _ in range(100):  # safety bound — no project has >100 steps
                     steps = self.db.list_step_runs(protocol_run_id)
-                    completed_ids = {s.id for s in steps if s.status == StepStatus.COMPLETED}
+                    completed_ids = {s.id for s in steps if s.status in (StepStatus.COMPLETED, StepStatus.FAILED)}
                     pending = [s for s in steps if s.status == StepStatus.PENDING]
                     first_runnable = next(
                         (
@@ -195,24 +198,48 @@ class TaskCycleService(Service):
                         ),
                         None,
                     )
-                    if first_runnable is not None:
-                        ExecutionService(self.context, self.db).execute_step(first_runnable.id)
+                    if first_runnable is None:
                         logger.info(
-                            "brownfield_auto_advanced_step",
+                            "brownfield_auto_advance_no_more_runnable",
+                            extra={"protocol_run_id": protocol_run_id},
+                        )
+                        break
+                    logger.info(
+                        "brownfield_auto_advancing_step",
+                        extra={
+                            "protocol_run_id": protocol_run_id,
+                            "step_run_id": first_runnable.id,
+                            "step_name": first_runnable.step_name,
+                        },
+                    )
+                    try:
+                        execution_svc.execute_step(first_runnable.id)
+                    except Exception as step_exc:
+                        logger.warning(
+                            "brownfield_auto_advance_step_failed",
                             extra={
                                 "protocol_run_id": protocol_run_id,
                                 "step_run_id": first_runnable.id,
-                                "step_name": first_runnable.step_name,
+                                "error": str(step_exc),
                             },
                         )
-                except Exception as exc:
-                    logger.warning(
-                        "brownfield_auto_advance_failed",
-                        extra={
-                            "protocol_run_id": protocol_run_id,
-                            "error": str(exc),
-                        },
-                    )
+                        break
+                    # Verify the step actually progressed; if it is still PENDING
+                    # the execution likely no-op'd (e.g. mock) — break to avoid loop.
+                    refreshed = self.db.get_step_run(first_runnable.id)
+                    if refreshed is not None and refreshed.status == StepStatus.PENDING:
+                        logger.info(
+                            "brownfield_auto_advance_step_unchanged",
+                            extra={
+                                "protocol_run_id": protocol_run_id,
+                                "step_run_id": first_runnable.id,
+                            },
+                        )
+                        break
+                logger.info(
+                    "brownfield_auto_advance_chain_complete",
+                    extra={"protocol_run_id": protocol_run_id},
+                )
 
                 work_items = self.list_work_items(project_id, protocol_run_id=protocol_run_id)
                 next_work_item_id = next((item.id for item in work_items if not item.pr_ready), None)
