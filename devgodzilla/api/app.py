@@ -67,6 +67,15 @@ init_sentry()
 async def lifespan(app: FastAPI):
     # --- Startup ---
 
+    # Re-apply structured logging after uvicorn has configured its own handlers.
+    # Uvicorn overwrites root.handlers during startup, so the module-level
+    # setup_logging() call is effectively lost.  Calling it again here ensures
+    # our StreamHandler + RequestIdFilter + RingBuffer are active for all
+    # request-path logging.
+    setup_logging(json_output=json_logging_from_env())
+    get_log_buffer()
+    logger.info("structured_logging_initialised", extra={"json_output": json_logging_from_env()})
+
     # bootstrap_engines
     bootstrap_default_engines()
 
