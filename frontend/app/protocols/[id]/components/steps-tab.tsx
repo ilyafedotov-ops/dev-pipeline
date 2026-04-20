@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { Bot,ClipboardCheck, ExternalLink, ListChecks, Play } from "lucide-react";
+import { AlertCircle,AlertTriangle, Bot,ClipboardCheck, ExternalLink, ListChecks, Play } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -118,6 +118,33 @@ export function StepsTab({ protocolId }: StepsTabProps) {
       accessorKey: "retries",
       header: "Retries",
       cell: ({ row }) => <span className="text-muted-foreground">{row.original.retries}</span>,
+    },
+    {
+      id: "policy",
+      header: "Policy",
+      cell: ({ row }) => {
+        const policy = row.original.policy;
+        if (!policy || !Array.isArray(policy.findings) || policy.findings.length === 0) {
+          return <span className="text-muted-foreground">-</span>;
+        }
+        const findings = policy.findings as Array<{ severity: string }>;
+        const errors = findings.filter((f) => f.severity === "error").length;
+        const warnings = findings.filter((f) => f.severity === "warning").length;
+        return (
+          <div className="flex items-center gap-1">
+            {errors > 0 && (
+              <span className="inline-flex items-center gap-0.5 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5" /> {errors}
+              </span>
+            )}
+            {warnings > 0 && (
+              <span className="inline-flex items-center gap-0.5 text-xs text-yellow-500">
+                <AlertTriangle className="h-3.5 w-3.5" /> {warnings}
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       id: "actions",

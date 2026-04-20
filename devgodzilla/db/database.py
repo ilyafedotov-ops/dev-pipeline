@@ -1304,6 +1304,9 @@ class SQLiteDatabase:
         if "status" in kwargs:
             updates.append("status = ?")
             params.append(kwargs.get("status"))
+        if "policy" in kwargs:
+            updates.append("policy = ?")
+            params.append(json.dumps(kwargs.get("policy")))
 
         if len(updates) == 1:
             return self.get_step_run(step_run_id)
@@ -4358,6 +4361,9 @@ class PostgresDatabase:
         if "status" in kwargs:
             updates.append("status = %s")
             params.append(kwargs.get("status"))
+        if "policy" in kwargs:
+            updates.append("policy = %s")
+            params.append(json.dumps(kwargs.get("policy")))
 
         if len(updates) == 1:
             return self.get_step_run(step_run_id)

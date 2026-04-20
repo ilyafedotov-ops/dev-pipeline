@@ -251,6 +251,7 @@ class PolicyService(Service):
         Checks:
         - Required configuration is present
         - Policy pack is valid
+        - Enforcement mode is valid
         """
         findings: List[Finding] = []
         
@@ -282,6 +283,34 @@ class PolicyService(Service):
                 scope="project",
             ))
         
+        # Check policy pack exists
+        if project.policy_pack_key:
+            pack_key = project.policy_pack_key
+            pack_version = project.policy_pack_version
+            try:
+                self.db.get_policy_pack(key=pack_key, version=pack_version)
+            except KeyError:
+                findings.append(Finding(
+                    code="policy.project.pack_not_found",
+                    severity="warning",
+                    message=f"Policy pack not found: {pack_key}@{pack_version or 'latest'}",
+                    scope="project",
+                    suggested_fix="Update the project's policy_pack_key or policy_pack_version to reference an existing pack",
+                    metadata={"pack_key": pack_key, "pack_version": pack_version},
+                ))
+        
+        # Check enforcement mode is valid
+        valid_modes = {"warn", "block", None}
+        if project.policy_enforcement_mode not in valid_modes:
+            findings.append(Finding(
+                code="policy.project.invalid_enforcement_mode",
+                severity="warning",
+                message=f"Invalid policy enforcement mode: {project.policy_enforcement_mode!r}. Must be 'warn', 'block', or None.",
+                scope="project",
+                suggested_fix="Set policy_enforcement_mode to 'warn', 'block', or remove it",
+                metadata={"policy_enforcement_mode": project.policy_enforcement_mode},
+            ))
+        
         return findings
 
     def evaluate_protocol(
@@ -296,6 +325,8 @@ class PolicyService(Service):
         Checks:
         - Required protocol files exist
         - Protocol structure matches policy
+        - Step naming conventions
+        - Minimum step coverage
         """
         findings: List[Finding] = []
         
@@ -334,6 +365,47 @@ class PolicyService(Service):
                         metadata={"file": file_name},
                     ))
         
+        # Check step structure
+        if run.protocol_root:
+            protocol_path = Path(run.protocol_root)
+            if protocol_path.exists():
+                step_files = sorted(protocol_path.glob("step-*.md"))
+                
+                # No step files at all
+                if not step_files:
+                    findings.append(Finding(
+                        code="policy.protocol.no_steps",
+                        severity="warning",
+                        message="No step files found in protocol directory",
+                        scope="protocol",
+                        suggested_fix="Add step files matching step-*.md pattern",
+                    ))
+                else:
+                    # Check naming convention
+                    naming_pattern = re.compile(r"^step-\d{2}-.+\.md$")
+                    for sf in step_files:
+                        if not naming_pattern.match(sf.name):
+                            findings.append(Finding(
+                                code="policy.protocol.step_naming",
+                                severity="info",
+                                message=f"Step file does not follow naming convention: {sf.name}",
+                                scope="protocol",
+                                suggested_fix=f"Rename to match pattern step-NN-description.md (e.g. step-01-setup.md)",
+                                metadata={"file": sf.name},
+                            ))
+                    
+                    # Check minimum step coverage
+                    min_steps = requirements.get("min_steps")
+                    if min_steps is not None and len(step_files) < min_steps:
+                        findings.append(Finding(
+                            code="policy.protocol.insufficient_steps",
+                            severity="warning",
+                            message=f"Protocol has {len(step_files)} steps but policy requires at least {min_steps}",
+                            scope="protocol",
+                            suggested_fix=f"Add at least {min_steps - len(step_files)} more step file(s)",
+                            metadata={"current_steps": len(step_files), "min_steps": min_steps},
+                        ))
+        
         return findings
 
     def evaluate_step(
@@ -346,8 +418,9 @@ class PolicyService(Service):
         Evaluate step-level policy compliance.
         
         Checks:
+        - Step markdown file exists
         - Required step sections are present
-        - CI checks are executable
+        - CI checks are referenced in the protocol
         """
         findings: List[Finding] = []
         
@@ -370,12 +443,103 @@ class PolicyService(Service):
         )
         policy = effective.policy
         
-        # Check required step sections
         requirements = policy.get("requirements", {})
         required_sections = requirements.get("step_sections", [])
         
-        # Would check step markdown for required sections here
-        # For now, return empty (implementation depends on step file format)
+        # Determine step file path
+        step_file: Optional[Path] = None
+        if run.protocol_root:
+            step_file = Path(run.protocol_root) / f"{step.step_name}.md"
+        
+        # a) Check step markdown file exists
+        if step_file is None or not step_file.exists():
+            findings.append(Finding(
+                code="policy.step.file_missing",
+                severity="warning",
+                message=f"Step markdown file missing: {step.step_name}.md",
+                scope="step",
+                suggested_fix=f"Create {step.step_name}.md in the protocol directory",
+                metadata={"step_name": step.step_name},
+            ))
+        else:
+            # b) Check required sections
+            if required_sections:
+                try:
+                    content = step_file.read_text(encoding="utf-8")
+                    headings = re.findall(r"^##\s+(.+)$", content, re.MULTILINE)
+                    heading_set = {h.strip() for h in headings}
+                    for section in required_sections:
+                        if section not in heading_set:
+                            findings.append(Finding(
+                                code="policy.step.missing_section",
+                                severity="warning",
+                                message=f"Required section missing in {step.step_name}.md: {section}",
+                                scope="step",
+                                suggested_fix=f"Add a '## {section}' heading to {step.step_name}.md",
+                                metadata={"step_name": step.step_name, "missing_section": section},
+                            ))
+                except Exception as exc:
+                    logger.warning("Failed to read step file %s: %s", step_file, exc)
+        
+        # c) CI checks validation
+        required_checks = _policy_required_checks(policy)
+        if required_checks and run.protocol_root:
+            protocol_path = Path(run.protocol_root)
+            if protocol_path.exists():
+                # Gather all step names and file contents for reference checks
+                all_step_names: List[str] = []
+                all_step_content = ""
+                try:
+                    all_steps = self.db.list_step_runs(step.protocol_run_id)
+                    all_step_names = [s.step_name for s in all_steps]
+                except Exception:
+                    pass
+                
+                # Also scan step files for content references
+                for sf in protocol_path.glob("step-*.md"):
+                    try:
+                        all_step_content += sf.read_text(encoding="utf-8").lower() + "\n"
+                    except Exception:
+                        pass
+                
+                for check_name in required_checks:
+                    check_lower = check_name.lower()
+                    # Check if referenced in step names or file content
+                    found = any(
+                        check_lower in name.lower()
+                        for name in all_step_names
+                    ) or check_lower in all_step_content
+                    
+                    if not found:
+                        findings.append(Finding(
+                            code="policy.ci.required_check_missing",
+                            severity="warning",
+                            message=f"Required CI check not referenced in protocol: {check_name}",
+                            scope="step",
+                            suggested_fix=f"Add a step or content referencing the '{check_name}' CI check",
+                            metadata={"check": check_name},
+                        ))
+                
+                # Check if project has ci_provider configured (one finding, not per-check)
+                try:
+                    project = self.db.get_project(run.project_id)
+                    if not project.ci_provider:
+                        findings.append(Finding(
+                            code="policy.ci.required_check_not_executable",
+                            severity="warning",
+                            message="CI checks are required by policy but project has no ci_provider configured",
+                            scope="step",
+                            suggested_fix="Configure a ci_provider for the project (e.g. 'github-actions')",
+                            metadata={"required_checks": required_checks},
+                        ))
+                except Exception:
+                    pass
+        
+        # Persist effective policy snapshot
+        try:
+            self.persist_step_policy(step_run_id, effective, findings)
+        except Exception as exc:
+            logger.warning("Failed to persist step policy for step_run_id=%s: %s", step_run_id, exc)
         
         return findings
 
@@ -474,6 +638,23 @@ class PolicyService(Service):
         self.db.update_project_policy(
             project_id,
             policy_effective_hash=effective_hash,
+        )
+
+    def persist_step_policy(
+        self,
+        step_run_id: int,
+        effective: EffectivePolicy,
+        findings: List[Finding],
+    ) -> None:
+        """Record the effective policy and findings for a step run."""
+        self.db.update_step_run(
+            step_run_id,
+            policy={
+                "effective_hash": effective.effective_hash,
+                "pack_key": effective.pack_key,
+                "pack_version": effective.pack_version,
+                "findings": [f.asdict() for f in findings],
+            },
         )
 
     def audit_protocol_policy(

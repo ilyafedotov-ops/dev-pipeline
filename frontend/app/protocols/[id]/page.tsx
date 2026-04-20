@@ -36,6 +36,7 @@ import {
   useProtocol,
   useProtocolAction,
   useProtocolFlow,
+  useProtocolPolicyFindings,
   useProtocolSprint,
   useSyncProtocolToSprint,
 } from "@/lib/api";
@@ -57,6 +58,7 @@ import { QualityTab } from "./components/quality-tab";
 import { RunsTab } from "./components/runs-tab";
 import { SpecTab } from "./components/spec-tab";
 import { StepsTab } from "./components/steps-tab";
+import { PolicyFindingsBanner } from "@/components/ui/policy-findings-banner";
 
 const secondaryTabs = [
   { value: "events", label: "Events" },
@@ -83,6 +85,7 @@ export default function ProtocolDetailPage({ params }: { params: Promise<{ id: s
   // Feedback events for the protocol (real-time feedback log)
   const { data: feedbackEventData } = useFeedbackEvents(protocolId);
   const answerClarification = useFeedbackAnswerClarification();
+  const { data: policyFindings } = useProtocolPolicyFindings(protocolId);
 
   // WebSocket real-time updates: listen for protocol & step changes
   const protocolChannel = `protocol:${protocolId}`;
@@ -360,6 +363,10 @@ export default function ProtocolDetailPage({ params }: { params: Promise<{ id: s
           </CardContent>
         </Card>
       </div>
+
+      {policyFindings && policyFindings.length > 0 && (
+        <PolicyFindingsBanner findings={policyFindings} scope="protocol" />
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <div className="flex items-center gap-1">

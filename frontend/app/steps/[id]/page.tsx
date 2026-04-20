@@ -32,6 +32,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { PolicyFindingsBanner } from "@/components/ui/policy-findings-banner";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useEscalateStep,
@@ -212,6 +213,10 @@ export default function StepDetailPage({ params }: { params: Promise<{ id: strin
           </CardContent>
         </Card>
       </div>
+
+      {findings && findings.length > 0 && (
+        <PolicyFindingsBanner findings={findings} scope="step" />
+      )}
 
       {displayStep.runtime_state && (
         <Card className="mb-6">

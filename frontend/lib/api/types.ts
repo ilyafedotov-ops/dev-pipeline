@@ -464,8 +464,10 @@ export interface PolicyFinding {
   code: string;
   severity: "error" | "warning" | "info";
   message: string;
+  scope: string;
   location: string | null;
   suggested_fix: string | null;
+  metadata: Record<string, unknown> | null;
 }
 
 export interface EffectivePolicy {
