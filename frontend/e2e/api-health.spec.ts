@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-import { goto, mockHealthOk } from "./helpers";
+import { goto, mockHealthOk, mockAuth, mockProjectsList } from "./helpers";
 
 test.describe("API Health & Connectivity", () => {
   test("Settings page shows 'Connected' when backend is healthy", async ({ page }) => {
+    mockAuth(page);
     await mockHealthOk(page);
     await goto(page, "/settings");
 
@@ -15,6 +16,7 @@ test.describe("API Health & Connectivity", () => {
   });
 
   test("Settings page shows 'Disconnected' when backend is unreachable", async ({ page }) => {
+    mockAuth(page);
     // Force health endpoint to return an error
     await page.route("**/api/v1/health**", (route) =>
       route.fulfill({
@@ -30,6 +32,8 @@ test.describe("API Health & Connectivity", () => {
   });
 
   test("API requests are proxied through /api/v1/ prefix", async ({ page }) => {
+    mockAuth(page);
+
     // Track outgoing requests
     const apiRequests: string[] = [];
     page.on("request", (req) => {

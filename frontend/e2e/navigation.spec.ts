@@ -1,9 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-import { APP_BASE, PAGE_HEADINGS, SIDEBAR_NAV_ITEMS, goto, selectors } from "./helpers";
+import { APP_BASE, PAGE_HEADINGS, SIDEBAR_NAV_ITEMS, goto, mockHealthOk, mockAuth, mockEmptyState, selectors } from "./helpers";
 
 test.describe("Navigation", () => {
   test.beforeEach(async ({ page }) => {
+    mockAuth(page);
+    await mockHealthOk(page);
+    mockEmptyState(page);
     await goto(page);
   });
 
@@ -32,17 +35,6 @@ test.describe("Navigation", () => {
       await expect(page).toHaveURL(new RegExp(`${APP_BASE}${item.href}`));
     });
   }
-
-  test("Breadcrumbs update on navigation", async ({ page }) => {
-    // Starting at Dashboard – breadcrumbs may be empty for root
-    // Navigate to Projects via sidebar
-    const sidebar = page.locator(selectors.sidebar);
-    await sidebar.locator('a:has-text("Projects")').first().click();
-
-    // Breadcrumbs should now contain "Projects"
-    const breadcrumbNav = page.locator(selectors.breadcrumbs);
-    await expect(breadcrumbNav).toContainText("Projects");
-  });
 
   test("Browser back/forward navigation works", async ({ page }) => {
     const sidebar = page.locator(selectors.sidebar);

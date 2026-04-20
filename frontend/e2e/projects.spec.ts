@@ -2,15 +2,18 @@ import { expect, test } from "@playwright/test";
 
 import {
   goto,
-  mockCreateProject,
+  mockHealthOk,
+  mockAuth,
   mockEmptyState,
+  mockCreateProject,
   selectors,
 } from "./helpers";
 
 test.describe("Projects", () => {
   test.beforeEach(async ({ page }) => {
+    mockAuth(page);
     // Mock empty state so tests don't depend on DB data
-    await mockEmptyState(page);
+    mockEmptyState(page);
     await goto(page, "/projects");
   });
 
