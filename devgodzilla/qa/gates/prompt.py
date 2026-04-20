@@ -91,27 +91,52 @@ class PromptQAGate(Gate):
         git_status = self._git_cmd(["git", "status", "--porcelain"], context.workspace_root)
         last_commit = self._git_cmd(["git", "log", "-1", "--pretty=%B"], context.workspace_root)
 
+        # Detect brownfield/scaffolding context: protocol artifacts may not exist yet.
+        # When plan/context/log are all empty, this is likely a scaffolding step or
+        # brownfield run where protocol files haven't been materialised.  In that case,
+        # present a clear note instead of bare "MISSING" so the LLM doesn't treat
+        # absent bookkeeping as a blocking failure.
+        is_scaffolding = not (plan_text or context_text or log_text or step_text)
+
+        def _label(name: str, content: str) -> str:
+            if content:
+                return content
+            if is_scaffolding:
+                return f"(not yet available — {name} is typically created during later steps)"
+            return "MISSING"
+
         sections = [
             prompt_header,
             "",
             "## plan.md",
-            plan_text or "MISSING",
+            _label("plan.md", plan_text),
             "",
             "## context.md",
-            context_text or "MISSING",
+            _label("context.md", context_text),
             "",
             "## log.md",
-            log_text or "MISSING",
+            _label("log.md", log_text),
             "",
             f"## {step_name or 'step'}.md",
-            step_text or "MISSING",
+            _label(f"{step_name or 'step'}.md", step_text),
             "",
             "## git status",
-            git_status or "MISSING",
+            git_status or "(clean working tree)",
             "",
             "## last commit",
-            last_commit or "MISSING",
+            last_commit or "(no commits yet)",
         ]
+
+        if is_scaffolding:
+            sections.insert(
+                1,
+                "\nNOTE: This appears to be a scaffolding or early-stage step. "
+                "Protocol artifacts (plan, context, log, step files) are not yet "
+                "available. Focus validation on git state and any files present in "
+                "the workspace. Do NOT FAIL solely because protocol bookkeeping "
+                "files are absent.\n",
+            )
+
         return "\n".join(sections).strip()
 
     @staticmethod
