@@ -267,6 +267,32 @@ class RingBufferHandler(logging.Handler):
 
 
 _ring_buffer_handler: Optional[RingBufferHandler] = None
+_ring_buffer_installed_on: Optional[str] = None
+
+
+def install_ring_buffer_handler(logger_name: str = "devgodzilla") -> RingBufferHandler:
+    """
+    Create (if needed) the singleton RingBufferHandler and attach it to the
+    named logger so that *all* logger.info / logger.error / … calls flow into
+    the ring buffer that backs the /logs API.
+
+    Idempotent: repeated calls with the same *logger_name* are a no-op.
+    """
+    global _ring_buffer_handler, _ring_buffer_installed_on
+
+    if _ring_buffer_handler is None:
+        _ring_buffer_handler = RingBufferHandler(capacity=10000)
+        _ring_buffer_handler.setLevel(logging.DEBUG)
+
+    # Only add the handler once per target logger.
+    if _ring_buffer_installed_on != logger_name:
+        target = logging.getLogger(logger_name)
+        # Guard against duplicate attachments.
+        if _ring_buffer_handler not in target.handlers:
+            target.addHandler(_ring_buffer_handler)
+        _ring_buffer_installed_on = logger_name
+
+    return _ring_buffer_handler
 
 
 def get_log_buffer() -> RingBufferHandler:

@@ -169,9 +169,18 @@ class OrchestratorService(Service):
         
         # Emit event
         event_bus = get_event_bus()
+        project = self.db.get_project(run.project_id)
         event_bus.publish(ProtocolStarted(
             protocol_run_id=protocol_run_id,
             protocol_name=run.protocol_name,
+            project_id=run.project_id,
+            metadata={
+                "protocol_name": run.protocol_name,
+                "project_id": run.project_id,
+                "project_name": getattr(project, "name", None),
+                "base_branch": run.base_branch,
+                "mode": self.mode.value,
+            },
         ))
         
         self.logger.info(
@@ -373,9 +382,19 @@ class OrchestratorService(Service):
         
         # Emit event
         event_bus = get_event_bus()
+        protocol_run = self.db.get_protocol_run(step.protocol_run_id)
         event_bus.publish(StepStarted(
             step_run_id=step_run_id,
             step_name=step.step_name,
+            protocol_run_id=step.protocol_run_id,
+            engine_id=getattr(step, "assigned_agent", None),
+            metadata={
+                "step_name": step.step_name,
+                "protocol_run_id": step.protocol_run_id,
+                "project_id": getattr(protocol_run, "project_id", None),
+                "agent_id": getattr(step, "assigned_agent", None),
+                "mode": self.mode.value,
+            },
         ))
         
         if self.mode == OrchestratorMode.WINDMILL and self.windmill:
@@ -430,6 +449,12 @@ class OrchestratorService(Service):
                     protocol_run_id=step.protocol_run_id,
                     project_id=prun.project_id,
                     run_kind="local",
+                    metadata={
+                        "step_name": step.step_name,
+                        "agent_id": getattr(step, "assigned_agent", None),
+                        "protocol_name": prun.protocol_name,
+                        "project_id": prun.project_id,
+                    },
                 ))
             except Exception as exc:
                 self.logger.error("job_run_create_failed", extra=self.log_extra(step_run_id=step_run_id, error=str(exc)))
@@ -449,13 +474,25 @@ class OrchestratorService(Service):
                         run_id=job_run_id,
                         job_type="execute_step",
                         step_run_id=step_run_id,
+                        protocol_run_id=step.protocol_run_id,
+                        project_id=prun.project_id,
+                        metadata={
+                            "step_name": step.step_name,
+                            "duration_s": (datetime.now(timezone.utc) - step.updated_at).total_seconds() if getattr(step, "updated_at", None) else None,
+                        },
                     ))
                 else:
                     event_bus.publish(RunFailed(
                         run_id=job_run_id,
                         job_type="execute_step",
                         step_run_id=step_run_id,
+                        protocol_run_id=step.protocol_run_id,
+                        project_id=prun.project_id,
                         error=result.error,
+                        metadata={
+                            "step_name": step.step_name,
+                            "error": result.error,
+                        },
                     ))
             except Exception as exc:
                 self.logger.error("job_run_update_failed", extra=self.log_extra(step_run_id=step_run_id, error=str(exc)))
@@ -533,6 +570,12 @@ class OrchestratorService(Service):
                     protocol_run_id=step.protocol_run_id,
                     project_id=prun.project_id,
                     run_kind="local",
+                    metadata={
+                        "step_name": step.step_name,
+                        "agent_id": getattr(step, "assigned_agent", None),
+                        "protocol_name": prun.protocol_name,
+                        "project_id": prun.project_id,
+                    },
                 ))
             except Exception as exc:
                 self.logger.error("job_run_create_failed", extra=self.log_extra(step_run_id=step_run_id, error=str(exc)))
@@ -552,13 +595,25 @@ class OrchestratorService(Service):
                         run_id=job_run_id,
                         job_type="run_qa",
                         step_run_id=step_run_id,
+                        protocol_run_id=step.protocol_run_id,
+                        project_id=prun.project_id,
+                        metadata={
+                            "step_name": step.step_name,
+                            "duration_s": (datetime.now(timezone.utc) - step.updated_at).total_seconds() if getattr(step, "updated_at", None) else None,
+                        },
                     ))
                 else:
                     event_bus.publish(RunFailed(
                         run_id=job_run_id,
                         job_type="run_qa",
                         step_run_id=step_run_id,
+                        protocol_run_id=step.protocol_run_id,
+                        project_id=prun.project_id,
                         error=result.error,
+                        metadata={
+                            "step_name": step.step_name,
+                            "error": result.error,
+                        },
                     ))
             except Exception as exc:
                 self.logger.error("job_run_update_failed", extra=self.log_extra(step_run_id=step_run_id, error=str(exc)))
@@ -700,6 +755,12 @@ class OrchestratorService(Service):
         event_bus = get_event_bus()
         event_bus.publish(ProtocolCompleted(
             protocol_run_id=protocol_run_id,
+            project_id=run.project_id,
+            metadata={
+                "protocol_name": run.protocol_name,
+                "project_id": run.project_id,
+                "cancelled": True,
+            },
         ))
 
         self.logger.info(
@@ -734,15 +795,29 @@ class OrchestratorService(Service):
         
         # Emit appropriate event
         event_bus = get_event_bus()
+        run = self.db.get_protocol_run(protocol_run_id)
         if any_failed:
             from devgodzilla.services.events import ProtocolFailed
+            failed_steps = [s.step_name for s in steps if s.status == StepStatus.FAILED]
             event_bus.publish(ProtocolFailed(
                 protocol_run_id=protocol_run_id,
+                project_id=run.project_id if run else None,
                 error="One or more steps failed",
+                metadata={
+                    "protocol_name": run.protocol_name if run else None,
+                    "project_id": run.project_id if run else None,
+                    "failed_steps": failed_steps,
+                    "error": "One or more steps failed",
+                },
             ))
         else:
             event_bus.publish(ProtocolCompleted(
                 protocol_run_id=protocol_run_id,
+                project_id=run.project_id if run else None,
+                metadata={
+                    "protocol_name": run.protocol_name if run else None,
+                    "project_id": run.project_id if run else None,
+                },
             ))
 
         self.logger.info(

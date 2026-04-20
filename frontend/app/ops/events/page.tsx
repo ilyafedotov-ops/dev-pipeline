@@ -20,6 +20,7 @@ import { useProjects,useRecentEvents } from "@/lib/api";
 import type { EventFilters } from "@/lib/api/types";
 import { formatRelativeTime,formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { renderStructuredMetadata } from "@/lib/utils/event-metadata";
 import { useWebSocketEvent } from "@/lib/websocket/hooks";
 
 const eventTypeColors: Record<string, string> = {
@@ -75,6 +76,8 @@ const categoryLabels: Record<string, string> = {
   policy: "Policy",
   speckit: "SpecKit",
   ci_webhook: "CI/Webhook",
+  feedback: "Feedback",
+  clarification: "Clarification",
   other: "Other",
 };
 
@@ -87,6 +90,8 @@ const categoryColors: Record<string, string> = {
   policy: "text-orange-500",
   speckit: "text-cyan-500",
   ci_webhook: "text-fuchsia-500",
+  feedback: "text-pink-500",
+  clarification: "text-teal-500",
   other: "text-muted-foreground",
 };
 
@@ -141,6 +146,8 @@ const categoryOptions = [
   "policy",
   "speckit",
   "ci_webhook",
+  "feedback",
+  "clarification",
   "other",
 ];
 
@@ -456,9 +463,9 @@ export default function EventsPage() {
                         {formatRelativeTime(event.created_at)}
                       </p>
                       {hasMetadata && isExpanded && (
-                        <pre className="bg-muted mt-3 rounded p-3 text-xs break-words whitespace-pre-wrap">
-                          {JSON.stringify(event.metadata, null, 2)}
-                        </pre>
+                        <div className="mt-3">
+                          {renderStructuredMetadata(event.metadata)}
+                        </div>
                       )}
                     </div>
                   </div>

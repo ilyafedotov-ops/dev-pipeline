@@ -38,6 +38,7 @@ from devgodzilla.db.database import Database
 from devgodzilla.logging import (
     get_log_buffer,
     get_logger,
+    install_ring_buffer_handler,
     json_logging_from_env,
     setup_logging,
 )
@@ -74,6 +75,7 @@ async def lifespan(app: FastAPI):
     # request-path logging.
     setup_logging(json_output=json_logging_from_env())
     get_log_buffer()
+    install_ring_buffer_handler()
     logger.info("structured_logging_initialised", extra={"json_output": json_logging_from_env()})
 
     # bootstrap_engines

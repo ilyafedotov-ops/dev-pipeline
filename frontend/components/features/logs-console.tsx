@@ -1,30 +1,10 @@
 "use client";
 
-import { useCallback, useEffect,useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  AlertCircle,
-  AlertTriangle,
-  BarChart3,
-  ChevronDown,
-  ChevronRight,
-  Download,
-  Filter,
-  Info,
-  Loader2,
-  Pause,
-  Play,
-  Search,
-  X,
-  XCircle,
-} from "lucide-react";
+import { Activity } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Select,
   SelectContent,
@@ -32,515 +12,231 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useLogStream,useRecentLogs } from "@/lib/api/hooks/use-logs";
+import { useRecentLogs } from "@/lib/api/hooks/use-logs";
 import type { AppLogEntry, LogLevel } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
-interface LogsConsoleProps {
-  mode?: "application" | "runs";
+export interface LogsConsoleProps {
+  mode?: "application" | "system";
   sourceFilter?: string;
-  className?: string;
 }
-
-const SUBSYSTEMS = [
-  { id: "projects", label: "Projects", pattern: "devgodzilla.api.routes.projects" },
-  { id: "protocols", label: "Protocols", pattern: "devgodzilla.services.orchestrator" },
-  { id: "steps", label: "Steps", pattern: "devgodzilla.services.execution" },
-  { id: "engines", label: "Engines", pattern: "devgodzilla.engines" },
-  { id: "git", label: "Git", pattern: "devgodzilla.services.git" },
-  { id: "qa", label: "QA", pattern: "devgodzilla.services.quality" },
-  { id: "windmill", label: "Windmill", pattern: "devgodzilla.windmill" },
-  { id: "discovery", label: "Discovery", pattern: "devgodzilla.services.discovery" },
-] as const;
-
-const CONTEXT_FIELDS = [
-  "project_id",
-  "protocol_run_id",
-  "step_run_id",
-  "run_id",
-  "request_id",
-] as const;
-
-function shortenSource(source: string): string {
-  return source
-    .replace("devgodzilla.api.routes.", "api.")
-    .replace("devgodzilla.services.", "svc.")
-    .replace("devgodzilla.engines.", "eng.")
-    .replace("devgodzilla.windmill.", "wm.")
-    .replace("devgodzilla.", "");
-}
-
-const levelIcons: Record<string, typeof Info> = {
-  info: Info,
-  warn: AlertTriangle,
-  warning: AlertTriangle,
-  error: XCircle,
-  debug: AlertCircle,
-};
 
 const levelColors: Record<string, string> = {
-  info: "text-blue-500",
-  warn: "text-yellow-500",
-  warning: "text-yellow-500",
-  error: "text-red-500",
-  debug: "text-gray-500",
+  error: "text-red-500 bg-red-500/10",
+  warning: "text-yellow-500 bg-yellow-500/10",
+  warn: "text-yellow-500 bg-yellow-500/10",
+  info: "text-blue-500 bg-blue-500/10",
+  debug: "text-gray-400 bg-gray-400/10",
 };
 
-const MAX_LOGS = 1000;
+const levelBadgeColors: Record<string, string> = {
+  error: "bg-red-500/15 text-red-500 border-red-500/30",
+  warning: "bg-yellow-500/15 text-yellow-500 border-yellow-500/30",
+  warn: "bg-yellow-500/15 text-yellow-500 border-yellow-500/30",
+  info: "bg-blue-500/15 text-blue-500 border-blue-500/30",
+  debug: "bg-gray-500/15 text-gray-400 border-gray-500/30",
+};
 
-export function LogsConsole({ mode = "application", sourceFilter, className }: LogsConsoleProps) {
-  const streamKey = `${mode}:${sourceFilter ?? "all"}`;
-  const [streamState, setStreamState] = useState<{ key: string; logs: AppLogEntry[] }>(() => ({
-    key: streamKey,
-    logs: [],
-  }));
-  const [searchQuery, setSearchQuery] = useState("");
-  const [levelFilter, setLevelFilter] = useState<string>("all");
-  const [isPaused, setIsPaused] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(true);
-  const [activeSubsystems, setActiveSubsystems] = useState<Set<string>>(new Set());
-  const [contextFilters, setContextFilters] = useState<Record<string, string>>({});
-  const [showFilters, setShowFilters] = useState(false);
-  const [expandedMetadata, setExpandedMetadata] = useState<Set<string>>(new Set());
-  const [logTimestamps, setLogTimestamps] = useState<number[]>([]);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  const toggleSubsystem = (id: string) => {
-    setActiveSubsystems((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
+function formatTimestamp(ts: string): string {
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      fractionalSecondDigits: 3,
     });
-  };
-
-  const clearAllFilters = () => {
-    setActiveSubsystems(new Set());
-    setContextFilters({});
-    setLevelFilter("all");
-    setSearchQuery("");
-  };
-
-  const hasActiveFilters =
-    activeSubsystems.size > 0 ||
-    Object.keys(contextFilters).length > 0 ||
-    levelFilter !== "all" ||
-    searchQuery.length > 0;
-
-  const { data: initialLogs, isLoading } = useRecentLogs(
-    {
-      source: sourceFilter,
-      limit: 200,
-    },
-    { enabled: mode === "application" }
-  );
-
-  const combinedLogs = useMemo(() => {
-    const baseLogs = initialLogs || [];
-    const streamLogs = streamState.key === streamKey ? streamState.logs : [];
-    const merged = [...baseLogs, ...streamLogs];
-    return merged.length > MAX_LOGS ? merged.slice(-MAX_LOGS) : merged;
-  }, [initialLogs, streamKey, streamState]);
-
-  const handleNewLog = useCallback(
-    (log: AppLogEntry) => {
-      if (!isPaused) {
-        const now = Date.now();
-        setLogTimestamps((prev) => {
-          const recent = prev.filter((ts) => now - ts < 60000);
-          return [...recent, now];
-        });
-        setStreamState((prev) => {
-          const nextKey = streamKey;
-          const existing = prev.key === nextKey ? prev.logs : [];
-          const updated = [...existing, log];
-          return {
-            key: nextKey,
-            logs: updated.length > MAX_LOGS ? updated.slice(-MAX_LOGS) : updated,
-          };
-        });
-      }
-    },
-    [isPaused, streamKey]
-  );
-
-  const logsPerMinute = useMemo(() => {
-    const now = Date.now();
-    return logTimestamps.filter((ts) => now - ts < 60000).length;
-  }, [logTimestamps]);
-
-  const handleConnected = useCallback(() => {
-    setIsStreaming(true);
-  }, []);
-
-  const handleError = useCallback(() => {
-    setIsStreaming(false);
-  }, []);
-
-  useLogStream({
-    source: sourceFilter,
-    level: levelFilter !== "all" ? levelFilter : undefined,
-    onLog: handleNewLog,
-    onConnected: handleConnected,
-    onError: handleError,
-    enabled: mode === "application" && !isPaused,
-  });
-
-  useEffect(() => {
-    if (!isPaused && scrollRef.current) {
-      const scrollElement = scrollRef.current.querySelector("[data-radix-scroll-area-viewport]");
-      if (scrollElement) {
-        scrollElement.scrollTop = scrollElement.scrollHeight;
-      }
-    }
-  }, [combinedLogs, isPaused]);
-
-  const normalizeLevel = (level: string): LogLevel => {
-    if (level === "warning") return "warn";
-    return level as LogLevel;
-  };
-
-  const filteredLogs = useMemo(() => {
-    return combinedLogs.filter((log) => {
-      const matchesSearch =
-        searchQuery.length === 0 ||
-        log.message.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        log.source.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const normalizedLevel = normalizeLevel(log.level);
-      const matchesLevel = levelFilter === "all" || normalizedLevel === levelFilter;
-
-      const matchesSubsystem =
-        activeSubsystems.size === 0 ||
-        Array.from(activeSubsystems).some((id) => {
-          const subsystem = SUBSYSTEMS.find((s) => s.id === id);
-          return subsystem && log.source.includes(subsystem.pattern);
-        });
-
-      const matchesContext = Object.entries(contextFilters).every(([key, value]) => {
-        if (!value) return true;
-        const metaValue = log.metadata?.[key];
-        return metaValue !== undefined && String(metaValue).includes(value);
-      });
-
-      return matchesSearch && matchesLevel && matchesSubsystem && matchesContext;
-    });
-  }, [combinedLogs, searchQuery, levelFilter, activeSubsystems, contextFilters]);
-
-  const logStats = useMemo(() => {
-    const stats = { info: 0, warn: 0, error: 0, debug: 0, total: combinedLogs.length };
-    combinedLogs.forEach((log) => {
-      const level = normalizeLevel(log.level);
-      if (level in stats) {
-        stats[level as keyof typeof stats]++;
-      }
-    });
-    return stats;
-  }, [combinedLogs]);
-
-  const handleDownload = () => {
-    const logContent = filteredLogs
-      .map(
-        (log) => `[${log.timestamp}] [${log.level.toUpperCase()}] [${log.source}] ${log.message}`
-      )
-      .join("\n");
-    const blob = new Blob([logContent], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `logs-${mode}-${new Date().toISOString().slice(0, 10)}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleClear = () => {
-    setStreamState({ key: streamKey, logs: [] });
-  };
-
-  if (isLoading) {
-    return (
-      <Card className={className}>
-        <CardContent className="flex h-96 items-center justify-center">
-          <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
-        </CardContent>
-      </Card>
-    );
+  } catch {
+    return ts;
   }
+}
+
+function LogEntryRow({ entry, isExpanded, onToggle }: {
+  entry: AppLogEntry;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const level = entry.level?.toLowerCase() ?? "info";
+  const colorClass = levelColors[level] ?? levelColors.info;
+  const badgeClass = levelBadgeColors[level] ?? levelBadgeColors.info;
+
+  // Extract source: prefer module, then logger_name, then source
+  const source = entry.module || entry.logger_name || entry.source || "—";
+  const hasExpandable = (entry.funcName || entry.lineno || entry.metadata) ? true : false;
 
   return (
-    <Card className={className}>
-      <CardHeader className="space-y-4 pb-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CardTitle className="text-lg">Backend Logs</CardTitle>
-            {isStreaming && !isPaused && (
-              <Badge variant="outline" className="border-green-500 text-green-500">
-                Live
-              </Badge>
+    <div
+      className={cn(
+        "hover:bg-muted/40 cursor-pointer border-b border-border/30 px-3 py-1.5 font-mono text-xs transition-colors last:border-b-0",
+        level === "error" && "bg-red-500/5",
+      )}
+      onClick={hasExpandable ? onToggle : undefined}
+    >
+      <div className="flex items-start gap-3">
+        {/* Timestamp */}
+        <span className="text-muted-foreground min-w-20 shrink-0">
+          {formatTimestamp(entry.timestamp)}
+        </span>
+
+        {/* Level badge */}
+        <span
+          className={cn(
+            "inline-flex min-w-14 shrink-0 items-center justify-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase",
+            badgeClass,
+          )}
+        >
+          {level === "warning" ? "WARN" : level.toUpperCase()}
+        </span>
+
+        {/* Source / module */}
+        <span className="text-muted-foreground min-w-32 shrink-0 truncate">
+          {source}
+        </span>
+
+        {/* Message */}
+        <span className={cn("min-w-0 flex-1 break-words", colorClass)}>
+          {entry.message}
+        </span>
+      </div>
+
+      {/* Expandable metadata */}
+      {isExpanded && (
+        <div className="bg-muted/30 mt-1.5 rounded p-2">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs md:grid-cols-3">
+            {entry.funcName && (
+              <div>
+                <span className="text-muted-foreground">funcName:</span>{" "}
+                <span className="font-medium">{entry.funcName}</span>
+              </div>
+            )}
+            {entry.lineno != null && (
+              <div>
+                <span className="text-muted-foreground">lineno:</span>{" "}
+                <span className="font-medium">{entry.lineno}</span>
+              </div>
+            )}
+            {entry.module && (
+              <div>
+                <span className="text-muted-foreground">module:</span>{" "}
+                <span className="font-medium">{entry.module}</span>
+              </div>
+            )}
+            {entry.logger_name && (
+              <div>
+                <span className="text-muted-foreground">logger:</span>{" "}
+                <span className="font-medium">{entry.logger_name}</span>
+              </div>
+            )}
+            {entry.thread && (
+              <div>
+                <span className="text-muted-foreground">thread:</span>{" "}
+                <span className="font-medium">{entry.thread}</span>
+              </div>
+            )}
+            {entry.pathname && (
+              <div className="col-span-2 md:col-span-3">
+                <span className="text-muted-foreground">path:</span>{" "}
+                <span className="font-medium">{entry.pathname}</span>
+              </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setIsPaused(!isPaused)}>
-              {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-              {isPaused ? "Resume" : "Pause"}
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleClear}>
-              Clear
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleDownload}>
-              <Download className="mr-2 h-4 w-4" />
-              Download
-            </Button>
-          </div>
-        </div>
-
-        {/* Statistics Bar */}
-        <div className="bg-muted/30 flex items-center gap-4 rounded-lg border p-2 text-xs">
-          <div className="flex items-center gap-1.5">
-            <BarChart3 className="text-muted-foreground h-3.5 w-3.5" />
-            <span className="text-muted-foreground">Total:</span>
-            <span className="font-medium">{logStats.total}</span>
-          </div>
-          <div className="bg-border h-4 w-px" />
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-blue-500" />
-              <span className="text-muted-foreground">Info:</span>
-              <span className="font-medium">{logStats.info}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-yellow-500" />
-              <span className="text-muted-foreground">Warn:</span>
-              <span className="font-medium">{logStats.warn}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-red-500" />
-              <span className="text-muted-foreground">Error:</span>
-              <span className="font-medium">{logStats.error}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-gray-500" />
-              <span className="text-muted-foreground">Debug:</span>
-              <span className="font-medium">{logStats.debug}</span>
-            </span>
-          </div>
-          <div className="bg-border h-4 w-px" />
-          <div className="flex items-center gap-1.5">
-            <span className="text-muted-foreground">Rate:</span>
-            <span className="font-medium">{logsPerMinute}/min</span>
-          </div>
-          {filteredLogs.length !== logStats.total && (
-            <>
-              <div className="bg-border h-4 w-px" />
-              <span className="text-muted-foreground">
-                Showing: <span className="text-foreground font-medium">{filteredLogs.length}</span>
-              </span>
-            </>
+          {entry.metadata && Object.keys(entry.metadata).length > 0 && (
+            <pre className="mt-2 max-h-40 overflow-auto rounded bg-black/5 p-2 text-[10px] whitespace-pre-wrap">
+              {JSON.stringify(entry.metadata, null, 2)}
+            </pre>
           )}
         </div>
+      )}
+    </div>
+  );
+}
 
-        {/* Subsystem Filter Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-muted-foreground mr-1 text-xs">Subsystems:</span>
-          {SUBSYSTEMS.map((subsystem) => (
-            <Button
-              key={subsystem.id}
-              variant={activeSubsystems.has(subsystem.id) ? "default" : "outline"}
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => toggleSubsystem(subsystem.id)}
-            >
-              {subsystem.label}
-            </Button>
-          ))}
-          {hasActiveFilters && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground h-7 text-xs"
-              onClick={clearAllFilters}
-            >
-              <X className="mr-1 h-3 w-3" />
-              Clear filters
-            </Button>
-          )}
-        </div>
+export function LogsConsole({ mode = "application", sourceFilter }: LogsConsoleProps) {
+  const [levelFilter, setLevelFilter] = useState<string>("all");
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
 
-        {/* Search and Level Filter */}
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="text-muted-foreground absolute top-2.5 left-2.5 h-4 w-4" />
-            <Input
-              placeholder="Search logs..."
-              className="pl-9"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <Select value={levelFilter} onValueChange={setLevelFilter}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Levels</SelectItem>
-              <SelectItem value="info">Info</SelectItem>
-              <SelectItem value="warn">Warning</SelectItem>
-              <SelectItem value="error">Error</SelectItem>
-              <SelectItem value="debug">Debug</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button
-            variant={showFilters ? "secondary" : "outline"}
-            size="sm"
-            onClick={() => setShowFilters(!showFilters)}
-          >
-            <Filter className="mr-1 h-4 w-4" />
-            Context
-          </Button>
-        </div>
+  const filters = useMemo(() => ({
+    level: levelFilter === "all" ? undefined : levelFilter,
+    source: sourceFilter,
+    limit: 200,
+  }), [levelFilter, sourceFilter]);
 
-        {/* Context Filters */}
-        {showFilters && (
-          <div className="bg-muted/20 flex flex-wrap items-center gap-2 rounded-lg border p-3">
-            <span className="text-muted-foreground text-xs">Filter by context:</span>
-            {CONTEXT_FIELDS.map((field) => (
-              <div key={field} className="flex items-center gap-1">
-                <label className="text-muted-foreground text-xs">{field}:</label>
-                <Input
-                  className="h-7 w-24 text-xs"
-                  placeholder="value"
-                  value={contextFilters[field] || ""}
-                  onChange={(e) =>
-                    setContextFilters((prev) => ({
-                      ...prev,
-                      [field]: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-            ))}
-          </div>
+  const { data: logs, isLoading } = useRecentLogs(filters);
+
+  // Auto-scroll to bottom on new logs
+  useEffect(() => {
+    if (autoScroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [logs, autoScroll]);
+
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
+  }, []);
+
+  const toggleExpand = useCallback((id: number) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <Select value={levelFilter} onValueChange={setLevelFilter}>
+          <SelectTrigger className="w-32">
+            <SelectValue placeholder="Level" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Levels</SelectItem>
+            <SelectItem value="error">Error</SelectItem>
+            <SelectItem value="warning">Warning</SelectItem>
+            <SelectItem value="info">Info</SelectItem>
+            <SelectItem value="debug">Debug</SelectItem>
+          </SelectContent>
+        </Select>
+        {sourceFilter && (
+          <span className="text-muted-foreground text-xs">
+            Source filter: <code className="bg-muted rounded px-1">{sourceFilter}</code>
+          </span>
         )}
-      </CardHeader>
-      <CardContent className="p-0">
-        <ScrollArea className="h-[calc(100vh-24rem)] px-6 pb-6" ref={scrollRef}>
-          <div className="space-y-2 font-mono text-xs">
-            {filteredLogs.length === 0 ? (
-              <div className="text-muted-foreground py-8 text-center">
-                {combinedLogs.length === 0
-                  ? "No logs yet. Waiting for activity..."
-                  : "No logs match your filter."}
-              </div>
-            ) : (
-              filteredLogs.map((log, index) => {
-                const normalizedLevel = normalizeLevel(log.level);
-                const Icon = levelIcons[normalizedLevel] || Info;
-                const colorClass = levelColors[normalizedLevel] || "text-gray-500";
-                const uniqueKey = `${log.id}-${log.timestamp}-${index}`;
-                const hasMetadata = log.metadata && Object.keys(log.metadata).length > 0;
-                const isExpanded = expandedMetadata.has(uniqueKey);
+        <span className="text-muted-foreground ml-auto text-xs">
+          {logs?.length ?? 0} entries
+        </span>
+      </div>
 
-                const inlineFields = hasMetadata
-                  ? CONTEXT_FIELDS.filter((f) => log.metadata?.[f] !== undefined)
-                  : [];
-                const otherMetadata = hasMetadata
-                  ? Object.fromEntries(
-                      Object.entries(log.metadata!).filter(
-                        ([k]) => !CONTEXT_FIELDS.includes(k as (typeof CONTEXT_FIELDS)[number])
-                      )
-                    )
-                  : {};
-                const hasOtherMetadata = Object.keys(otherMetadata).length > 0;
-
-                return (
-                  <div
-                    key={uniqueKey}
-                    className={cn(
-                      "hover:bg-muted/50 flex items-start gap-3 rounded p-2",
-                      colorClass
-                    )}
-                  >
-                    <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-muted-foreground">
-                          {new Date(log.timestamp).toLocaleTimeString()}
-                        </span>
-                        <Badge variant="outline" className="text-xs" title={log.source}>
-                          {shortenSource(log.source)}
-                        </Badge>
-                        <Badge variant="secondary" className="text-xs uppercase">
-                          {normalizedLevel}
-                        </Badge>
-                        {inlineFields.map((field) => (
-                          <Badge
-                            key={field}
-                            variant="outline"
-                            className="bg-muted/50 cursor-pointer text-xs"
-                            onClick={() => {
-                              setContextFilters((prev) => ({
-                                ...prev,
-                                [field]: String(log.metadata![field]),
-                              }));
-                              setShowFilters(true);
-                            }}
-                            title={`Click to filter by ${field}`}
-                          >
-                            {field.replace(/_id$/, "").replace(/_/g, " ")}:{" "}
-                            <span className="ml-1 font-mono">
-                              {String(log.metadata![field]).slice(0, 8)}
-                            </span>
-                          </Badge>
-                        ))}
-                      </div>
-                      <p className="text-foreground break-words">{log.message}</p>
-                      {hasOtherMetadata && (
-                        <Collapsible
-                          open={isExpanded}
-                          onOpenChange={(open) => {
-                            setExpandedMetadata((prev) => {
-                              const next = new Set(prev);
-                              if (open) {
-                                next.add(uniqueKey);
-                              } else {
-                                next.delete(uniqueKey);
-                              }
-                              return next;
-                            });
-                          }}
-                        >
-                          <CollapsibleTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-muted-foreground hover:text-foreground h-5 px-1 text-xs"
-                            >
-                              {isExpanded ? (
-                                <ChevronDown className="mr-1 h-3 w-3" />
-                              ) : (
-                                <ChevronRight className="mr-1 h-3 w-3" />
-                              )}
-                              {Object.keys(otherMetadata).length} more fields
-                            </Button>
-                          </CollapsibleTrigger>
-                          <CollapsibleContent>
-                            <pre className="text-muted-foreground bg-muted/30 mt-1 overflow-x-auto rounded p-2 text-xs">
-                              {JSON.stringify(otherMetadata, null, 2)}
-                            </pre>
-                          </CollapsibleContent>
-                        </Collapsible>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </ScrollArea>
-      </CardContent>
-    </Card>
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="border-border overflow-hidden rounded-lg border"
+      >
+        {isLoading ? (
+          <div className="text-muted-foreground p-4 text-sm">Loading logs…</div>
+        ) : !logs || logs.length === 0 ? (
+          <EmptyState
+            icon={Activity}
+            title="No logs"
+            description="No log entries match your filter."
+          />
+        ) : (
+          logs.map((entry) => (
+            <LogEntryRow
+              key={entry.id}
+              entry={entry}
+              isExpanded={expandedIds.has(entry.id)}
+              onToggle={() => toggleExpand(entry.id)}
+            />
+          ))
+        )}
+      </div>
+    </div>
   );
 }

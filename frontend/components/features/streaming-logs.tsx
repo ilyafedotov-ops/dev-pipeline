@@ -1,196 +1,200 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Download, Pause, Play, Search, X } from "lucide-react";
+import { Activity } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { apiClient, useRunLogs } from "@/lib/api";
+import { EmptyState } from "@/components/ui/empty-state";
+import type { AppLogEntry } from "@/lib/api/types";
+import { useLogStream } from "@/lib/api/hooks/use-logs";
 import { cn } from "@/lib/utils";
 
-interface StreamingLogsProps {
+const levelColors: Record<string, string> = {
+  error: "text-red-500 bg-red-500/10",
+  warning: "text-yellow-500 bg-yellow-500/10",
+  warn: "text-yellow-500 bg-yellow-500/10",
+  info: "text-blue-500 bg-blue-500/10",
+  debug: "text-gray-400 bg-gray-400/10",
+};
+
+const levelBadgeColors: Record<string, string> = {
+  error: "bg-red-500/15 text-red-500 border-red-500/30",
+  warning: "bg-yellow-500/15 text-yellow-500 border-yellow-500/30",
+  warn: "bg-yellow-500/15 text-yellow-500 border-yellow-500/30",
+  info: "bg-blue-500/15 text-blue-500 border-blue-500/30",
+  debug: "bg-gray-500/15 text-gray-400 border-gray-500/30",
+};
+
+function formatTimestamp(ts: string): string {
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      fractionalSecondDigits: 3,
+    });
+  } catch {
+    return ts;
+  }
+}
+
+function StreamLogRow({ entry, isExpanded, onToggle }: {
+  entry: AppLogEntry;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const level = entry.level?.toLowerCase() ?? "info";
+  const colorClass = levelColors[level] ?? levelColors.info;
+  const badgeClass = levelBadgeColors[level] ?? levelBadgeColors.info;
+  const source = entry.module || entry.logger_name || entry.source || "—";
+  const hasExpandable = (entry.funcName || entry.lineno || entry.metadata) ? true : false;
+
+  return (
+    <div
+      className={cn(
+        "hover:bg-muted/40 cursor-pointer border-b border-border/30 px-3 py-1.5 font-mono text-xs transition-colors last:border-b-0",
+        level === "error" && "bg-red-500/5",
+      )}
+      onClick={hasExpandable ? onToggle : undefined}
+    >
+      <div className="flex items-start gap-3">
+        <span className="text-muted-foreground min-w-20 shrink-0">
+          {formatTimestamp(entry.timestamp)}
+        </span>
+        <span
+          className={cn(
+            "inline-flex min-w-14 shrink-0 items-center justify-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase",
+            badgeClass,
+          )}
+        >
+          {level === "warning" ? "WARN" : level.toUpperCase()}
+        </span>
+        <span className="text-muted-foreground min-w-32 shrink-0 truncate">
+          {source}
+        </span>
+        <span className={cn("min-w-0 flex-1 break-words", colorClass)}>
+          {entry.message}
+        </span>
+      </div>
+
+      {isExpanded && (
+        <div className="bg-muted/30 mt-1.5 rounded p-2">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs md:grid-cols-3">
+            {entry.funcName && (
+              <div>
+                <span className="text-muted-foreground">funcName:</span>{" "}
+                <span className="font-medium">{entry.funcName}</span>
+              </div>
+            )}
+            {entry.lineno != null && (
+              <div>
+                <span className="text-muted-foreground">lineno:</span>{" "}
+                <span className="font-medium">{entry.lineno}</span>
+              </div>
+            )}
+            {entry.module && (
+              <div>
+                <span className="text-muted-foreground">module:</span>{" "}
+                <span className="font-medium">{entry.module}</span>
+              </div>
+            )}
+            {entry.metadata && Object.keys(entry.metadata).length > 0 && (
+              <pre className="col-span-2 mt-2 max-h-40 overflow-auto rounded bg-black/5 p-2 text-[10px] whitespace-pre-wrap md:col-span-3">
+                {JSON.stringify(entry.metadata, null, 2)}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export interface StreamingLogsProps {
   runId: string;
 }
 
-function splitLines(content: string) {
-  const parts = content.split(/\r?\n/);
-  const remainder = parts.pop() ?? "";
-  return { lines: parts, remainder };
-}
-
 export function StreamingLogs({ runId }: StreamingLogsProps) {
-  const { data: logData, isLoading } = useRunLogs(runId);
-  const [streamState, setStreamState] = useState<{
-    runId: string;
-    lines: string[];
-    buffer: string;
-  }>(() => ({
-    runId,
-    lines: [],
-    buffer: "",
-  }));
-  const [isPaused, setIsPaused] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
-  const isTruncated = Boolean(logData?.truncated);
+  const [entries, setEntries] = useState<AppLogEntry[]>([]);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const streamUrl = useMemo(() => {
-    const baseUrl = apiClient.getConfig().baseUrl.replace(/\/$/, "");
-    if (baseUrl) {
-      return `${baseUrl}/runs/${runId}/logs/stream`;
-    }
-    return `/runs/${runId}/logs/stream`;
-  }, [runId]);
-  const parsedLogData = useMemo(() => {
-    const content = logData?.content ?? "";
-    return splitLines(content);
-  }, [logData]);
-  const effectiveStreamState =
-    streamState.runId === runId ? streamState : { runId, lines: [], buffer: "" };
 
-  useEffect(() => {
-    if (!isStreaming || isPaused) return;
-
-    const source = new EventSource(streamUrl);
-    eventSourceRef.current = source;
-
-    const handleLogEvent = (event: MessageEvent) => {
-      try {
-        const payload = JSON.parse(event.data) as { chunk?: string };
-        if (payload.chunk) {
-          setStreamState((prev) => {
-            const base = prev.runId === runId ? prev : { runId, lines: [], buffer: "" };
-            const combined = base.buffer + payload.chunk;
-            const { lines: chunkLines, remainder } = splitLines(combined);
-            return {
-              runId,
-              lines: chunkLines.length > 0 ? [...base.lines, ...chunkLines] : base.lines,
-              buffer: remainder,
-            };
-          });
-        }
-      } catch {
-        // Ignore malformed chunks
-      }
-    };
-
-    source.addEventListener("log", handleLogEvent);
-    source.addEventListener("error", () => {
-      source.close();
-      eventSourceRef.current = null;
+  const handleLog = useCallback((log: AppLogEntry) => {
+    setEntries((prev) => {
+      // Cap at 500 entries
+      const next = [...prev, log];
+      return next.length > 500 ? next.slice(-500) : next;
     });
+  }, []);
 
-    return () => {
-      source.removeEventListener("log", handleLogEvent);
-      source.close();
-      eventSourceRef.current = null;
-    };
-  }, [isStreaming, isPaused, runId, streamUrl]);
+  const { isConnected } = useLogStream({
+    onLog: handleLog,
+    enabled: !!runId,
+  });
 
-  const displayLines = useMemo(() => {
-    const merged = [...parsedLogData.lines, ...effectiveStreamState.lines];
-    if (parsedLogData.remainder) {
-      merged.push(parsedLogData.remainder);
-    }
-    if (effectiveStreamState.buffer) {
-      merged.push(effectiveStreamState.buffer);
-    }
-    return merged;
-  }, [
-    effectiveStreamState.buffer,
-    effectiveStreamState.lines,
-    parsedLogData.lines,
-    parsedLogData.remainder,
-  ]);
-
+  // Auto-scroll
   useEffect(() => {
-    if (!isPaused && scrollRef.current) {
+    if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [displayLines, isPaused]);
+  }, [entries]);
 
-  const filteredLines = useMemo(() => {
-    if (!searchQuery) return displayLines;
-    const query = searchQuery.toLowerCase();
-    return displayLines.filter((line) => line.toLowerCase().includes(query));
-  }, [displayLines, searchQuery]);
+  const toggleExpand = useCallback((id: number) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
-  const handleDownload = () => {
-    const logText = displayLines.join("\n");
-    const blob = new Blob([logText], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `logs-${runId}-${new Date().toISOString()}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
+  const levelCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const e of entries) {
+      const l = (e.level ?? "info").toLowerCase();
+      counts[l] = (counts[l] || 0) + 1;
+    }
+    return counts;
+  }, [entries]);
 
   return (
-    <div className="flex h-full flex-col rounded-lg border">
-      <div className="bg-muted/30 flex flex-wrap items-center gap-2 border-b p-3">
-        <div className="flex min-w-[240px] flex-1 items-center gap-2">
-          <div className="relative max-w-md flex-1">
-            <Search className="text-muted-foreground absolute top-2.5 left-2 h-4 w-4" />
-            <Input
-              placeholder="Search logs..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pr-8 pl-8"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-          {isTruncated && (
-            <span className="text-muted-foreground text-xs">Showing first chunk (truncated)</span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setIsPaused(!isPaused)}>
-            {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setIsStreaming(!isStreaming)}>
-            {isStreaming ? "Stop" : "Start"} Stream
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleDownload}>
-            <Download className="mr-1 h-4 w-4" />
-            Download
-          </Button>
-        </div>
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-3 border-b px-3 py-2">
+        <span className={cn(
+          "h-2 w-2 rounded-full",
+          isConnected ? "bg-green-500" : "bg-muted-foreground"
+        )} />
+        <span className="text-muted-foreground text-xs">
+          {isConnected ? "Connected" : "Disconnected"}
+        </span>
+        <span className="text-muted-foreground text-xs">|</span>
+        <span className="text-muted-foreground text-xs">{entries.length} entries</span>
+        {Object.entries(levelCounts).map(([level, count]) => (
+          <span key={level} className={cn("text-xs", levelColors[level])}>
+            {level}: {count}
+          </span>
+        ))}
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-auto p-3 font-mono text-xs">
-        {isLoading && filteredLines.length === 0 ? (
-          <div className="text-muted-foreground">Loading logs...</div>
-        ) : filteredLines.length > 0 ? (
-          filteredLines.map((line, index) => (
-            <div
-              key={`${index}-${line}`}
-              className={cn("py-0.5", line ? "text-foreground" : "text-muted-foreground")}
-            >
-              {line || " "}
-            </div>
-          ))
+      <div ref={scrollRef} className="flex-1 overflow-auto rounded-lg">
+        {entries.length === 0 ? (
+          <EmptyState
+            icon={Activity}
+            title="Waiting for logs…"
+            description={`Streaming logs for run ${runId.slice(0, 12)}`}
+          />
         ) : (
-          <div className="text-muted-foreground flex h-full items-center justify-center">
-            No logs yet
-          </div>
+          entries.map((entry) => (
+            <StreamLogRow
+              key={entry.id}
+              entry={entry}
+              isExpanded={expandedIds.has(entry.id)}
+              onToggle={() => toggleExpand(entry.id)}
+            />
+          ))
         )}
-      </div>
-
-      <div className="bg-muted/30 text-muted-foreground flex items-center justify-between border-t px-3 py-2 text-xs">
-        <span>{filteredLines.length} line(s)</span>
-        <span>{isPaused ? "Paused" : isStreaming ? "Streaming" : "Stopped"}</span>
       </div>
     </div>
   );

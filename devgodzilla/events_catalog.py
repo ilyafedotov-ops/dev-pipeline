@@ -64,11 +64,13 @@ _EVENT_CATEGORY_OVERRIDES = {
 }
 
 _EVENT_CATEGORY_PREFIXES: dict[str, tuple[str, ...]] = {
-    "onboarding": ("onboarding_", "setup_", "clarification_"),
+    "feedback": ("feedback_",),
+    "clarification": ("clarification_",),
+    "onboarding": ("onboarding_", "setup_"),
     "discovery": ("discovery_",),
     "planning": ("planning_", "plan_", "spec_"),
     "execution": ("step_", "execute_", "run_", "job_"),
-    "qa": ("qa_", "step_qa_", "feedback_", "quality_"),
+    "qa": ("qa_", "step_qa_", "quality_"),
     "policy": ("policy_",),
     "ci_webhook": ("ci_", "webhook_", "github_", "gitlab_"),
 }

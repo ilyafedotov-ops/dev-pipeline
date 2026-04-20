@@ -46,6 +46,7 @@ import {
 import type { Event } from "@/lib/api/types";
 import { formatRelativeTime } from "@/lib/format";
 import { getSpecificationReviewPath } from "@/lib/project-routes";
+import { formatMetadataValue, formatKeyLabel } from "@/lib/utils/event-metadata";
 import { cn } from "@/lib/utils";
 
 const MAX_EVENTS = 200;
@@ -208,42 +209,6 @@ function getEventColor(eventType: string): string {
   if (type.includes("warning") || type.includes("paused")) return "text-yellow-600";
   if (type.includes("started") || type.includes("running")) return "text-blue-600";
   return "text-muted-foreground";
-}
-
-function formatMetadataValue(key: string, value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") {
-    if (key.includes("duration") || key.includes("time")) {
-      if (value < 1000) return `${value}ms`;
-      if (value < 60000) return `${(value / 1000).toFixed(1)}s`;
-      return `${(value / 60000).toFixed(1)}m`;
-    }
-    if (key.includes("cost") || key.includes("price")) {
-      return `$${value.toFixed(4)}`;
-    }
-    if (key.includes("tokens")) {
-      return value.toLocaleString();
-    }
-    return String(value);
-  }
-  if (typeof value === "string") {
-    if (value.length > 100) return `${value.slice(0, 100)  }…`;
-    return value;
-  }
-  if (Array.isArray(value)) {
-    if (value.length === 0) return "[]";
-    if (value.length <= 3) return value.join(", ");
-    return `${value.slice(0, 3).join(", ")} +${value.length - 3} more`;
-  }
-  return JSON.stringify(value);
-}
-
-function formatKeyLabel(key: string): string {
-  return key
-    .replace(/_/g, " ")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function renderEventDetails(

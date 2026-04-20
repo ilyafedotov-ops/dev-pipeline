@@ -76,10 +76,6 @@ def install_db_event_sink(
     def _persist(event: BusEvent) -> None:
         protocol_run_id = cast(Optional[int], getattr(event, "protocol_run_id", None))
         project_id = cast(Optional[int], getattr(event, "project_id", None))
-        
-        # Require at least one of protocol_run_id or project_id
-        if not protocol_run_id and not project_id:
-            return
             
         step_run_id = cast(Optional[int], getattr(event, "step_run_id", None))
 

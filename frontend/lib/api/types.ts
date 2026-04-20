@@ -421,6 +421,20 @@ export interface AppLogEntry {
   source: string;
   message: string;
   metadata?: Record<string, unknown> | null;
+  /** Logger name (Python logging `name`) */
+  logger_name?: string | null;
+  /** Module where the log originated */
+  module?: string | null;
+  /** Function name that emitted the log */
+  funcName?: string | null;
+  /** Line number in source file */
+  lineno?: number | null;
+  /** Thread name */
+  thread?: string | null;
+  /** Process name / PID */
+  process?: string | null;
+  /** Full log record name */
+  pathname?: string | null;
 }
 
 export interface AppLogFilters {
