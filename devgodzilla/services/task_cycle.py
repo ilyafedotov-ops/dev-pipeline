@@ -602,6 +602,41 @@ class TaskCycleService(Service):
         blocking_clarifications = self._blocking_clarifications(project.id, run.id, step.id)
         blocking_policy_findings = self._evaluate_blocking_policy_findings(step.id, run, project)
 
+        # --- Artifact availability checks with execution-engine fallback ---
+        # Some steps are executed by the execution engine (auto-advance) rather
+        # than the task-cycle actions.  Those steps have QA results persisted in
+        # the database but *not* as task_dir/test_report.json.  If the QA result
+        # exists in DB and passed, we materialise the JSON artifact on-the-fly so
+        # that mark-pr-ready succeeds.
+        if not Path(refs["test_report_json"]).exists():
+            qa_row = self.db.get_qa_result_by_step(step.id)
+            if qa_row is not None and qa_row.verdict == "pass":
+                Path(refs["task_dir"]).mkdir(parents=True, exist_ok=True)
+                qa_report = {
+                    "verdict": qa_row.verdict,
+                    "summary": qa_row.summary or "QA passed (execution engine)",
+                    "findings": qa_row.findings or [],
+                    "source": "execution_engine",
+                    "qa_result_id": qa_row.id,
+                }
+                Path(refs["test_report_json"]).write_text(
+                    json.dumps(qa_report, indent=2), encoding="utf-8"
+                )
+
+        # Materialise review_report.json from execution-engine step artifacts
+        # when the review action hasn't been explicitly run but execution
+        # completed successfully.
+        if not Path(refs["review_report_json"]).exists() and state.get("review_status") == "passed":
+            Path(refs["task_dir"]).mkdir(parents=True, exist_ok=True)
+            review_report = {
+                "verdict": "passed",
+                "summary": step.summary or "Execution completed; review passed",
+                "source": "execution_engine",
+            }
+            Path(refs["review_report_json"]).write_text(
+                json.dumps(review_report, indent=2), encoding="utf-8"
+            )
+
         required_paths = [
             refs["context_pack_json"],
             refs["review_report_json"],
@@ -612,7 +647,14 @@ class TaskCycleService(Service):
             raise TaskCycleError(f"Missing required artifacts: {', '.join(missing)}")
         if state.get("review_status") != "passed":
             raise TaskCycleError("Review must pass before marking PR-ready")
-        if state.get("qa_status") != "passed":
+        # Allow QA status from execution-engine QA result when task-cycle
+        # state doesn't record an explicit qa_status.
+        qa_ok = state.get("qa_status") == "passed"
+        if not qa_ok:
+            qa_row = self.db.get_qa_result_by_step(step.id)
+            if qa_row is not None and qa_row.verdict == "pass":
+                qa_ok = True
+        if not qa_ok:
             raise TaskCycleError("QA must pass before marking PR-ready")
         if blocking_clarifications:
             raise TaskCycleError("Blocking clarifications must be resolved before marking PR-ready")

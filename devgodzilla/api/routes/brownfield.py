@@ -87,7 +87,6 @@ def start_brownfield_run(
         raise HTTPException(status_code=400, detail="Project has no local path")
 
     # Try synchronous execution first (works when engines are mocked/stubbed)
-    import threading
     _sync_result = [None]
     _sync_exc = [None]
     _sync_done = threading.Event()
@@ -107,7 +106,6 @@ def start_brownfield_run(
     if completed:
         if _sync_exc[0]:
             # Re-raise validation errors directly (HTTPExceptions + domain errors)
-            from fastapi import HTTPException
             from devgodzilla.services.task_cycle import TaskCycleError
             if isinstance(_sync_exc[0], (HTTPException, TaskCycleError)):
                 if isinstance(_sync_exc[0], TaskCycleError):

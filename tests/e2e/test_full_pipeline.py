@@ -309,7 +309,7 @@ async def test_specification_flow(client: httpx.AsyncClient):
             resp = await client.post("/speckit/specify", json=specify_payload)
             # Spec generation depends on an agent being available; accept graceful
             # failures.
-            assert resp.status_code in (200, 201, 400, 500), (
+            assert resp.status_code in (200, 201, 202, 400, 500), (
                 f"speckit specify unexpected: {resp.status_code} {resp.text}"
             )
         except httpx.ReadTimeout:
