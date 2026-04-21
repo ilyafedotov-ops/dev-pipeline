@@ -1,7 +1,6 @@
 "use client";
 
-import type React from "react";
-import { useMemo, useState } from "react";
+import { Fragment, type ReactNode, type Ref,useMemo, useState } from "react";
 
 import {
   type ColumnDef,
@@ -35,6 +34,15 @@ interface DataTableProps<TData, TValue> {
   enableExport?: boolean;
   exportFilename?: string;
   enableColumnFilters?: boolean;
+  searchAccessor?: (row: TData) => string;
+  toolbarLeadingContent?: ReactNode;
+  toolbarTrailingContent?: ReactNode;
+  tableContainerClassName?: string;
+  tableContainerRef?: Ref<HTMLDivElement>;
+  stickyHeader?: boolean;
+  emptyMessage?: string;
+  isRowExpanded?: (row: TData) => boolean;
+  renderExpandedContent?: (row: TData) => ReactNode;
 }
 
 export function DataTable<TData, TValue>({
@@ -47,6 +55,15 @@ export function DataTable<TData, TValue>({
   enableExport = false,
   exportFilename = "export.csv",
   enableColumnFilters = false,
+  searchAccessor,
+  toolbarLeadingContent,
+  toolbarTrailingContent,
+  tableContainerClassName,
+  tableContainerRef,
+  stickyHeader = false,
+  emptyMessage = "No results.",
+  isRowExpanded,
+  renderExpandedContent,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [search, setSearch] = useState("");
@@ -62,11 +79,11 @@ export function DataTable<TData, TValue>({
         const columnId = typeof id === "string" ? id : accessorKey;
         return { columnId, accessorKey };
       })
-      .filter((v): v is { columnId: string; accessorKey: string } => v != null);
+      .filter((value): value is { columnId: string; accessorKey: string } => value != null);
   }, [columns]);
 
   const accessorKeyByColumnId = useMemo(() => {
-    return new Map(filterableColumns.map((c) => [c.columnId, c.accessorKey] as const));
+    return new Map(filterableColumns.map((column) => [column.columnId, column.accessorKey] as const));
   }, [filterableColumns]);
 
   const getRowValue = (row: unknown, accessorKey: string) => {
@@ -82,14 +99,14 @@ export function DataTable<TData, TValue>({
     const query = search.trim().toLowerCase();
     const activeColumnFilters = Object.entries(columnFilters)
       .map(([columnId, value]) => ({ columnId, value: value.trim().toLowerCase() }))
-      .filter((f) => f.value.length > 0);
+      .filter((filter) => filter.value.length > 0);
 
     if (!query && activeColumnFilters.length === 0) return data;
 
     return data.filter((row) => {
       if (activeColumnFilters.length > 0) {
-        for (const f of activeColumnFilters) {
-          const accessorKey = accessorKeyByColumnId.get(f.columnId);
+        for (const filter of activeColumnFilters) {
+          const accessorKey = accessorKeyByColumnId.get(filter.columnId);
           if (!accessorKey) continue;
           const value = getRowValue(row, accessorKey);
           const asString =
@@ -100,7 +117,7 @@ export function DataTable<TData, TValue>({
                 : typeof value === "number" || typeof value === "boolean"
                   ? String(value)
                   : JSON.stringify(value);
-          if (!asString.toLowerCase().includes(f.value)) {
+          if (!asString.toLowerCase().includes(filter.value)) {
             return false;
           }
         }
@@ -108,12 +125,13 @@ export function DataTable<TData, TValue>({
 
       if (!query) return true;
       try {
-        return JSON.stringify(row).toLowerCase().includes(query);
+        const haystack = searchAccessor ? searchAccessor(row) : JSON.stringify(row);
+        return haystack.toLowerCase().includes(query);
       } catch {
         return false;
       }
     });
-  }, [accessorKeyByColumnId, columnFilters, data, search]);
+  }, [accessorKeyByColumnId, columnFilters, data, search, searchAccessor]);
 
   const table = useReactTable({
     data: filteredData,
@@ -137,7 +155,7 @@ export function DataTable<TData, TValue>({
           header: typeof header === "string" ? header : accessorKey,
         };
       })
-      .filter((c): c is { accessorKey: string; header: string } => c != null);
+      .filter((column): column is { accessorKey: string; header: string } => column != null);
 
     const escape = (value: unknown) => {
       if (value == null) return "";
@@ -164,9 +182,9 @@ export function DataTable<TData, TValue>({
     }
 
     const rows = filteredData as unknown as Array<Record<string, unknown>>;
-    const headerLine = exportCols.map((c) => escape(c.header)).join(",");
+    const headerLine = exportCols.map((column) => escape(column.header)).join(",");
     const dataLines = rows.map((row) =>
-      exportCols.map((c) => escape(row[c.accessorKey])).join(",")
+      exportCols.map((column) => escape(row[column.accessorKey])).join(",")
     );
     const csv = [headerLine, ...dataLines].join("\n");
 
@@ -183,37 +201,39 @@ export function DataTable<TData, TValue>({
 
   return (
     <div className={cn("rounded-md border", className)}>
-      {(enableSearch || enableExport || enableColumnFilters) && (
+      {(enableSearch || enableExport || enableColumnFilters || toolbarLeadingContent || toolbarTrailingContent) && (
         <div className="bg-muted/30 flex flex-wrap items-center justify-between gap-2 border-b p-2">
-          {enableSearch ? (
-            <div className="relative w-full sm:w-80">
-              <Search className="text-muted-foreground absolute top-2.5 left-2 h-4 w-4" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={searchPlaceholder || "Search..."}
-                className="pl-8"
-              />
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => setSearch("")}
-                  className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-          ) : (
-            <div />
-          )}
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            {toolbarLeadingContent}
+            {enableSearch ? (
+              <div className="relative w-full sm:w-80">
+                <Search className="text-muted-foreground absolute top-2.5 left-2 h-4 w-4" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={searchPlaceholder || "Search..."}
+                  className="pl-8"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {toolbarTrailingContent}
             {enableColumnFilters && (
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setShowFilters((v) => !v)}
+                onClick={() => setShowFilters((value) => !value)}
                 className={cn(showFilters && "bg-muted")}
               >
                 <Filter className="mr-2 h-4 w-4" />
@@ -248,89 +268,109 @@ export function DataTable<TData, TValue>({
           </div>
         </div>
       )}
-      <Table>
-        <TableHeader>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <TableRow key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <TableHead key={header.id}>
-                  {header.isPlaceholder ? null : (
-                    <div
-                      className={cn(
-                        "flex items-center gap-1",
-                        header.column.getCanSort() && "cursor-pointer select-none"
-                      )}
-                      onClick={header.column.getToggleSortingHandler()}
-                    >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                      {header.column.getCanSort() && (
-                        <ArrowUpDown className="text-muted-foreground ml-auto shrink-0 h-3 w-3" />
-                      )}
-                    </div>
-                  )}
-                </TableHead>
-              ))}
-            </TableRow>
-          ))}
-          {enableColumnFilters && showFilters && (
-            <TableRow>
-              {(table.getHeaderGroups()[table.getHeaderGroups().length - 1]?.headers ?? []).map(
-                (header) => {
-                  const accessorKey = (
-                    header.column.columnDef as unknown as { accessorKey?: unknown }
-                  ).accessorKey;
-                  const canFilter = typeof accessorKey === "string";
-                  return (
-                    <TableHead key={`${header.id}-filter`} className="py-2">
-                      {canFilter ? (
-                        <Input
-                          value={columnFilters[header.column.id] || ""}
-                          onChange={(e) =>
-                            setColumnFilters((prev) => ({
-                              ...prev,
-                              [header.column.id]: e.target.value,
-                            }))
-                          }
-                          placeholder="Filter…"
-                          className="h-7 text-xs"
-                        />
-                      ) : null}
-                    </TableHead>
-                  );
-                }
-              )}
-            </TableRow>
-          )}
-        </TableHeader>
-        <TableBody>
-          {table.getRowModel().rows?.length ? (
-            table.getRowModel().rows.map((row) => (
-              <TableRow
-                key={row.id}
-                data-state={row.getIsSelected() && "selected"}
-                className={cn(onRowClick && "hover:bg-muted/50 cursor-pointer")}
-                onClick={() => onRowClick?.(row.original)}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
+
+      <div ref={tableContainerRef} className={tableContainerClassName}>
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    className={cn(
+                      stickyHeader && "bg-background sticky top-0 z-10 shadow-[0_1px_0_hsl(var(--border))]"
+                    )}
+                  >
+                    {header.isPlaceholder ? null : (
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex w-full items-center gap-1 text-left",
+                          header.column.getCanSort() && "cursor-pointer select-none"
+                        )}
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {header.column.getCanSort() && (
+                          <ArrowUpDown className="text-muted-foreground ml-auto h-3 w-3 shrink-0" />
+                        )}
+                      </button>
+                    )}
+                  </TableHead>
                 ))}
               </TableRow>
-            ))
-          ) : (
-            <TableRow>
-              <TableCell colSpan={columns.length} className="h-24 text-center">
-                No results.
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
+            ))}
+            {enableColumnFilters && showFilters && (
+              <TableRow>
+                {(table.getHeaderGroups()[table.getHeaderGroups().length - 1]?.headers ?? []).map(
+                  (header) => {
+                    const accessorKey = (
+                      header.column.columnDef as unknown as { accessorKey?: unknown }
+                    ).accessorKey;
+                    const canFilter = typeof accessorKey === "string";
+                    return (
+                      <TableHead key={`${header.id}-filter`} className="py-2">
+                        {canFilter ? (
+                          <Input
+                            value={columnFilters[header.column.id] || ""}
+                            onChange={(e) =>
+                              setColumnFilters((prev) => ({
+                                ...prev,
+                                [header.column.id]: e.target.value,
+                              }))
+                            }
+                            placeholder="Filter..."
+                            className="h-7 text-xs"
+                          />
+                        ) : null}
+                      </TableHead>
+                    );
+                  }
+                )}
+              </TableRow>
+            )}
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows?.length ? (
+              table.getRowModel().rows.map((row) => {
+                const expanded = isRowExpanded?.(row.original) ?? false;
+                return (
+                  <Fragment key={row.id}>
+                    <TableRow
+                      data-state={row.getIsSelected() && "selected"}
+                      className={cn(onRowClick && "hover:bg-muted/50 cursor-pointer")}
+                      onClick={() => onRowClick?.(row.original)}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                    {expanded && renderExpandedContent ? (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={columns.length} className="bg-muted/15 p-0">
+                          {renderExpandedContent(row.original)}
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                  </Fragment>
+                );
+              })
+            ) : (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="h-24 text-center">
+                  {emptyMessage}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }
 
-export function SortableHeader({ children }: { children: React.ReactNode }) {
+export function SortableHeader({ children }: { children: ReactNode }) {
   return <div className="flex items-center gap-1">{children}</div>;
 }

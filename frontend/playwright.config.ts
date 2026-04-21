@@ -8,6 +8,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const port = process.env.PLAYWRIGHT_START_SERVER ? 3107 : (process.env.PLAYWRIGHT_PORT ? parseInt(process.env.PLAYWRIGHT_PORT) : 8080);
 const serverURL = `http://127.0.0.1:${port}`;
+const mockApiURL = `${serverURL}/mock-api`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -37,6 +38,11 @@ export default defineConfig({
         webServer: {
           command: `pnpm exec next dev --hostname 127.0.0.1 --port ${port}`,
           url: `${serverURL}/console`,
+          env: {
+            ...process.env,
+            NEXT_PUBLIC_API_BASE_URL: mockApiURL,
+            NEXT_PUBLIC_API_URL: mockApiURL,
+          },
           reuseExistingServer: !process.env.CI,
           timeout: 120_000,
         },
