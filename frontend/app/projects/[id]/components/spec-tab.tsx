@@ -441,7 +441,7 @@ export function SpecTab({ projectId }: SpecTabProps) {
                 className="text-muted-foreground max-w-[150px] truncate font-mono text-sm"
                 title={status.constitution_hash || undefined}
               >
-                {status.constitution_hash ? `${status.constitution_hash.slice(0, 12)  }...` : "N/A"}
+                {status.constitution_hash ? `${status.constitution_hash.slice(0, 12)}...` : "N/A"}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -664,11 +664,7 @@ export function SpecTab({ projectId }: SpecTabProps) {
                     {spec.spec_run_id && spec.status === "in-progress" && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            disabled={stopSpecRun.isPending}
-                          >
+                          <Button variant="destructive" size="sm" disabled={stopSpecRun.isPending}>
                             <StopCircle className="mr-2 h-3.5 w-3.5" />
                             Stop Run
                           </Button>
@@ -677,15 +673,15 @@ export function SpecTab({ projectId }: SpecTabProps) {
                           <AlertDialogHeader>
                             <AlertDialogTitle>Stop Spec Run</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Are you sure you want to stop this spec run? The run will be
-                              marked as stopped and any in-progress work will be halted.
-                              This action cannot be undone.
+                              Are you sure you want to stop this spec run? The run will be marked as
+                              stopped and any in-progress work will be halted. This action cannot be
+                              undone.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>No, keep running</AlertDialogCancel>
                             <AlertDialogAction
-                              className="bg-destructive text-white hover:bg-destructive/90"
+                              className="bg-destructive hover:bg-destructive/90 text-white"
                               disabled={stopSpecRun.isPending}
                               onClick={async () => {
                                 try {
@@ -803,7 +799,12 @@ export function SpecTab({ projectId }: SpecTabProps) {
                           size="sm"
                           variant="outline"
                           onClick={() =>
-                            handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
+                            handleAnalyze(
+                              specPath,
+                              spec.plan_path,
+                              spec.tasks_path,
+                              spec.spec_run_id
+                            )
                           }
                           disabled={!specPath || isCleaned}
                         >
@@ -846,15 +847,15 @@ export function SpecTab({ projectId }: SpecTabProps) {
                             <AlertDialogHeader>
                               <AlertDialogTitle>Stop Spec Run</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Are you sure you want to stop this spec run? The run will be
-                                marked as stopped and any in-progress work will be halted.
-                                This action cannot be undone.
+                                Are you sure you want to stop this spec run? The run will be marked
+                                as stopped and any in-progress work will be halted. This action
+                                cannot be undone.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>No, keep running</AlertDialogCancel>
                               <AlertDialogAction
-                                className="bg-destructive text-white hover:bg-destructive/90"
+                                className="bg-destructive hover:bg-destructive/90 text-white"
                                 disabled={stopSpecRun.isPending}
                                 onClick={async () => {
                                   try {

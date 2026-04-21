@@ -32,7 +32,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { DesignSolutionWizardModal } from "@/components/wizards/design-solution-wizard";
 import { GenerateSpecsWizardModal } from "@/components/wizards/generate-specs-wizard";
 import { ImplementFeatureWizardModal } from "@/components/wizards/implement-feature-wizard";
-import { useOnboarding, useProject, useProjectProtocols,useStartOnboarding } from "@/lib/api";
+import { useOnboarding, useProject, useProjectProtocols, useStartOnboarding } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 

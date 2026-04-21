@@ -24,10 +24,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  ConfirmDialog,
-  DeleteConfirmDialog,
-} from "@/components/ui/confirm-dialog";
+import { ConfirmDialog, DeleteConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DataTable } from "@/components/ui/data-table";
 import {
   Dialog,
@@ -92,7 +89,11 @@ export default function TemplatesPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // Data
-  const { data: templatesData, isLoading, refetch } = useTemplates({
+  const {
+    data: templatesData,
+    isLoading,
+    refetch,
+  } = useTemplates({
     category: selectedCategory ?? undefined,
     search: searchQuery || undefined,
   });
@@ -411,12 +412,26 @@ export default function TemplatesPage() {
                 Import
               </span>
             </Button>
-            <input type="file" accept=".yaml,.yml,.json" className="hidden" onChange={handleImport} />
+            <input
+              type="file"
+              accept=".yaml,.yml,.json"
+              className="hidden"
+              onChange={handleImport}
+            />
           </label>
-          <Button size="sm" onClick={() => {
-            setCreateForm({ id: "", name: "", description: "", category: "specification", content: "" });
-            setCreateOpen(true);
-          }}>
+          <Button
+            size="sm"
+            onClick={() => {
+              setCreateForm({
+                id: "",
+                name: "",
+                description: "",
+                category: "specification",
+                content: "",
+              });
+              setCreateOpen(true);
+            }}
+          >
             <Plus className="mr-2 h-4 w-4" />
             New Template
           </Button>
@@ -464,7 +479,7 @@ export default function TemplatesPage() {
         <div className="space-y-4">
           {/* Search */}
           <div className="relative">
-            <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search templates..."
               className="pl-10"
@@ -491,11 +506,7 @@ export default function TemplatesPage() {
           ) : (
             <Card>
               <CardContent className="p-0">
-                <DataTable
-                  columns={columns}
-                  data={templates}
-                  enableSearch={false}
-                />
+                <DataTable columns={columns} data={templates} enableSearch={false} />
               </CardContent>
             </Card>
           )}
@@ -515,11 +526,15 @@ export default function TemplatesPage() {
                 <Label>Template ID</Label>
                 <Input
                   value={createForm.id}
-                  onChange={(e) => setCreateForm({ ...createForm, id: e.target.value.replace(/[^a-z0-9-]/g, "") })}
+                  onChange={(e) =>
+                    setCreateForm({ ...createForm, id: e.target.value.replace(/[^a-z0-9-]/g, "") })
+                  }
                   placeholder="my-template"
                   className="font-mono text-sm"
                 />
-                <p className="text-muted-foreground text-[10px]">Lowercase letters, numbers, hyphens only</p>
+                <p className="text-muted-foreground text-[10px]">
+                  Lowercase letters, numbers, hyphens only
+                </p>
               </div>
               <div className="space-y-2">
                 <Label>Name</Label>
@@ -549,7 +564,9 @@ export default function TemplatesPage() {
               <Label>Category</Label>
               <Select
                 value={createForm.category}
-                onValueChange={(v) => setCreateForm({ ...createForm, category: v as TemplateCreate["category"] })}
+                onValueChange={(v) =>
+                  setCreateForm({ ...createForm, category: v as TemplateCreate["category"] })
+                }
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -573,8 +590,13 @@ export default function TemplatesPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!createForm.id || !createForm.name || createTemplate.isPending}>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreate}
+              disabled={!createForm.id || !createForm.name || createTemplate.isPending}
+            >
               {createTemplate.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create
             </Button>
@@ -608,7 +630,9 @@ export default function TemplatesPage() {
               <Label>Category</Label>
               <Select
                 value={editForm.category}
-                onValueChange={(v) => setEditForm({ ...editForm, category: v as TemplateUpdate["category"] })}
+                onValueChange={(v) =>
+                  setEditForm({ ...editForm, category: v as TemplateUpdate["category"] })
+                }
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -631,7 +655,9 @@ export default function TemplatesPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleEdit} disabled={updateTemplate.isPending}>
               {updateTemplate.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save Changes
@@ -664,9 +690,13 @@ export default function TemplatesPage() {
                       <div key={key} className="grid grid-cols-[1fr_2fr] items-center gap-3">
                         <div>
                           <code className="text-xs font-medium">{key}</code>
-                          {config.required && <span className="ml-1 text-xs text-destructive">*</span>}
+                          {config.required && (
+                            <span className="text-destructive ml-1 text-xs">*</span>
+                          )}
                           {config.description && (
-                            <p className="text-muted-foreground text-[10px]">{config.description}</p>
+                            <p className="text-muted-foreground text-[10px]">
+                              {config.description}
+                            </p>
                           )}
                         </div>
                         <Input
@@ -674,7 +704,9 @@ export default function TemplatesPage() {
                           onChange={(e) =>
                             setPreviewVariables((prev) => ({ ...prev, [key]: e.target.value }))
                           }
-                          placeholder={config.type === "string" ? "Enter value..." : `Type: ${config.type}`}
+                          placeholder={
+                            config.type === "string" ? "Enter value..." : `Type: ${config.type}`
+                          }
                           className="h-8 text-sm"
                         />
                       </div>
@@ -710,7 +742,9 @@ export default function TemplatesPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPreviewOpen(false)}>Close</Button>
+            <Button variant="outline" onClick={() => setPreviewOpen(false)}>
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -733,14 +767,13 @@ export default function TemplatesPage() {
             </div>
             <div className="space-y-2">
               <Label>New Name</Label>
-              <Input
-                value={dupName}
-                onChange={(e) => setDupName(e.target.value)}
-              />
+              <Input value={dupName} onChange={(e) => setDupName(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDuplicateOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setDuplicateOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleDuplicate} disabled={!dupId || duplicateTemplate.isPending}>
               {duplicateTemplate.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Duplicate

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo,useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -312,10 +312,10 @@ export default function SpecificationsPage() {
   const getSpecificationEntry = (spec: Specification) => {
     const hasReviewSurface = Boolean(
       spec.has_tasks ||
-        spec.checklist_path ||
-        spec.analysis_path ||
-        spec.implement_path ||
-        spec.protocol_id
+      spec.checklist_path ||
+      spec.analysis_path ||
+      spec.implement_path ||
+      spec.protocol_id
     );
 
     return hasReviewSurface

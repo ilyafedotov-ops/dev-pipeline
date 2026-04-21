@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 
-import { AlertTriangle,CheckCircle, Filter, Pause, Play, Search, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle, Filter, Pause, Play, Search, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,9 +32,11 @@ export default function ProtocolsPage() {
   const projectIdFilter =
     projectFilter !== ALL_PROJECTS ? Number.parseInt(projectFilter, 10) : undefined;
 
-  const { data: protocols, isLoading, error } = useProtocols(
-    projectIdFilter ? { project_id: projectIdFilter } : undefined
-  );
+  const {
+    data: protocols,
+    isLoading,
+    error,
+  } = useProtocols(projectIdFilter ? { project_id: projectIdFilter } : undefined);
   const { data: projects } = useProjects();
 
   const projectNameById = useMemo(() => {

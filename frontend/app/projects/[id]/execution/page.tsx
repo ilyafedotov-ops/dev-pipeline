@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useCallback, useMemo,useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 
@@ -182,7 +182,10 @@ export default function ProjectExecutionPage() {
   // Drag & Drop State
   const [draggedTask, setDraggedTask] = useState<AgileTask | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<TaskBoardStatus | null>(null);
-  const [confirmExecute, setConfirmExecute] = useState<{ task: AgileTask; targetStatus: TaskBoardStatus } | null>(null);
+  const [confirmExecute, setConfirmExecute] = useState<{
+    task: AgileTask;
+    targetStatus: TaskBoardStatus;
+  } | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
 
   const currentSprint =
@@ -206,8 +209,9 @@ export default function ProjectExecutionPage() {
 
   const filteredTasks = useMemo(() => {
     return scopedTasks.filter((task) => {
-      if (searchQuery && !task.title.toLowerCase().includes(searchQuery.toLowerCase()))
-        {return false;}
+      if (searchQuery && !task.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+        return false;
+      }
       if (filterType !== "all" && task.task_type !== filterType) return false;
       if (filterPriority !== "all" && task.priority !== filterPriority) return false;
       if (filterAssignee !== "all" && task.assignee !== filterAssignee) return false;
@@ -1076,7 +1080,12 @@ export default function ProjectExecutionPage() {
       />
 
       {/* Execution Confirmation Dialog */}
-      <Dialog open={!!confirmExecute} onOpenChange={(open) => { if (!open) setConfirmExecute(null); }}>
+      <Dialog
+        open={!!confirmExecute}
+        onOpenChange={(open) => {
+          if (!open) setConfirmExecute(null);
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Start Task Execution</DialogTitle>
@@ -1093,7 +1102,9 @@ export default function ProjectExecutionPage() {
                   if (!confirmExecute) return;
                   setIsExecuting(true);
                   try {
-                    await updateTask.mutateAsync(confirmExecute.task.id, { board_status: confirmExecute.targetStatus });
+                    await updateTask.mutateAsync(confirmExecute.task.id, {
+                      board_status: confirmExecute.targetStatus,
+                    });
                     mutateTasks();
                     toast.success(`Execution started for "${confirmExecute.task.title}"`);
                   } catch {
@@ -1114,9 +1125,13 @@ export default function ProjectExecutionPage() {
                 onClick={async () => {
                   if (!confirmExecute) return;
                   try {
-                    await updateTask.mutateAsync(confirmExecute.task.id, { board_status: confirmExecute.targetStatus });
+                    await updateTask.mutateAsync(confirmExecute.task.id, {
+                      board_status: confirmExecute.targetStatus,
+                    });
                     mutateTasks();
-                    toast.success(`Task moved to ${columns.find((c) => c.id === confirmExecute.targetStatus)?.title}`);
+                    toast.success(
+                      `Task moved to ${columns.find((c) => c.id === confirmExecute.targetStatus)?.title}`
+                    );
                   } catch {
                     toast.error("Failed to move task");
                   } finally {

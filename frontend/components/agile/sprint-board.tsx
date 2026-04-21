@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useCallback, useEffect,useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   AlertTriangle,
@@ -132,7 +132,10 @@ export function SprintBoard({
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit" | "view">("create");
   const [selectedTask, setSelectedTask] = useState<AgileTask | null>(null);
-  const [confirmExecute, setConfirmExecute] = useState<{ task: AgileTask; targetStatus: TaskBoardStatus } | null>(null);
+  const [confirmExecute, setConfirmExecute] = useState<{
+    task: AgileTask;
+    targetStatus: TaskBoardStatus;
+  } | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
 
   const isMobile = useIsMobile();
@@ -435,7 +438,12 @@ export function SprintBoard({
       />
 
       {/* Execution Confirmation Dialog */}
-      <Dialog open={!!confirmExecute} onOpenChange={(open) => { if (!open) setConfirmExecute(null); }}>
+      <Dialog
+        open={!!confirmExecute}
+        onOpenChange={(open) => {
+          if (!open) setConfirmExecute(null);
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Start Task Execution</DialogTitle>
@@ -452,7 +460,9 @@ export function SprintBoard({
                   if (!confirmExecute) return;
                   setIsExecuting(true);
                   try {
-                    await onTaskUpdate(confirmExecute.task.id, { board_status: confirmExecute.targetStatus });
+                    await onTaskUpdate(confirmExecute.task.id, {
+                      board_status: confirmExecute.targetStatus,
+                    });
                     await onTaskExecute!(confirmExecute.task.id);
                     toast.success(`Execution started for "${confirmExecute.task.title}"`);
                   } catch {
@@ -473,8 +483,12 @@ export function SprintBoard({
                 onClick={async () => {
                   if (!confirmExecute) return;
                   try {
-                    await onTaskUpdate(confirmExecute.task.id, { board_status: confirmExecute.targetStatus });
-                    toast.success(`Task moved to ${columns.find((c) => c.id === confirmExecute.targetStatus)?.title}`);
+                    await onTaskUpdate(confirmExecute.task.id, {
+                      board_status: confirmExecute.targetStatus,
+                    });
+                    toast.success(
+                      `Task moved to ${columns.find((c) => c.id === confirmExecute.targetStatus)?.title}`
+                    );
                   } catch {
                     toast.error("Failed to move task");
                   } finally {

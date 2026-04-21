@@ -87,8 +87,7 @@ function ArtifactContentDialog({
     enabled: open && !!contentPath,
   });
 
-  const isImage =
-    artifact && (artifact.kind === "image" || artifact.kind === "screenshot");
+  const isImage = artifact && (artifact.kind === "image" || artifact.kind === "screenshot");
   const downloadUrl = endpoints.download
     ? `${apiClient.getConfig().baseUrl}${endpoints.download}`
     : null;
@@ -107,7 +106,7 @@ function ArtifactContentDialog({
             )}
           </DialogTitle>
           {artifact?.path && (
-            <DialogDescription className="break-all font-mono text-xs">
+            <DialogDescription className="font-mono text-xs break-all">
               {artifact.path}
             </DialogDescription>
           )}

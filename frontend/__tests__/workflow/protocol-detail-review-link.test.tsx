@@ -6,14 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import ProtocolDetailPage from "@/app/protocols/[id]/page";
 
 vi.mock("next/link", () => ({
-  default: ({
-    href,
-    children,
-    ...props
-  }: {
-    href: string;
-    children: React.ReactNode;
-  }) => (
+  default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
       {children}
     </a>
@@ -72,6 +65,7 @@ vi.mock("@/lib/api", () => ({
   }),
   useFeedbackEvents: () => ({ data: null }),
   useFeedbackAnswerClarification: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useProtocolPolicyFindings: () => ({ data: null }),
 }));
 
 vi.mock("@/app/protocols/[id]/components/artifacts-tab", () => ({

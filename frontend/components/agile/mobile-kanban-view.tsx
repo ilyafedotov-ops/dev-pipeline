@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useCallback,useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import {
   AlertTriangle,
@@ -31,13 +31,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent,TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type {
-  AgileTask,
-  TaskBoardStatus,
-  TaskPriority,
-  TaskType,
-} from "@/lib/api/types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { AgileTask, TaskBoardStatus, TaskPriority, TaskType } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const taskTypeConfig: Record<TaskType, { icon: typeof Bug; color: string; bg: string }> = {

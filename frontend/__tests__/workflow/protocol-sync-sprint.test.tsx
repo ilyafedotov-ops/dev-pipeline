@@ -42,14 +42,7 @@ let linkedSprintData = {
 };
 
 vi.mock("next/link", () => ({
-  default: ({
-    href,
-    children,
-    ...props
-  }: {
-    href: string;
-    children: React.ReactNode;
-  }) => (
+  default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
       {children}
     </a>
@@ -87,6 +80,7 @@ vi.mock("@/lib/api", () => ({
   }),
   useFeedbackEvents: () => ({ data: null }),
   useFeedbackAnswerClarification: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useProtocolPolicyFindings: () => ({ data: null }),
 }));
 
 vi.mock("@/lib/websocket/hooks", () => ({

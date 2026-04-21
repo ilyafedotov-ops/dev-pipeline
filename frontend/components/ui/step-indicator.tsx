@@ -42,18 +42,18 @@ const getStatusClasses = (status: StepItemStatus): string => {
   }
 };
 
-const getStatusIcon = (
-  status: StepItemStatus,
-  stepNumber: number,
-  Icon?: React.ElementType
-) => {
+const getStatusIcon = (status: StepItemStatus, stepNumber: number, Icon?: React.ElementType) => {
   switch (status) {
     case "completed":
       return <CheckCircle2 className="h-5 w-5" />;
     case "loading":
       return <Loader2 className="h-5 w-5 animate-spin" />;
     default:
-      return Icon ? <Icon className="h-5 w-5" /> : <span className="text-sm font-medium">{stepNumber}</span>;
+      return Icon ? (
+        <Icon className="h-5 w-5" />
+      ) : (
+        <span className="text-sm font-medium">{stepNumber}</span>
+      );
   }
 };
 
@@ -111,8 +111,7 @@ export function StepIndicator({
         event.preventDefault();
         const targetStep = steps[targetIndex];
         const targetStatus = getStepStatus(targetStep.id);
-        const isTargetClickable =
-          targetStatus === "completed" || targetIndex <= stepIndex + 1;
+        const isTargetClickable = targetStatus === "completed" || targetIndex <= stepIndex + 1;
         if (isTargetClickable) {
           onStepClick(targetStep.id);
         }
@@ -144,7 +143,7 @@ export function StepIndicator({
                   className={cn(
                     "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors",
                     status === "completed" && "text-green-600 hover:bg-green-500/10",
-                    status === "active" && "text-primary font-medium hover:bg-primary/10",
+                    status === "active" && "text-primary hover:bg-primary/10 font-medium",
                     status === "loading" && "text-blue-600 hover:bg-blue-500/10",
                     status === "error" && "text-destructive hover:bg-destructive/10",
                     status === "pending" && "text-muted-foreground hover:bg-muted",
@@ -274,11 +273,7 @@ export function StepIndicator({
                 {getStatusIcon(status, index + 1, Icon)}
               </button>
               {showLabels && (
-                <span
-                  className={cn(
-                    status === "active" ? "font-medium" : "text-muted-foreground"
-                  )}
-                >
+                <span className={cn(status === "active" ? "font-medium" : "text-muted-foreground")}>
                   {step.label}
                 </span>
               )}
@@ -299,13 +294,8 @@ export function StepIndicator({
   );
 }
 
-export function useStepNavigation(
-  steps: StepItem[],
-  initialStep?: string
-) {
-  const [currentStep, setCurrentStep] = React.useState(
-    initialStep ?? steps[0]?.id ?? ""
-  );
+export function useStepNavigation(steps: StepItem[], initialStep?: string) {
+  const [currentStep, setCurrentStep] = React.useState(initialStep ?? steps[0]?.id ?? "");
   const [completedSteps, setCompletedSteps] = React.useState<Set<string>>(new Set());
 
   const currentIndex = steps.findIndex((s) => s.id === currentStep);
@@ -347,8 +337,7 @@ export function useStepNavigation(
     goToStep,
     isFirst,
     isLast,
-    markComplete: (stepId: string) =>
-      setCompletedSteps((prev) => new Set([...prev, stepId])),
+    markComplete: (stepId: string) => setCompletedSteps((prev) => new Set([...prev, stepId])),
     reset: (step?: string) => {
       setCurrentStep(step ?? steps[0]?.id ?? "");
       setCompletedSteps(new Set());

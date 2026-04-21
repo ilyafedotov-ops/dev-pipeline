@@ -75,6 +75,7 @@ vi.mock("@/lib/api", () => ({
   useGeneratePlan: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useGenerateTasks: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRunWorkflow: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useStopSpecRun: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 describe("SpecTab review surface", () => {
@@ -88,9 +89,9 @@ describe("SpecTab review surface", () => {
     expect(screen.getByRole("link", { name: /run spec workflow/i }).getAttribute("href")).toBe(
       "/projects/11?wizard=generate-specs&tab=spec"
     );
-    expect(
-      screen.getByRole("link", { name: /review implementation/i }).getAttribute("href")
-    ).toBe("/specifications/77?tab=analysis");
+    expect(screen.getByRole("link", { name: /review implementation/i }).getAttribute("href")).toBe(
+      "/specifications/77?tab=analysis"
+    );
     expect(screen.getAllByText(/review ready/i).length).toBeGreaterThan(0);
     expect(container.textContent).toContain("Analysis: Ready");
     expect(container.textContent).toContain("Checklist: Ready");

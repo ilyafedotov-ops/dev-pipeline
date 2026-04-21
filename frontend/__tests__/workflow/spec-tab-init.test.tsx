@@ -38,6 +38,7 @@ vi.mock("@/lib/api", () => ({
   useAnalyzeSpec: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRunImplement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useGenerateSpec: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useStopSpecRun: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 describe("SpecTab uninitialized state", () => {

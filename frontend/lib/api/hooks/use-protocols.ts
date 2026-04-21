@@ -37,7 +37,9 @@ function adaptOptionalProtocol(protocol: RawProtocolRun | null | undefined): Pro
 }
 
 function isProtocolActionStateResponse(data: ProtocolActionResponse): data is ProtocolRun {
-  return typeof data === "object" && data !== null && "protocol_name" in data && "project_id" in data;
+  return (
+    typeof data === "object" && data !== null && "protocol_name" in data && "project_id" in data
+  );
 }
 
 const useConditionalRefetchInterval = (baseInterval: number) => {
@@ -87,9 +89,7 @@ export function useCreateProtocol() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ projectId, data }: { projectId: number; data: ProtocolCreate }) =>
-      adaptProtocol(
-        await apiClient.post<RawProtocolRun>(`/projects/${projectId}/protocols`, data)
-      ),
+      adaptProtocol(await apiClient.post<RawProtocolRun>(`/projects/${projectId}/protocols`, data)),
     onSuccess: (protocol, { projectId }) => {
       queryClient.setQueryData(queryKeys.protocols.detail(protocol.id), protocol);
       queryClient.invalidateQueries({
@@ -254,7 +254,7 @@ export function useProtocolAction() {
           }
         );
       }
-      
+
       // Invalidate queries
       queryClient.invalidateQueries({
         queryKey: queryKeys.protocols.detail(protocolId),
