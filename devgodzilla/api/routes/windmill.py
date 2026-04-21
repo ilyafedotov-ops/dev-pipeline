@@ -116,6 +116,10 @@ def get_job(
         "created_at": job.created_at,
         "started_at": job.started_at,
         "completed_at": job.completed_at,
+        "finished_at": job.finished_at,
+        "script_path": job.script_path,
+        "job_kind": job.job_kind,
+        "duration_ms": job.duration_ms,
         "result": job.result,
         "error": job.error,
     }

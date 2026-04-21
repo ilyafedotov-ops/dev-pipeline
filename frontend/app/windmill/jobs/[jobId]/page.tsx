@@ -17,11 +17,17 @@ import { formatDateTime, formatDuration } from "@/lib/format";
 
 const statusVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   Running: "default",
+  running: "default",
   Success: "secondary",
+  Completed: "secondary",
+  completed: "secondary",
   Failed: "destructive",
+  failed: "destructive",
   Cancelled: "outline",
+  canceled: "outline",
   Done: "secondary",
   Queued: "outline",
+  queued: "outline",
 };
 
 export default function JobDetailPage() {
@@ -67,7 +73,7 @@ export default function JobDetailPage() {
               <span className="font-mono">{jobId?.slice(0, 16)}...</span>
               {job?.status && (
                 <Badge variant={statusVariant[job.status] ?? "outline"}>
-                  {job.status}
+                  {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
                 </Badge>
               )}
             </h1>
@@ -106,9 +112,13 @@ export default function JobDetailPage() {
           </CardHeader>
           <CardContent>
             <p className="font-medium text-sm">
-              {job?.started_at
-                ? formatDuration(job.started_at, job.finished_at ?? undefined as unknown as string)
-                : "-"}
+              {job?.duration_ms != null
+                ? (job.duration_ms < 1000
+                    ? `${job.duration_ms}ms`
+                    : `${(job.duration_ms / 1000).toFixed(1)}s`)
+                : job?.started_at
+                  ? formatDuration(job.started_at, job.finished_at ?? job.completed_at ?? undefined as unknown as string)
+                  : "-"}
             </p>
           </CardContent>
         </Card>
@@ -134,7 +144,7 @@ export default function JobDetailPage() {
         </div>
         <div>
           <span className="text-muted-foreground">Finished:</span>{" "}
-          {formatDateTime(job?.finished_at)}
+          {formatDateTime(job?.finished_at ?? job?.completed_at)}
         </div>
       </div>
 

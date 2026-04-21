@@ -169,14 +169,38 @@
       {
         "id": "protocol_start",
         "value": {
-          "type": "script",
-          "path": "u/devgodzilla/protocol_plan_and_wait"
-        },
-        "input_transforms": {
-          "protocol_run_id": {
-            "type": "javascript",
-            "expr": "results.speckit_implement.protocol_id"
-          }
+          "type": "branchone",
+          "default": [],
+          "branches": [
+            {
+              "expr": "!results.speckit_implement.success || results.speckit_implement.protocol_id == null",
+              "modules": [],
+              "summary": "No protocol created (implement failed or returned no protocol_id)",
+              "parallel": true,
+              "skip_failure": true
+            },
+            {
+              "expr": "!!results.speckit_implement.success && results.speckit_implement.protocol_id != null",
+              "modules": [
+                {
+                  "id": "protocol_plan_and_wait",
+                  "value": {
+                    "type": "script",
+                    "path": "u/devgodzilla/protocol_plan_and_wait"
+                  },
+                  "input_transforms": {
+                    "protocol_run_id": {
+                      "type": "javascript",
+                      "expr": "results.speckit_implement.protocol_id"
+                    }
+                  }
+                }
+              ],
+              "summary": "Start protocol planning",
+              "parallel": true,
+              "skip_failure": true
+            }
+          ]
         }
       }
     ]

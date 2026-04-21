@@ -34,6 +34,10 @@ def api_json(
     body: Optional[Dict[str, Any]] = None,
     timeout_seconds: int = 30,
 ) -> Dict[str, Any]:
+    # Guard against None values interpolated into URL path
+    if "None" in path:
+        return {"error": f"Invalid path parameter (None) in URL path: {path}", "status_code": 400}
+
     base = get_devgodzilla_api_base_url()
     url = f"{base}{path}"
     headers = {"Content-Type": "application/json"}

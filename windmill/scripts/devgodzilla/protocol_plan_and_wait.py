@@ -18,6 +18,9 @@ from ._api import api_json
 
 
 def main(protocol_run_id: int, timeout_seconds: int = 300, poll_interval_ms: int = 500) -> Dict[str, Any]:
+    if protocol_run_id is None:
+        return {"error": "protocol_run_id is None; upstream step likely did not produce a protocol", "protocol": None}
+
     started = api_json("POST", f"/protocols/{protocol_run_id}/actions/start", body={})
     if started.get("error"):
         return started

@@ -41,6 +41,10 @@ class JobInfo:
     created_at: Optional[str] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    script_path: Optional[str] = None
+    job_kind: Optional[str] = None
+    duration_ms: Optional[int] = None
     result: Optional[Any] = None
     error: Optional[str] = None
     logs: Optional[str] = None
@@ -376,12 +380,21 @@ class WindmillClient:
         elif "running" in job_type:
             status = JobStatus.RUNNING
 
+        finished_at = completed_at  # alias for frontend compat
+        script_path = data.get("script_path") or data.get("scheduled_path")
+        job_kind = data.get("job_kind", data.get("type", ""))
+        duration_ms = data.get("duration_ms")
+
         return JobInfo(
             id=job_id,
             status=status,
             created_at=data.get("created_at"),
             started_at=started_at,
             completed_at=completed_at,
+            finished_at=finished_at,
+            script_path=script_path,
+            job_kind=job_kind,
+            duration_ms=duration_ms,
             result=data.get("result"),
             error=data.get("error") or data.get("err"),
         )
