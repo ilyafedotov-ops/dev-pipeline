@@ -14,6 +14,11 @@ from typing import Any, Dict, Iterable, List, Optional, Protocol, Union
 
 from devgodzilla.events_catalog import event_type_variants, infer_event_category, normalize_event_type
 from devgodzilla.logging import get_logger
+from devgodzilla.policy_catalog import (
+    classification_for_pack_key,
+    cloned_builtin_policy_pack_payloads,
+    resolve_project_policy_selection,
+)
 
 # Try to import the SQLite tracing wrapper
 try:
@@ -56,6 +61,21 @@ except ImportError:
 _UNSET = object()
 
 
+def _policy_pack_classification(
+    key: str,
+    pack: Optional[Dict[str, Any]],
+    *,
+    is_builtin: bool,
+) -> Optional[str]:
+    if is_builtin:
+        return classification_for_pack_key(key)
+    meta = (pack or {}).get("meta")
+    if isinstance(meta, dict):
+        value = meta.get("classification")
+        return value if isinstance(value, str) and value.strip() else None
+    return None
+
+
 class DatabaseProtocol(Protocol):
     """Protocol defining the database interface."""
     
@@ -75,6 +95,7 @@ class DatabaseProtocol(Protocol):
         project_classification: Optional[str] = None,
         policy_pack_key: Optional[str] = None,
         policy_pack_version: Optional[str] = None,
+        policy_enforcement_mode: Any = _UNSET,
     ) -> Project: ...
     
     def get_project(self, project_id: int) -> Project: ...
@@ -126,6 +147,7 @@ class DatabaseProtocol(Protocol):
     def list_speckit_specs(self, project_id: int) -> List[SpeckitSpec]: ...
 
     # Spec runs
+    def find_active_spec_run(self, project_id: int, feature_name: str) -> Optional[SpecRun]: ...
     def create_spec_run(
         self,
         *,
@@ -417,7 +439,9 @@ class SQLiteDatabase:
         with self._transaction() as conn:
             conn.executescript(SCHEMA_SQLITE)
             self._ensure_protocol_runs_linked_sprint_column(conn)
+            self._ensure_policy_packs_is_builtin_column(conn)
             conn.commit()
+        self._seed_builtin_policy_packs()
 
     @staticmethod
     def _ensure_protocol_runs_linked_sprint_column(conn: sqlite3.Connection) -> None:
@@ -426,6 +450,27 @@ class SQLiteDatabase:
         if "linked_sprint_id" not in names:
             conn.execute(
                 "ALTER TABLE protocol_runs ADD COLUMN linked_sprint_id INTEGER REFERENCES sprints(id)"
+            )
+
+    @staticmethod
+    def _ensure_policy_packs_is_builtin_column(conn: sqlite3.Connection) -> None:
+        cols = conn.execute("PRAGMA table_info(policy_packs)").fetchall()
+        names = {row[1] for row in cols}
+        if "is_builtin" not in names:
+            conn.execute(
+                "ALTER TABLE policy_packs ADD COLUMN is_builtin INTEGER NOT NULL DEFAULT 0"
+            )
+
+    def _seed_builtin_policy_packs(self) -> None:
+        for payload in cloned_builtin_policy_pack_payloads():
+            self.upsert_policy_pack(
+                key=payload["key"],
+                version=payload["version"],
+                name=payload["name"],
+                description=payload["description"],
+                status=payload["status"],
+                is_builtin=bool(payload["is_builtin"]),
+                pack=payload["pack"],
             )
 
     # Helper methods for JSON and timestamp parsing
@@ -466,7 +511,9 @@ class SQLiteDatabase:
 
     # Row to model converters
     def _row_to_project(self, row: sqlite3.Row) -> Project:
+        from devgodzilla.config import sanitize_project_path
         keys = set(row.keys())
+        raw_local_path = row["local_path"] if "local_path" in keys else None
         return Project(
             id=row["id"],
             name=row["name"],
@@ -474,7 +521,7 @@ class SQLiteDatabase:
             status=row["status"] if "status" in keys else None,
             git_url=row["git_url"],
             base_branch=row["base_branch"],
-            local_path=row["local_path"] if "local_path" in keys else None,
+            local_path=sanitize_project_path(raw_local_path, self._config if hasattr(self, '_config') else None),
             ci_provider=row["ci_provider"],
             secrets=self._parse_json(row["secrets"]),
             github_token_configured=bool((self._parse_json(row["secrets"]) or {}).get("github_token")),
@@ -561,6 +608,7 @@ class SQLiteDatabase:
             analysis_path=row["analysis_path"] if "analysis_path" in keys else None,
             implement_path=row["implement_path"] if "implement_path" in keys else None,
             protocol_run_id=row["protocol_run_id"] if "protocol_run_id" in keys else None,
+            error_message=row["error_message"] if "error_message" in keys else None,
             created_at=self._coerce_ts(row["created_at"]),
             updated_at=self._coerce_ts(row["updated_at"]),
         )
@@ -732,7 +780,17 @@ class SQLiteDatabase:
         project_classification: Optional[str] = None,
         policy_pack_key: Optional[str] = None,
         policy_pack_version: Optional[str] = None,
+        policy_enforcement_mode: Any = _UNSET,
     ) -> Project:
+        (
+            resolved_classification,
+            resolved_pack_key,
+            resolved_pack_version,
+        ) = resolve_project_policy_selection(
+            project_classification=project_classification,
+            policy_pack_key=policy_pack_key,
+            policy_pack_version=policy_pack_version,
+        )
         with self._transaction() as conn:
             cur = conn.execute(
                 """
@@ -742,15 +800,22 @@ class SQLiteDatabase:
                     project_classification, policy_pack_key, policy_pack_version,
                     policy_enforcement_mode
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'warn')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name, git_url, base_branch, description, ci_provider,
                     json.dumps(default_models) if default_models else None,
                     json.dumps(secrets) if secrets else None,
-                    local_path, project_classification,
-                    policy_pack_key or "default",
-                    policy_pack_version or "1.0",
+                    local_path, resolved_classification,
+                    resolved_pack_key,
+                    resolved_pack_version,
+                    None
+                    if policy_enforcement_mode is None
+                    else (
+                        "warn"
+                        if policy_enforcement_mode is _UNSET
+                        else policy_enforcement_mode
+                    ),
                 ),
             )
             project_id = cur.lastrowid
@@ -1166,6 +1231,17 @@ class SQLiteDatabase:
         )
         return [self._row_to_spec_run(row) for row in rows]
 
+    def find_active_spec_run(self, project_id: int, feature_name: str) -> Optional[SpecRun]:
+        """Find a recent spec_run for the same project+feature that is not completed."""
+        row = self._fetchone(
+            """SELECT * FROM spec_runs
+               WHERE project_id = ? AND feature_name = ?
+                 AND status IN ('specifying', 'planning', 'tasking', 'analyzing', 'running', 'failed')
+               ORDER BY created_at DESC LIMIT 1""",
+            (project_id, feature_name),
+        )
+        return self._row_to_spec_run(row) if row else None
+
     def update_spec_run(self, spec_run_id: int, **updates) -> SpecRun:
         allowed = {
             "spec_name",
@@ -1183,14 +1259,17 @@ class SQLiteDatabase:
             "analysis_path",
             "implement_path",
             "protocol_run_id",
+            "error_message",
         }
         fields = []
         params: List[Any] = []
         for key, value in updates.items():
-            if key not in allowed or value is None:
+            if key not in allowed:
+                continue
+            if value is None and key != "error_message":
                 continue
             fields.append(f"{key} = ?")
-            params.append(value)
+            params.append("" if key == "error_message" and value is None else value)
         if not fields:
             return self.get_spec_run(spec_run_id)
         fields.append("updated_at = CURRENT_TIMESTAMP")
@@ -2357,6 +2436,7 @@ class SQLiteDatabase:
         """Convert row to PolicyPack."""
         keys = set(row.keys()) if hasattr(row, "keys") else set()
         pack_val = self._parse_json(row["pack"] if "pack" in keys else None)
+        is_builtin = bool(row["is_builtin"]) if "is_builtin" in keys else False
         return PolicyPack(
             id=row["id"],
             key=row["key"],
@@ -2367,6 +2447,13 @@ class SQLiteDatabase:
             pack=pack_val or {},
             created_at=self._coerce_ts(row["created_at"]),
             updated_at=self._coerce_ts(row["updated_at"]),
+            is_builtin=is_builtin,
+            editable=not is_builtin,
+            project_classification=_policy_pack_classification(
+                row["key"],
+                pack_val or {},
+                is_builtin=is_builtin,
+            ),
         )
 
     def get_policy_pack(self, *, key: str, version: Optional[str] = None) -> PolicyPack:
@@ -2396,28 +2483,31 @@ class SQLiteDatabase:
         name: str,
         description: Optional[str] = None,
         status: str = "active",
+        is_builtin: bool = False,
         pack: dict,
     ) -> PolicyPack:
         """Insert or update a policy pack."""
         with self._transaction() as conn:
             conn.execute(
                 """
-                INSERT INTO policy_packs (key, version, name, description, status, pack, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO policy_packs (key, version, name, description, status, is_builtin, pack, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(key, version) DO UPDATE SET
                     name=excluded.name,
                     description=excluded.description,
                     status=excluded.status,
+                    is_builtin=excluded.is_builtin,
                     pack=excluded.pack,
                     updated_at=CURRENT_TIMESTAMP
                 """,
-                (key, version, name, description, status, json.dumps(pack)),
+                (key, version, name, description, status, int(is_builtin), json.dumps(pack)),
             )
         return self.get_policy_pack(key=key, version=version)
 
     def list_policy_packs(
         self,
         status: Optional[str] = None,
+        key: Optional[str] = None,
         limit: int = 100,
     ) -> List[PolicyPack]:
         """List policy packs, optionally filtered by status."""
@@ -2427,9 +2517,12 @@ class SQLiteDatabase:
         if status is not None:
             where.append("status = ?")
             params.append(status)
+        if key is not None:
+            where.append("key = ?")
+            params.append(key)
         clause = f"WHERE {' AND '.join(where)}" if where else ""
         rows = self._fetchall(
-            f"SELECT * FROM policy_packs {clause} ORDER BY key, version DESC LIMIT ?",
+            f"SELECT * FROM policy_packs {clause} ORDER BY key, is_builtin DESC, version DESC LIMIT ?",
             (*params, limit),
         )
         return [self._row_to_policy_pack(row) for row in rows]
@@ -2439,32 +2532,32 @@ class SQLiteDatabase:
         self,
         project_id: int,
         *,
-        policy_pack_key: Optional[str] = None,
-        policy_pack_version: Optional[str] = None,
-        policy_overrides: Optional[dict] = None,
-        policy_repo_local_enabled: Optional[bool] = None,
-        policy_effective_hash: Optional[str] = None,
-        policy_enforcement_mode: Optional[str] = None,
+        policy_pack_key: Optional[str] = _UNSET,
+        policy_pack_version: Optional[str] = _UNSET,
+        policy_overrides: Optional[dict] = _UNSET,
+        policy_repo_local_enabled: Optional[bool] = _UNSET,
+        policy_effective_hash: Optional[str] = _UNSET,
+        policy_enforcement_mode: Optional[str] = _UNSET,
     ) -> Project:
         """Update policy-related fields on a project."""
         updates = ["updated_at = CURRENT_TIMESTAMP"]
         params: List[Any] = []
-        if policy_pack_key is not None:
+        if policy_pack_key is not _UNSET:
             updates.append("policy_pack_key = ?")
             params.append(policy_pack_key)
-        if policy_pack_version is not None:
+        if policy_pack_version is not _UNSET:
             updates.append("policy_pack_version = ?")
             params.append(policy_pack_version)
-        if policy_overrides is not None:
+        if policy_overrides is not _UNSET:
             updates.append("policy_overrides = ?")
-            params.append(json.dumps(policy_overrides))
-        if policy_repo_local_enabled is not None:
+            params.append(json.dumps(policy_overrides) if policy_overrides is not None else None)
+        if policy_repo_local_enabled is not _UNSET:
             updates.append("policy_repo_local_enabled = ?")
             params.append(1 if policy_repo_local_enabled else 0)
-        if policy_effective_hash is not None:
+        if policy_effective_hash is not _UNSET:
             updates.append("policy_effective_hash = ?")
             params.append(policy_effective_hash)
-        if policy_enforcement_mode is not None:
+        if policy_enforcement_mode is not _UNSET:
             updates.append("policy_enforcement_mode = ?")
             params.append(policy_enforcement_mode)
         params.append(project_id)
@@ -2873,6 +2966,8 @@ class PostgresDatabase:
             with conn.cursor() as cur:
                 cur.execute(SCHEMA_POSTGRES)
                 self._ensure_protocol_runs_linked_sprint_column(cur)
+                self._ensure_policy_packs_is_builtin_column(cur)
+        self._seed_builtin_policy_packs()
 
     @staticmethod
     def _ensure_protocol_runs_linked_sprint_column(cur) -> None:
@@ -2891,6 +2986,35 @@ class PostgresDatabase:
                 "ALTER TABLE protocol_runs ADD COLUMN linked_sprint_id INTEGER REFERENCES sprints(id)"
             )
 
+    @staticmethod
+    def _ensure_policy_packs_is_builtin_column(cur) -> None:
+        cur.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'policy_packs'
+              AND column_name = 'is_builtin'
+            """
+        )
+        exists = cur.fetchone()
+        if not exists:
+            cur.execute(
+                "ALTER TABLE policy_packs ADD COLUMN is_builtin BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+
+    def _seed_builtin_policy_packs(self) -> None:
+        for payload in cloned_builtin_policy_pack_payloads():
+            self.upsert_policy_pack(
+                key=payload["key"],
+                version=payload["version"],
+                name=payload["name"],
+                description=payload["description"],
+                status=payload["status"],
+                is_builtin=bool(payload["is_builtin"]),
+                pack=payload["pack"],
+            )
+
     # Helper methods for JSON and timestamp parsing (reuse SQLite implementations)
     @staticmethod
     def _parse_json(value):
@@ -2902,6 +3026,8 @@ class PostgresDatabase:
 
     # Row converters (same as SQLite but work with dict rows)
     def _row_to_project(self, row: Dict[str, Any]) -> Project:
+        from devgodzilla.config import sanitize_project_path
+        raw_local_path = row.get("local_path")
         return Project(
             id=row["id"],
             name=row["name"],
@@ -2909,7 +3035,7 @@ class PostgresDatabase:
             status=row.get("status"),
             git_url=row["git_url"],
             base_branch=row["base_branch"],
-            local_path=row.get("local_path"),
+            local_path=sanitize_project_path(raw_local_path, self._config if hasattr(self, '_config') else None),
             ci_provider=row.get("ci_provider"),
             secrets=row.get("secrets"),
             github_token_configured=bool((row.get("secrets") or {}).get("github_token")),
@@ -2993,6 +3119,7 @@ class PostgresDatabase:
             analysis_path=row.get("analysis_path"),
             implement_path=row.get("implement_path"),
             protocol_run_id=row.get("protocol_run_id"),
+            error_message=row.get("error_message"),
             created_at=self._coerce_ts(row["created_at"]),
             updated_at=self._coerce_ts(row["updated_at"]),
         )
@@ -3433,6 +3560,7 @@ class PostgresDatabase:
     def _row_to_policy_pack(self, row: Dict[str, Any]) -> PolicyPack:
         """Convert row to PolicyPack."""
         pack_val = row.get("pack") or {}
+        is_builtin = bool(row.get("is_builtin"))
         return PolicyPack(
             id=row["id"],
             key=row["key"],
@@ -3443,6 +3571,13 @@ class PostgresDatabase:
             pack=pack_val if isinstance(pack_val, dict) else {},
             created_at=self._coerce_ts(row["created_at"]),
             updated_at=self._coerce_ts(row.get("updated_at")),
+            is_builtin=is_builtin,
+            editable=not is_builtin,
+            project_classification=_policy_pack_classification(
+                row["key"],
+                pack_val if isinstance(pack_val, dict) else {},
+                is_builtin=is_builtin,
+            ),
         )
 
     def get_policy_pack(self, *, key: str, version: Optional[str] = None) -> PolicyPack:
@@ -3467,6 +3602,7 @@ class PostgresDatabase:
     def list_policy_packs(
         self,
         status: Optional[str] = None,
+        key: Optional[str] = None,
         limit: int = 100,
     ) -> List[PolicyPack]:
         """List policy packs, optionally filtered by status."""
@@ -3476,9 +3612,12 @@ class PostgresDatabase:
         if status is not None:
             where.append("status = %s")
             params.append(status)
+        if key is not None:
+            where.append("key = %s")
+            params.append(key)
         clause = f"WHERE {' AND '.join(where)}" if where else ""
         rows = self._fetchall(
-            f"SELECT * FROM policy_packs {clause} ORDER BY key, version DESC LIMIT %s",
+            f"SELECT * FROM policy_packs {clause} ORDER BY key, is_builtin DESC, version DESC LIMIT %s",
             (*params, limit),
         )
         return [self._row_to_policy_pack(row) for row in rows]
@@ -3491,6 +3630,7 @@ class PostgresDatabase:
         name: str,
         description: Optional[str] = None,
         status: str = "active",
+        is_builtin: bool = False,
         pack: dict,
     ) -> PolicyPack:
         """Insert or update a policy pack."""
@@ -3498,16 +3638,17 @@ class PostgresDatabase:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO policy_packs (key, version, name, description, status, pack, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    INSERT INTO policy_packs (key, version, name, description, status, is_builtin, pack, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT(key, version) DO UPDATE SET
                         name=excluded.name,
                         description=excluded.description,
                         status=excluded.status,
+                        is_builtin=excluded.is_builtin,
                         pack=excluded.pack,
                         updated_at=CURRENT_TIMESTAMP
                     """,
-                    (key, version, name, description, status, json.dumps(pack)),
+                    (key, version, name, description, status, is_builtin, json.dumps(pack)),
                 )
         return self.get_policy_pack(key=key, version=version)
 
@@ -3670,7 +3811,17 @@ class PostgresDatabase:
         project_classification: Optional[str] = None,
         policy_pack_key: Optional[str] = None,
         policy_pack_version: Optional[str] = None,
+        policy_enforcement_mode: Any = _UNSET,
     ) -> Project:
+        (
+            resolved_classification,
+            resolved_pack_key,
+            resolved_pack_version,
+        ) = resolve_project_policy_selection(
+            project_classification=project_classification,
+            policy_pack_key=policy_pack_key,
+            policy_pack_version=policy_pack_version,
+        )
         with self._transaction() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -3681,16 +3832,23 @@ class PostgresDatabase:
                         project_classification, policy_pack_key, policy_pack_version,
                         policy_enforcement_mode
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'warn')
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
                         name, git_url, base_branch, description, ci_provider,
                         json.dumps(default_models) if default_models else None,
                         json.dumps(secrets) if secrets else None,
-                        local_path, project_classification,
-                        policy_pack_key or "default",
-                        policy_pack_version or "1.0",
+                        local_path, resolved_classification,
+                        resolved_pack_key,
+                        resolved_pack_version,
+                        None
+                        if policy_enforcement_mode is None
+                        else (
+                            "warn"
+                            if policy_enforcement_mode is _UNSET
+                            else policy_enforcement_mode
+                        ),
                     ),
                 )
                 project_id = cur.fetchone()["id"]
@@ -3835,32 +3993,32 @@ class PostgresDatabase:
         self,
         project_id: int,
         *,
-        policy_pack_key: Optional[str] = None,
-        policy_pack_version: Optional[str] = None,
-        policy_overrides: Optional[dict] = None,
-        policy_repo_local_enabled: Optional[bool] = None,
-        policy_effective_hash: Optional[str] = None,
-        policy_enforcement_mode: Optional[str] = None,
+        policy_pack_key: Optional[str] = _UNSET,
+        policy_pack_version: Optional[str] = _UNSET,
+        policy_overrides: Optional[dict] = _UNSET,
+        policy_repo_local_enabled: Optional[bool] = _UNSET,
+        policy_effective_hash: Optional[str] = _UNSET,
+        policy_enforcement_mode: Optional[str] = _UNSET,
     ) -> Project:
         """Update policy-related fields on a project (PostgreSQL)."""
         updates = ["updated_at = CURRENT_TIMESTAMP"]
         params: List[Any] = []
-        if policy_pack_key is not None:
+        if policy_pack_key is not _UNSET:
             updates.append("policy_pack_key = %s")
             params.append(policy_pack_key)
-        if policy_pack_version is not None:
+        if policy_pack_version is not _UNSET:
             updates.append("policy_pack_version = %s")
             params.append(policy_pack_version)
-        if policy_overrides is not None:
+        if policy_overrides is not _UNSET:
             updates.append("policy_overrides = %s")
-            params.append(json.dumps(policy_overrides))
-        if policy_repo_local_enabled is not None:
+            params.append(json.dumps(policy_overrides) if policy_overrides is not None else None)
+        if policy_repo_local_enabled is not _UNSET:
             updates.append("policy_repo_local_enabled = %s")
             params.append(1 if policy_repo_local_enabled else 0)
-        if policy_effective_hash is not None:
+        if policy_effective_hash is not _UNSET:
             updates.append("policy_effective_hash = %s")
             params.append(policy_effective_hash)
-        if policy_enforcement_mode is not None:
+        if policy_enforcement_mode is not _UNSET:
             updates.append("policy_enforcement_mode = %s")
             params.append(policy_enforcement_mode)
         
@@ -4223,6 +4381,17 @@ class PostgresDatabase:
         )
         return [self._row_to_spec_run(row) for row in rows]
 
+    def find_active_spec_run(self, project_id: int, feature_name: str) -> Optional[SpecRun]:
+        """Find a recent spec_run for the same project+feature that is not completed."""
+        row = self._fetchone(
+            """SELECT * FROM spec_runs
+               WHERE project_id = %s AND feature_name = %s
+                 AND status IN ('specifying', 'planning', 'tasking', 'analyzing', 'running', 'failed')
+               ORDER BY created_at DESC LIMIT 1""",
+            (project_id, feature_name),
+        )
+        return self._row_to_spec_run(row) if row else None
+
     def update_spec_run(self, spec_run_id: int, **updates) -> SpecRun:
         allowed = {
             "spec_name",
@@ -4240,14 +4409,17 @@ class PostgresDatabase:
             "analysis_path",
             "implement_path",
             "protocol_run_id",
+            "error_message",
         }
         fields = []
         params: List[Any] = []
         for key, value in updates.items():
-            if key not in allowed or value is None:
+            if key not in allowed:
+                continue
+            if value is None and key != "error_message":
                 continue
             fields.append(f"{key} = %s")
-            params.append(value)
+            params.append("" if key == "error_message" and value is None else value)
         if not fields:
             return self.get_spec_run(spec_run_id)
         fields.append("updated_at = CURRENT_TIMESTAMP")

@@ -31,7 +31,7 @@ export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancell
 
 export type ClarificationStatus = "open" | "answered";
 
-export type PolicyEnforcementMode = "off" | "warn" | "enforce";
+export type PolicyEnforcementMode = "off" | "warn" | "block";
 
 export type SprintStatus = "planning" | "active" | "completed" | "archived";
 export type TaskPriority = "critical" | "high" | "medium" | "low";
@@ -69,7 +69,10 @@ export interface ProjectCreate {
   github_token?: string | null;
   base_branch?: string;
   description?: string;
+  project_classification?: string;
   policy_pack_key?: string;
+  policy_pack_version?: string;
+  policy_enforcement_mode?: PolicyEnforcementMode;
   auto_onboard?: boolean;
   auto_discovery?: boolean;
 }
@@ -449,20 +452,24 @@ export interface AppLogFilters {
 
 export interface PolicyPack {
   id: number;
-  key: string | null;
+  key: string;
   version: string;
   name: string;
   description: string | null;
-  status: "active" | "deprecated" | "draft";
+  status: string;
+  is_builtin: boolean;
+  editable: boolean;
+  project_classification: string | null;
   pack: PolicyPackContent;
   created_at: string;
+  updated_at: string | null;
 }
 
 export interface PolicyPackContent {
   meta?: Record<string, unknown>;
   defaults?: Record<string, unknown>;
   requirements?: Record<string, unknown>;
-  clarifications?: Record<string, unknown>;
+  clarifications?: Record<string, unknown> | Array<Record<string, unknown>>;
   enforcement?: Record<string, unknown>;
 }
 
@@ -487,6 +494,17 @@ export interface PolicyFinding {
 export interface EffectivePolicy {
   hash: string;
   policy: Record<string, unknown>;
+  pack_key: string;
+  pack_version: string;
+}
+
+export interface PolicyPackCloneRequest {
+  key: string;
+  version: string;
+  name: string;
+  description?: string;
+  status?: string;
+  pack_overrides?: Record<string, unknown>;
 }
 
 export interface QAResult {

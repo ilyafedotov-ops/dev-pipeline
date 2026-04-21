@@ -12,6 +12,8 @@ export interface WindmillJob {
   created_at: string;
   started_at?: string;
   finished_at?: string;
+  completed_at?: string;
+  duration_ms?: number;
   result?: unknown;
   error?: string;
   [key: string]: unknown;

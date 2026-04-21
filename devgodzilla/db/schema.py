@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS policy_packs (
     name TEXT NOT NULL,
     description TEXT,
     status TEXT NOT NULL DEFAULT 'active',
+    is_builtin INTEGER NOT NULL DEFAULT 0,
     pack TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -121,6 +122,7 @@ CREATE TABLE IF NOT EXISTS spec_runs (
     analysis_path TEXT,
     implement_path TEXT,
     protocol_run_id INTEGER REFERENCES protocol_runs(id),
+    error_message TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -368,6 +370,7 @@ CREATE TABLE IF NOT EXISTS policy_packs (
     name TEXT NOT NULL,
     description TEXT,
     status TEXT NOT NULL DEFAULT 'active',
+    is_builtin BOOLEAN NOT NULL DEFAULT FALSE,
     pack JSONB NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -452,6 +455,7 @@ CREATE TABLE IF NOT EXISTS spec_runs (
     analysis_path TEXT,
     implement_path TEXT,
     protocol_run_id INTEGER REFERENCES protocol_runs(id),
+    error_message TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

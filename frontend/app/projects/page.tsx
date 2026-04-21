@@ -93,7 +93,7 @@ export default function ProjectsPage() {
     total: projects?.length || 0,
     active:
       projects?.filter(
-        (p) => p.policy_enforcement_mode === "warn" || p.policy_enforcement_mode === "enforce"
+        (p) => p.policy_enforcement_mode === "warn" || p.policy_enforcement_mode === "block"
       ).length || 0,
     withPolicy: projects?.filter((p) => p.policy_pack_key).length || 0,
   };
@@ -630,7 +630,7 @@ function ProjectCard({
               {project.policy_enforcement_mode && (
                 <Badge
                   variant={
-                    project.policy_enforcement_mode === "enforce"
+                    project.policy_enforcement_mode === "block"
                       ? "default"
                       : project.policy_enforcement_mode === "warn"
                         ? "secondary"

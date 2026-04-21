@@ -87,6 +87,9 @@ def _normalize_policy_enforcement_mode(mode: Optional[str]) -> Optional[str]:
         return None
     value = str(mode).strip().lower()
     mapping = {
+        "off": None,
+        "none": None,
+        "disabled": None,
         "advisory": "warn",
         "mandatory": "block",
         "enforce": "block",
@@ -350,6 +353,11 @@ def create_project(
             status_code=400,
             detail="git_url must be a cloneable Git repository URL for auto onboarding",
         )
+    enforcement_mode = (
+        _normalize_policy_enforcement_mode(project.policy_enforcement_mode)
+        if "policy_enforcement_mode" in project.model_fields_set
+        else "warn"
+    )
     created = db.create_project(
         name=project.name,
         git_url=project.git_url or "",
@@ -357,6 +365,10 @@ def create_project(
         description=project.description,
         secrets=_project_secrets_with_github_token(None, project.github_token),
         local_path=project.local_path,
+        project_classification=project.project_classification,
+        policy_pack_key=project.policy_pack_key,
+        policy_pack_version=project.policy_pack_version,
+        policy_enforcement_mode=enforcement_mode,
     )
     logger.info(
         "project_created",
@@ -1135,7 +1147,7 @@ def get_project_policy(
         policy_pack_version=project.policy_pack_version,
         policy_overrides=project.policy_overrides,
         policy_repo_local_enabled=bool(project.policy_repo_local_enabled) if project.policy_repo_local_enabled is not None else False,
-        policy_enforcement_mode=_normalize_policy_enforcement_mode(project.policy_enforcement_mode) or "warn",
+        policy_enforcement_mode=_normalize_policy_enforcement_mode(project.policy_enforcement_mode) or "off",
     )
 
 @router.put("/projects/{project_id}/policy", response_model=schemas.ProjectOut)
@@ -1151,17 +1163,17 @@ def update_project_policy(
     except KeyError:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Build update kwargs
     kwargs = {}
-    if policy.policy_pack_key is not None:
+    provided_fields = policy.model_fields_set
+    if "policy_pack_key" in provided_fields:
         kwargs["policy_pack_key"] = policy.policy_pack_key
-    if policy.policy_pack_version is not None:
+    if "policy_pack_version" in provided_fields:
         kwargs["policy_pack_version"] = policy.policy_pack_version
-    if policy.policy_overrides is not None:
+    if "policy_overrides" in provided_fields:
         kwargs["policy_overrides"] = policy.policy_overrides
-    if policy.policy_repo_local_enabled is not None:
+    if "policy_repo_local_enabled" in provided_fields:
         kwargs["policy_repo_local_enabled"] = policy.policy_repo_local_enabled
-    if policy.policy_enforcement_mode is not None:
+    if "policy_enforcement_mode" in provided_fields:
         kwargs["policy_enforcement_mode"] = _normalize_policy_enforcement_mode(policy.policy_enforcement_mode)
 
     updated = db.update_project_policy(project_id, **kwargs)

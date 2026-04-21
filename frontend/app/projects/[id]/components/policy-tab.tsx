@@ -80,7 +80,7 @@ function PolicyForm({
     policy_pack_version: policy?.policy_pack_version ?? null,
     policy_overrides: policy?.policy_overrides ?? null,
     policy_repo_local_enabled: policy?.policy_repo_local_enabled ?? false,
-    policy_enforcement_mode: policy?.policy_enforcement_mode ?? "warn",
+    policy_enforcement_mode: policy?.policy_enforcement_mode ?? "off",
   }));
   const [overridesJson, setOverridesJson] = useState(() =>
     policy?.policy_overrides ? JSON.stringify(policy.policy_overrides, null, 2) : "{}"
@@ -109,6 +109,14 @@ function PolicyForm({
     if (!selectedPackVersion) return candidates[0] ?? null;
     return candidates.find((p) => p.version === selectedPackVersion) ?? candidates[0] ?? null;
   }, [packsByKey, selectedPackKey, selectedPackVersion]);
+
+  const packOptions = useMemo(
+    () =>
+      Array.from(packsByKey.entries())
+        .map(([key, list]) => ({ key, pack: list[0] }))
+        .sort((a, b) => a.pack.name.localeCompare(b.pack.name)),
+    [packsByKey]
+  );
 
   const parsedOverrides = useMemo(() => {
     const raw = (overridesJson ?? "").trim();
@@ -193,13 +201,11 @@ function PolicyForm({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
-                  {packs
-                    .filter((pack) => Boolean(pack.key))
-                    .map((pack) => (
-                      <SelectItem key={`${pack.key}:${pack.version}`} value={pack.key as string}>
-                        {pack.name} ({pack.key}) • {pack.version}
-                      </SelectItem>
-                    ))}
+                  {packOptions.map(({ key, pack }) => (
+                    <SelectItem key={key} value={key}>
+                      {pack.name} ({pack.key}) • latest
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -232,7 +238,7 @@ function PolicyForm({
             <div className="space-y-2">
               <Label>Enforcement Mode</Label>
               <Select
-                value={formData.policy_enforcement_mode || "warn"}
+                value={formData.policy_enforcement_mode || "off"}
                 onValueChange={(v) =>
                   setFormData((p) => ({
                     ...p,
@@ -246,7 +252,7 @@ function PolicyForm({
                 <SelectContent>
                   <SelectItem value="off">Off</SelectItem>
                   <SelectItem value="warn">Warn</SelectItem>
-                  <SelectItem value="enforce">Enforce</SelectItem>
+                  <SelectItem value="block">Enforce</SelectItem>
                 </SelectContent>
               </Select>
             </div>

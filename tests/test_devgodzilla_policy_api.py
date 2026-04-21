@@ -63,6 +63,25 @@ def test_get_project_policy(monkeypatch: pytest.MonkeyPatch) -> None:
             assert data["policy_repo_local_enabled"] is True
 
 
+def test_init_schema_seeds_builtin_policy_packs() -> None:
+    """Fresh databases should contain the built-in policy packs."""
+    from devgodzilla.db.database import SQLiteDatabase
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "devgodzilla.sqlite"
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+
+        packs = db.list_policy_packs()
+        builtins = {(pack.key, pack.version) for pack in packs if pack.is_builtin}
+
+        assert ("default", "1.0") in builtins
+        assert ("beginner-guided", "1.0") in builtins
+        assert ("startup-fast", "1.0") in builtins
+        assert ("team-standard", "1.0") in builtins
+        assert ("enterprise-compliance", "1.0") in builtins
+
+
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_update_project_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test PUT /projects/{id}/policy updates policy configuration."""
@@ -202,6 +221,43 @@ def test_get_effective_policy(monkeypatch: pytest.MonkeyPatch) -> None:
             assert isinstance(data["policy"], dict)
             # Hash should be a non-empty string
             assert len(data["hash"]) > 0
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_seeded_default_pack_resolves_for_new_projects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """New projects should resolve the seeded default pack without pack-not-found findings."""
+    from devgodzilla.db.database import SQLiteDatabase
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        repo = tmp / "repo"
+        repo.mkdir(parents=True, exist_ok=True)
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+        project = db.create_project(
+            name="demo",
+            git_url=str(repo),
+            base_branch="main",
+            local_path=str(repo),
+        )
+
+        monkeypatch.setenv("DEVGODZILLA_DB_PATH", str(db_path))
+        monkeypatch.delenv("DEVGODZILLA_API_TOKEN", raising=False)
+
+        with TestClient(app) as client:  # type: ignore[arg-type]
+            effective = client.get(f"/projects/{project.id}/policy/effective")
+            assert effective.status_code == 200
+            effective_payload = effective.json()
+            assert effective_payload["pack_key"] == "default"
+            assert effective_payload["pack_version"] == "1.0"
+            assert effective_payload["policy"] != {}
+
+            findings = client.get(f"/projects/{project.id}/policy/findings")
+            assert findings.status_code == 200
+            finding_codes = {item["code"] for item in findings.json()}
+            assert "policy.project.pack_not_found" not in finding_codes
 
 
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
@@ -463,6 +519,69 @@ def test_create_policy_pack(monkeypatch: pytest.MonkeyPatch) -> None:
             assert created_pack["description"] == "A newly created pack"
             assert created_pack["status"] == "active"
             assert created_pack["pack"]["meta"]["key"] == "new-pack"
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_create_policy_pack_rejects_builtin_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Built-in keys are reserved and cannot be modified through the public upsert endpoint."""
+    from devgodzilla.db.database import SQLiteDatabase
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+
+        monkeypatch.setenv("DEVGODZILLA_DB_PATH", str(db_path))
+        monkeypatch.delenv("DEVGODZILLA_API_TOKEN", raising=False)
+
+        with TestClient(app) as client:  # type: ignore[arg-type]
+            response = client.post(
+                "/policy_packs",
+                json={
+                    "key": "default",
+                    "version": "1.1",
+                    "name": "Override Default",
+                    "description": "Should fail",
+                    "status": "active",
+                    "pack": {"meta": {"key": "default", "version": "1.1"}},
+                },
+            )
+            assert response.status_code == 409
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_clone_builtin_policy_pack(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Built-in presets can be cloned into editable custom packs."""
+    from devgodzilla.db.database import SQLiteDatabase
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+
+        monkeypatch.setenv("DEVGODZILLA_DB_PATH", str(db_path))
+        monkeypatch.delenv("DEVGODZILLA_API_TOKEN", raising=False)
+
+        with TestClient(app) as client:  # type: ignore[arg-type]
+            response = client.post(
+                "/policy_packs/default/1.0/clone",
+                json={
+                    "key": "default-custom",
+                    "version": "1.0",
+                    "name": "Default Clone",
+                    "description": "Custom copy",
+                },
+            )
+            assert response.status_code == 200
+            created = response.json()
+            assert created["key"] == "default-custom"
+            assert created["is_builtin"] is False
+            assert created["editable"] is True
+            assert created["pack"]["meta"]["key"] == "default-custom"
 
 
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")

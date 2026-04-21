@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 
 import { goto, mockHealthOk, mockAuth } from "./helpers";
 
@@ -48,9 +48,9 @@ const PROTOCOL_STEPS = [
   },
 ];
 
-function mockProtocolApis(page) {
+function mockProtocolApis(page: Page) {
   // Protocol steps (most specific first)
-  page.route("**/api/v1/protocols/22/steps**", (route) =>
+  page.route("**/api/v1/protocols/22/steps**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -59,7 +59,7 @@ function mockProtocolApis(page) {
   );
 
   // Protocol runs (empty)
-  page.route("**/api/v1/protocols/22/runs**", (route) =>
+  page.route("**/api/v1/protocols/22/runs**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -68,7 +68,7 @@ function mockProtocolApis(page) {
   );
 
   // Quality summary (empty)
-  page.route("**/api/v1/protocols/22/quality**", (route) =>
+  page.route("**/api/v1/protocols/22/quality**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -77,7 +77,7 @@ function mockProtocolApis(page) {
   );
 
   // Artifacts (empty)
-  page.route("**/api/v1/protocols/22/artifacts**", (route) =>
+  page.route("**/api/v1/protocols/22/artifacts**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -86,7 +86,7 @@ function mockProtocolApis(page) {
   );
 
   // Events
-  page.route("**/api/v1/protocols/22/events**", (route) =>
+  page.route("**/api/v1/protocols/22/events**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -95,7 +95,7 @@ function mockProtocolApis(page) {
   );
 
   // Protocol flow
-  page.route("**/api/v1/protocols/22/flow**", (route) =>
+  page.route("**/api/v1/protocols/22/flow**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -104,7 +104,7 @@ function mockProtocolApis(page) {
   );
 
   // Feedback events
-  page.route("**/api/v1/protocols/22/feedback**", (route) =>
+  page.route("**/api/v1/protocols/22/feedback**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -113,7 +113,7 @@ function mockProtocolApis(page) {
   );
 
   // Logs
-  page.route("**/api/v1/protocols/22/logs**", (route) =>
+  page.route("**/api/v1/protocols/22/logs**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -122,7 +122,7 @@ function mockProtocolApis(page) {
   );
 
   // Spec
-  page.route("**/api/v1/protocols/22/spec**", (route) =>
+  page.route("**/api/v1/protocols/22/spec**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -131,7 +131,7 @@ function mockProtocolApis(page) {
   );
 
   // Policy
-  page.route("**/api/v1/protocols/22/policy**", (route) =>
+  page.route("**/api/v1/protocols/22/policy**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -140,7 +140,7 @@ function mockProtocolApis(page) {
   );
 
   // Clarifications
-  page.route("**/api/v1/protocols/22/clarifications**", (route) =>
+  page.route("**/api/v1/protocols/22/clarifications**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -149,7 +149,7 @@ function mockProtocolApis(page) {
   );
 
   // Protocol detail (less specific — catches /protocols/22)
-  page.route("**/api/v1/protocols/22", (route) =>
+  page.route("**/api/v1/protocols/22", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -158,7 +158,7 @@ function mockProtocolApis(page) {
   );
 
   // Project info (the detail page shows "Back to Project" link)
-  page.route("**/api/v1/projects/10**", (route) =>
+  page.route("**/api/v1/projects/10**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -167,7 +167,7 @@ function mockProtocolApis(page) {
   );
 
   // Agents for the project
-  page.route("**/api/v1/projects/10/agents**", (route) =>
+  page.route("**/api/v1/projects/10/agents**", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",

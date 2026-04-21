@@ -56,6 +56,10 @@ class ProjectCreate(BaseModel):
     local_path: Optional[str] = None
     github_token: Optional[str] = None
     base_branch: str = "main"
+    project_classification: Optional[str] = None
+    policy_pack_key: Optional[str] = None
+    policy_pack_version: Optional[str] = None
+    policy_enforcement_mode: Optional[str] = None
     auto_onboard: bool = True
     auto_discovery: bool = True
 
@@ -77,6 +81,7 @@ class ProjectOut(APIModel):
     base_branch: str = "main"
     local_path: Optional[str]
     github_token_configured: bool = False
+    project_classification: Optional[str] = None
     created_at: Any
     updated_at: Any
     constitution_version: Optional[str] = None
@@ -863,6 +868,16 @@ class PolicyPackCreate(BaseModel):
     status: str = "active"
     pack: Dict[str, Any] = Field(default_factory=dict)
 
+
+class PolicyPackCloneRequest(BaseModel):
+    key: str
+    version: str
+    name: str
+    description: Optional[str] = None
+    status: str = "active"
+    pack_overrides: Dict[str, Any] = Field(default_factory=dict)
+
+
 class PolicyPackOut(APIModel):
     id: int
     key: str
@@ -870,6 +885,9 @@ class PolicyPackOut(APIModel):
     name: str
     description: Optional[str] = None
     status: str
+    is_builtin: bool = False
+    editable: bool = True
+    project_classification: Optional[str] = None
     pack: Dict[str, Any]
     created_at: Any
     updated_at: Optional[Any] = None

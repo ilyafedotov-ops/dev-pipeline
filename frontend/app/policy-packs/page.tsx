@@ -1,11 +1,11 @@
 "use client";
 
-import type React from "react";
-import { useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import { ChevronRight,Plus, Shield } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CodeBlock } from "@/components/ui/code-block";
@@ -31,6 +31,12 @@ export default function PolicyPacksPage() {
   const { data: packs, isLoading, error } = usePolicyPacks();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedPack, setSelectedPack] = useState<PolicyPack | null>(null);
+
+  useEffect(() => {
+    if (!selectedPack && packs && packs.length > 0) {
+      setSelectedPack(packs[0]);
+    }
+  }, [packs, selectedPack]);
 
   if (isLoading) return <LoadingState message="Loading policy packs..." />;
   if (error) {
@@ -83,7 +89,12 @@ export default function PolicyPacksPage() {
                     <CardTitle className="font-mono text-base">{pack.key}</CardTitle>
                     <ChevronRight className="text-muted-foreground h-4 w-4" />
                   </div>
-                  <CardDescription>{pack.name}</CardDescription>
+                  <CardDescription className="flex items-center gap-2">
+                    <span>{pack.name}</span>
+                    <Badge variant={pack.is_builtin ? "secondary" : "outline"}>
+                      {pack.is_builtin ? "Built-in" : "Custom"}
+                    </Badge>
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center gap-4 text-sm">
@@ -140,7 +151,7 @@ function CreatePolicyPackDialog({ onClose }: { onClose: () => void }) {
     pack: "{}",
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
       const packJson = JSON.parse(formData.pack);

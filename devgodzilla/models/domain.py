@@ -171,6 +171,7 @@ class SpecRun:
     analysis_path: Optional[str] = None
     implement_path: Optional[str] = None
     protocol_run_id: Optional[int] = None
+    error_message: Optional[str] = None
 
 
 @dataclass
@@ -311,6 +312,9 @@ class PolicyPack:
     created_at: str
     updated_at: str
     description: Optional[str] = None
+    is_builtin: bool = False
+    editable: bool = True
+    project_classification: Optional[str] = None
 
 
 @dataclass

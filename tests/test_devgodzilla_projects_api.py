@@ -74,6 +74,46 @@ def test_project_create_and_update_mask_github_token(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_project_create_uses_classification_driven_policy_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db = SQLiteDatabase(Path(tmpdir) / "test.db")
+        db.init_schema()
+        monkeypatch.delenv("DEVGODZILLA_DB_URL", raising=False)
+        monkeypatch.delenv("DEVGODZILLA_API_TOKEN", raising=False)
+        app.dependency_overrides[get_db] = lambda: db
+
+        try:
+            with TestClient(app) as client:  # type: ignore[arg-type]
+                create_resp = client.post(
+                    "/projects",
+                    json={
+                        "name": "enterprise-project",
+                        "git_url": "https://github.com/example/enterprise.git",
+                        "base_branch": "main",
+                        "project_classification": "enterprise-compliance",
+                        "policy_enforcement_mode": "off",
+                        "auto_onboard": False,
+                        "auto_discovery": False,
+                    },
+                )
+                assert create_resp.status_code == 200
+                payload = create_resp.json()
+                assert payload["project_classification"] == "enterprise-compliance"
+                assert payload["policy_pack_key"] == "enterprise-compliance"
+                assert payload["policy_pack_version"] == "1.0"
+                assert payload["policy_enforcement_mode"] is None
+
+                policy_resp = client.get(f"/projects/{payload['id']}/policy")
+                assert policy_resp.status_code == 200
+                policy_payload = policy_resp.json()
+                assert policy_payload["policy_pack_key"] == "enterprise-compliance"
+                assert policy_payload["policy_pack_version"] == "1.0"
+                assert policy_payload["policy_enforcement_mode"] == "off"
+        finally:
+            app.dependency_overrides.clear()
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_onboarding_uses_project_github_token_for_clone(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     db = SQLiteDatabase(tmp_path / "test.db")
     db.init_schema()

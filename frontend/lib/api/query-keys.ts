@@ -78,8 +78,11 @@ export const queryKeys = {
   // Policy Packs
   policyPacks: {
     all: ["policyPacks"] as const,
-    list: () => [...queryKeys.policyPacks.all, "list"] as const,
-    detail: (key: string) => [...queryKeys.policyPacks.all, "detail", key] as const,
+    list: (filters?: { key?: string; status?: string }) =>
+      [...queryKeys.policyPacks.all, "list", filters ?? {}] as const,
+    detail: (key: string, version?: string) =>
+      [...queryKeys.policyPacks.all, "detail", key, version ?? "latest"] as const,
+    versions: (key: string) => [...queryKeys.policyPacks.all, "versions", key] as const,
   },
 
   // Operations

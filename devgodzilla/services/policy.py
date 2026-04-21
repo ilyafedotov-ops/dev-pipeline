@@ -208,16 +208,18 @@ class PolicyService(Service):
         
         # Load base policy pack
         pack_key = project.policy_pack_key or "default"
-        pack_version = project.policy_pack_version or "1.0"
+        pack_version = project.policy_pack_version
         
         try:
             pack = self.db.get_policy_pack(key=pack_key, version=pack_version)
             base_policy = pack.pack
+            resolved_version = pack.version
         except KeyError:
             # Fallback to empty policy
             base_policy = {}
+            resolved_version = pack_version or "1.0"
         
-        sources = {"pack": {"key": pack_key, "version": pack_version}}
+        sources = {"pack": {"key": pack_key, "version": resolved_version}}
         merged = dict(base_policy)
         
         # Apply project overrides
@@ -240,7 +242,7 @@ class PolicyService(Service):
             policy=merged,
             effective_hash=effective_hash,
             pack_key=pack_key,
-            pack_version=pack_version,
+            pack_version=resolved_version,
             sources=sources,
         )
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CheckCircle2, GitBranch, Loader2,type LucideIcon, Shield } from "lucide-react";
@@ -28,7 +28,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { ApiError } from "@/lib/api/client";
 import { usePolicyPacks } from "@/lib/api/hooks/use-policy-packs";
-import { useCreateProject, useUpdateProjectPolicy } from "@/lib/api/hooks/use-projects";
+import { useCreateProject } from "@/lib/api/hooks/use-projects";
 import type { PolicyEnforcementMode } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +44,18 @@ const steps: { id: WizardStep; label: string; icon: LucideIcon }[] = [
   { id: "policy", label: "Policy Pack", icon: Shield },
   { id: "onboarding", label: "Review & Start", icon: CheckCircle2 },
 ];
+
+const classificationOrder = [
+  "default",
+  "beginner-guided",
+  "startup-fast",
+  "team-standard",
+  "enterprise-compliance",
+] as const;
+
+const classificationRank = new Map<string, number>(
+  classificationOrder.map((value, index) => [value, index])
+);
 
 function looksLikeGitRepositoryUrl(value: string): boolean {
   const url = value.trim();
@@ -72,7 +84,6 @@ function looksLikeGitRepositoryUrl(value: string): boolean {
 export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
   const router = useRouter();
   const createProject = useCreateProject();
-  const updatePolicy = useUpdateProjectPolicy();
   const { data: policyPacks, isLoading: policyPacksLoading } = usePolicyPacks();
 
   const [currentStep, setCurrentStep] = useState<WizardStep>("git");
@@ -80,11 +91,25 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
     repoUrl: "",
     branch: "main",
     githubToken: "",
-    policyPack: "",
-    enforcementMode: "warn",
+    projectClassification: "default",
+    enforcementMode: "warn" as PolicyEnforcementMode,
     autoDiscovery: true,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const builtinPolicyPacks = useMemo(() => {
+    const builtins = (policyPacks ?? []).filter((pack) => pack.is_builtin);
+    return [...builtins].sort((a, b) => {
+      const left = classificationRank.get(a.project_classification ?? "default") ?? Number.MAX_SAFE_INTEGER;
+      const right = classificationRank.get(b.project_classification ?? "default") ?? Number.MAX_SAFE_INTEGER;
+      return left - right;
+    });
+  }, [policyPacks]);
+
+  const selectedPolicyPack =
+    builtinPolicyPacks.find((pack) => pack.project_classification === formData.projectClassification) ??
+    builtinPolicyPacks[0] ??
+    null;
 
   const currentStepIndex = steps.findIndex((s) => s.id === currentStep);
 
@@ -142,6 +167,8 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
           git_url: formData.repoUrl,
           github_token: formData.githubToken || undefined,
           base_branch: formData.branch || "main",
+          project_classification: formData.projectClassification,
+          policy_enforcement_mode: formData.enforcementMode,
           auto_onboard: true,
           auto_discovery: formData.autoDiscovery,
         });
@@ -152,33 +179,22 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
           (error.message || "").toLowerCase().includes("windmill integration not configured")
         ) {
           onboardingQueued = false;
-          project = await createProject.mutateAsync({
-            name,
-            git_url: formData.repoUrl,
-            github_token: formData.githubToken || undefined,
-            base_branch: formData.branch || "main",
-            auto_onboard: false,
-            auto_discovery: false,
-          });
-        } else {
-          throw error;
+        project = await createProject.mutateAsync({
+          name,
+          git_url: formData.repoUrl,
+          github_token: formData.githubToken || undefined,
+          base_branch: formData.branch || "main",
+          project_classification: formData.projectClassification,
+          policy_enforcement_mode: formData.enforcementMode,
+          auto_onboard: false,
+          auto_discovery: false,
+        });
+      } else {
+        throw error;
         }
       }
       if (!project) {
         throw new Error("Project creation failed");
-      }
-
-      // 2. Update Policy if selected
-      if (formData.policyPack || formData.enforcementMode) {
-        await updatePolicy.mutateAsync({
-          projectId: project.id,
-          policy: {
-            policy_pack_key: formData.policyPack || undefined,
-            policy_enforcement_mode: (formData.enforcementMode || undefined) as
-              | PolicyEnforcementMode
-              | undefined,
-          },
-        });
       }
 
       if (onboardingQueued) {
@@ -194,7 +210,7 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
         repoUrl: "",
         branch: "main",
         githubToken: "",
-        policyPack: "",
+        projectClassification: "default",
         enforcementMode: "warn",
         autoDiscovery: true,
       });
@@ -315,43 +331,63 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
           {currentStep === "policy" && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="policyPack">Policy Pack</Label>
+                <Label htmlFor="projectClassification">Project Classification</Label>
                 <Select
-                  value={formData.policyPack}
-                  onValueChange={(v) => setFormData({ ...formData, policyPack: v })}
+                  value={formData.projectClassification}
+                  onValueChange={(v) => setFormData({ ...formData, projectClassification: v })}
                 >
                   <SelectTrigger>
                     <SelectValue
                       placeholder={
-                        policyPacksLoading ? "Loading..." : "Select a policy pack (optional)"
+                        policyPacksLoading ? "Loading..." : "Select a project classification"
                       }
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    {policyPacks?.map((pack) => (
-                      <SelectItem key={pack.key || pack.id} value={pack.key || String(pack.id)}>
+                    {builtinPolicyPacks.map((pack) => (
+                      <SelectItem
+                        key={`${pack.key}:${pack.version}`}
+                        value={pack.project_classification || pack.key}
+                      >
                         {pack.name}
                         {pack.description && (
                           <span className="text-muted-foreground ml-2">- {pack.description}</span>
                         )}
                       </SelectItem>
                     ))}
-                    {(!policyPacks || policyPacks.length === 0) && !policyPacksLoading && (
+                    {builtinPolicyPacks.length === 0 && !policyPacksLoading && (
                       <SelectItem value="__no_policy_packs__" disabled>
-                        No policy packs available
+                        No built-in policy packs available
                       </SelectItem>
                     )}
                   </SelectContent>
                 </Select>
                 <p className="text-muted-foreground text-xs">
-                  Choose a policy pack to enforce coding standards
+                  Choose the baseline governance model for this project.
                 </p>
               </div>
+              {selectedPolicyPack && (
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{selectedPolicyPack.name}</p>
+                      <p className="text-muted-foreground mt-1 text-sm">
+                        {selectedPolicyPack.description || "No description available."}
+                      </p>
+                    </div>
+                    <Badge variant="secondary">
+                      {selectedPolicyPack.key}@{selectedPolicyPack.version}
+                    </Badge>
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="enforcementMode">Enforcement Mode</Label>
                 <Select
                   value={formData.enforcementMode}
-                  onValueChange={(v) => setFormData({ ...formData, enforcementMode: v })}
+                  onValueChange={(v) =>
+                    setFormData({ ...formData, enforcementMode: v as PolicyEnforcementMode })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -359,7 +395,7 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
                   <SelectContent>
                     <SelectItem value="off">Off (No policy checks)</SelectItem>
                     <SelectItem value="warn">Warn (Advisory only)</SelectItem>
-                    <SelectItem value="enforce">Enforce (Block on violations)</SelectItem>
+                    <SelectItem value="block">Enforce (Block on violations)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -380,8 +416,16 @@ export function ProjectWizard({ open, onOpenChange }: ProjectWizardProps) {
                     <span>{formData.branch}</span>
                   </div>
                   <div className="flex justify-between">
+                    <span className="text-muted-foreground">Classification:</span>
+                    <span>{formData.projectClassification}</span>
+                  </div>
+                  <div className="flex justify-between">
                     <span className="text-muted-foreground">Policy Pack:</span>
-                    <span>{formData.policyPack || "None"}</span>
+                    <span>
+                      {selectedPolicyPack
+                        ? `${selectedPolicyPack.key}@${selectedPolicyPack.version}`
+                        : "Unavailable"}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">GitHub Token:</span>
