@@ -5,6 +5,9 @@ Inputs (already decided; do not ask):
 - Protocol description: {{PROTOCOL_DESCRIPTION}}
 - Step count: {{STEP_COUNT}}
 
+Workflow context (policy, resolved clarifications, open questions):
+{{WORKFLOW_CONTEXT}}
+
 Deliverables (create files; do not rely on terminal output):
 - Create the directory `.protocols/{{PROTOCOL_NAME}}/`.
 - Write `.protocols/{{PROTOCOL_NAME}}/plan.md` (high-level plan).
@@ -19,6 +22,9 @@ Rules:
 - Do NOT create PRs, push branches, or modify remote state.
 - Do NOT modify code outside `.protocols/{{PROTOCOL_NAME}}/` in this generation step.
 - Keep the plan concrete and repo-aware: refer to real files/paths you see.
+- Treat the workflow context above as binding.
+- If policy requires files, sections, checks, or validation, reflect that in `plan.md` and the generated `step-*.md` files.
+- If resolved clarifications answer an ambiguity, use those answers directly and do not re-open the same decision.
 
 Content requirements:
 - `plan.md` must briefly summarize the goal and link to each `step-*.md`.

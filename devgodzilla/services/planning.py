@@ -15,7 +15,9 @@ from devgodzilla.config import Config, get_config
 from devgodzilla.logging import get_logger
 from devgodzilla.models.domain import ProtocolRun, ProtocolStatus, Project
 from devgodzilla.services.base import Service, ServiceContext
+from devgodzilla.services.clarifier import ClarifierService
 from devgodzilla.services.events import get_event_bus, ProtocolStarted, ProtocolCompleted
+from devgodzilla.services.workflow_context import build_workflow_prompt_context
 from devgodzilla.spec import (
     PROTOCOL_SPEC_KEY,
     build_spec_from_protocol_files,
@@ -177,19 +179,6 @@ class PlanningService(Service):
         # Update status to planning
         self.db.update_protocol_status(protocol_run_id, ProtocolStatus.PLANNING)
         
-        # Check for blocking clarifications
-        if self.clarifier_service:
-            if self.clarifier_service.has_blocking_open(
-                project_id=project.id,
-                protocol_run_id=protocol_run_id,
-            ):
-                self.logger.warning("planning_blocked_on_clarifications", extra=log_extra)
-                return PlanningResult(
-                    success=False,
-                    protocol_run_id=protocol_run_id,
-                    error="Blocked on open clarifications",
-                )
-        
         # Resolve workspace path
         workspace = self._resolve_workspace(run, project)
         if not workspace:
@@ -232,6 +221,50 @@ class PlanningService(Service):
                         "worktree_setup_failed",
                         extra={**log_extra, "error": str(e), "repo_root": project.local_path},
                     )
+
+        planning_clarifier = self.clarifier_service or ClarifierService(self.context, self.db)
+        policy_service = self.policy_service
+        if policy_service is None:
+            try:
+                from devgodzilla.services.policy import PolicyService
+
+                policy_service = PolicyService(self.context, self.db)
+            except Exception:
+                policy_service = None
+
+        # Resolve effective policy and materialize planning clarifications before generation.
+        policy_hash = None
+        workflow_context = ""
+        if policy_service:
+            try:
+                prompt_context = build_workflow_prompt_context(
+                    self.context,
+                    self.db,
+                    project_id=project.id,
+                    repo_root=workspace,
+                    stage="planning",
+                )
+                effective = prompt_context.effective_policy
+                workflow_context = prompt_context.rendered
+                policy_hash = effective.effective_hash
+
+                policy_service.audit_protocol_policy(
+                    protocol_run_id,
+                    pack_key=effective.pack_key,
+                    pack_version=effective.pack_version,
+                    effective_hash=effective.effective_hash,
+                    policy=effective.policy,
+                )
+            except Exception as e:
+                self.logger.warning("policy_resolution_failed", extra={**log_extra, "error": str(e)})
+
+        if planning_clarifier.has_blocking_open_for_stage(project_id=project.id, stage="planning"):
+            self.logger.warning("planning_blocked_on_clarifications", extra=log_extra)
+            return PlanningResult(
+                success=False,
+                protocol_run_id=protocol_run_id,
+                error="Blocked on open clarifications",
+            )
 
         # If protocol files are missing, optionally generate them via agent (headless SWE mode).
         auto_generate = os.environ.get("DEVGODZILLA_AUTO_GENERATE_PROTOCOL", "true").lower() in (
@@ -299,6 +332,7 @@ class PlanningService(Service):
                         model=model,
                         project_id=project.id,
                         prompt_path=prompt_path,
+                        workflow_context=workflow_context,
                         timeout_seconds=int(os.environ.get("DEVGODZILLA_PROTOCOL_GENERATE_TIMEOUT_SECONDS", "900")),
                         strict_outputs=True,
                     )
@@ -317,27 +351,6 @@ class PlanningService(Service):
                         protocol_run_id=protocol_run_id,
                         error=f"Protocol generation failed: {e}",
                     )
-        
-        # Resolve effective policy
-        policy_hash = None
-        if self.policy_service:
-            try:
-                effective = self.policy_service.resolve_effective_policy(
-                    project.id,
-                    repo_root=workspace,
-                )
-                policy_hash = effective.effective_hash
-                
-                # Audit policy on protocol
-                self.policy_service.audit_protocol_policy(
-                    protocol_run_id,
-                    pack_key=effective.pack_key,
-                    pack_version=effective.pack_version,
-                    effective_hash=effective.effective_hash,
-                    policy=effective.policy,
-                )
-            except Exception as e:
-                self.logger.warning("policy_resolution_failed", extra={**log_extra, "error": str(e)})
         
         # Parse protocol specification
         try:

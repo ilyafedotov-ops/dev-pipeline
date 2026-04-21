@@ -274,7 +274,7 @@ class ClarifierService(Service):
         *,
         project_id: int,
         key: str,
-        answer: Optional[Dict[str, Any]],
+        answer: Any,
         protocol_run_id: Optional[int] = None,
         step_run_id: Optional[int] = None,
         answered_by: Optional[str] = None,
@@ -298,16 +298,90 @@ class ClarifierService(Service):
             protocol_run_id=protocol_run_id,
             step_run_id=step_run_id,
         )
+        payload = self.normalize_answer_payload(answer)
         clarification = self.db.answer_clarification(
             scope=scope,
             key=key,
-            answer=answer,
+            answer=payload,
             answered_by=answered_by,
             status="answered",
         )
         # Emit clarification.answered event
-        self._emit_answered_event(clarification, answer, answered_by)
+        self._emit_answered_event(clarification, payload, answered_by)
         return clarification
+
+    @staticmethod
+    def normalize_answer_payload(answer: Any) -> Optional[Dict[str, Any]]:
+        """Normalize answers to a structured object for consistent API/UI handling."""
+        if answer is None:
+            return None
+        if isinstance(answer, dict):
+            return answer
+        if isinstance(answer, str):
+            text = answer.strip()
+            return {"text": text} if text else None
+        return {"value": answer}
+
+    @staticmethod
+    def value_text(value: Any) -> str:
+        """Best-effort extraction of a human-readable value from structured fields."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, dict):
+            for key in ("text", "value", "answer", "recommended", "default", "option"):
+                candidate = value.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate.strip()
+            try:
+                return json.dumps(value, sort_keys=True)
+            except Exception:
+                return str(value)
+        if isinstance(value, list):
+            parts = [ClarifierService.value_text(item) for item in value]
+            return ", ".join(part for part in parts if part)
+        return str(value)
+
+    def list_answered(
+        self,
+        *,
+        project_id: int,
+        limit: int = 200,
+    ) -> List[Clarification]:
+        """List answered clarifications for a project across scopes."""
+        return self.db.list_clarifications(
+            project_id=project_id,
+            status="answered",
+            limit=limit,
+        )
+
+    def list_open_for_stage(
+        self,
+        *,
+        project_id: int,
+        stage: str,
+        limit: int = 200,
+    ) -> List[Clarification]:
+        """List open clarifications relevant to a workflow stage."""
+        items = self.db.list_clarifications(
+            project_id=project_id,
+            status="open",
+            limit=limit,
+        )
+        return [
+            item for item in items
+            if not getattr(item, "applies_to", None) or item.applies_to == stage
+        ]
+
+    def has_blocking_open_for_stage(
+        self,
+        *,
+        project_id: int,
+        stage: str,
+    ) -> bool:
+        """Check for blocking open clarifications relevant to a stage."""
+        return any(item.blocking for item in self.list_open_for_stage(project_id=project_id, stage=stage))
 
     def has_blocking_open(
         self,

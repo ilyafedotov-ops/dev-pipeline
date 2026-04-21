@@ -31,6 +31,7 @@ from devgodzilla.services.clarifier import ClarifierService
 from devgodzilla.services.speckit_adapter import SpecKitAdapter
 from devgodzilla.services.git import GitService
 from devgodzilla.services.spec_to_protocol import SpecToProtocolService
+from devgodzilla.services.workflow_context import build_workflow_prompt_context
 from devgodzilla.models.domain import SpecRun, SpecRunStatus
 from devgodzilla.speckit_metadata import with_spec_run_id
 from devgodzilla.spec import resolve_spec_path
@@ -591,6 +592,11 @@ class SpecificationService(Service):
                         self._append_policy_guidelines(spec_path, policy_guidelines)
 
                     spec_dir = spec_path.parent
+                    workflow_context = self._workflow_context_text(
+                        str(worktree_root),
+                        project_id,
+                        stage="specify",
+                    )
                     prompt_context = self._format_prompt_context(
                         "SpecKit specification context",
                         [
@@ -603,6 +609,7 @@ class SpecificationService(Service):
                             f"Constitution: {Path(worktree_root) / self.DOT_SPECIFY / self.MEMORY_DIR / 'constitution.md'}",
                         ],
                         policy_guidelines,
+                        workflow_context,
                     )
                     agent_result = self._run_speckit_agent(
                         str(worktree_root),
@@ -680,6 +687,11 @@ class SpecificationService(Service):
             spec_path.write_text(spec_content)
             self._append_policy_guidelines(spec_path, policy_guidelines)
 
+            workflow_context = self._workflow_context_text(
+                str(worktree_root),
+                project_id,
+                stage="specify",
+            )
             prompt_context = self._format_prompt_context(
                 "SpecKit specification context",
                 [
@@ -692,6 +704,7 @@ class SpecificationService(Service):
                     f"Constitution: {Path(worktree_root) / self.DOT_SPECIFY / self.MEMORY_DIR / 'constitution.md'}",
                 ],
                 policy_guidelines,
+                workflow_context,
             )
             agent_result = self._run_speckit_agent(
                 str(worktree_root),
@@ -857,6 +870,11 @@ class SpecificationService(Service):
             contracts_dir = spec_dir / "contracts"
             contracts_dir.mkdir(exist_ok=True)
 
+            workflow_context = self._workflow_context_text(
+                str(workspace_root),
+                project_id,
+                stage="planning",
+            )
             prompt_context = self._format_prompt_context(
                 "SpecKit planning context",
                 [
@@ -871,6 +889,7 @@ class SpecificationService(Service):
                     f"Constitution: {Path(workspace_root) / self.DOT_SPECIFY / self.MEMORY_DIR / 'constitution.md'}",
                 ],
                 policy_guidelines,
+                workflow_context,
             )
             if context and context.strip():
                 prompt_context = (
@@ -985,6 +1004,11 @@ class SpecificationService(Service):
             })
             tasks_path.write_text(tasks_content)
 
+            workflow_context = self._workflow_context_text(
+                str(workspace_root),
+                project_id,
+                stage="tasks",
+            )
             prompt_context = self._format_prompt_context(
                 "SpecKit task generation context",
                 [
@@ -996,6 +1020,7 @@ class SpecificationService(Service):
                     f"Constitution: {Path(workspace_root) / self.DOT_SPECIFY / self.MEMORY_DIR / 'constitution.md'}",
                 ],
                 policy_guidelines,
+                workflow_context,
             )
             agent_result = self._run_speckit_agent(
                 str(workspace_root),
@@ -1169,6 +1194,11 @@ class SpecificationService(Service):
                 },
             )
 
+            workflow_context = self._workflow_context_text(
+                str(workspace_root),
+                project_id,
+                stage="checklist",
+            )
             prompt_context = self._format_prompt_context(
                 "SpecKit checklist context",
                 [
@@ -1179,6 +1209,7 @@ class SpecificationService(Service):
                     f"Constitution: {Path(workspace_root) / self.DOT_SPECIFY / self.MEMORY_DIR / 'constitution.md'}",
                 ],
                 policy_guidelines,
+                workflow_context,
             )
             agent_result = self._run_speckit_agent(
                 str(workspace_root),
@@ -1270,6 +1301,11 @@ class SpecificationService(Service):
             ]
             report_path.write_text("\n".join(report_content) + "\n")
 
+            workflow_context = self._workflow_context_text(
+                str(workspace_root),
+                project_id,
+                stage="analyze",
+            )
             prompt_context = self._format_prompt_context(
                 "SpecKit analysis context",
                 [
@@ -1281,6 +1317,7 @@ class SpecificationService(Service):
                     f"Constitution: {Path(workspace_root) / self.DOT_SPECIFY / self.MEMORY_DIR / 'constitution.md'}",
                 ],
                 policy_guidelines,
+                workflow_context,
             )
             agent_result = self._run_speckit_agent(
                 str(workspace_root),
@@ -2074,11 +2111,14 @@ Legend:
         header: str,
         lines: List[str],
         policy_guidelines: str,
+        workflow_context: str = "",
     ) -> str:
         chunks = [header, ""]
         chunks.extend(f"- {line}" for line in lines)
         if policy_guidelines:
             chunks.extend(["", "Policy guidelines:", policy_guidelines])
+        if workflow_context:
+            chunks.extend(["", workflow_context])
         return "\n".join(chunks).strip() + "\n"
 
     def _run_speckit_agent(
@@ -2143,6 +2183,27 @@ Legend:
                 lines = lines[1:]
             return "\n".join(lines).strip()
         return guidelines.strip()
+
+    def _workflow_context_text(
+        self,
+        project_path: str,
+        project_id: Optional[int],
+        *,
+        stage: str,
+    ) -> str:
+        if not self.db or not project_id:
+            return ""
+        try:
+            context = build_workflow_prompt_context(
+                self.context,
+                self.db,
+                project_id=project_id,
+                repo_root=Path(project_path),
+                stage=stage,
+            )
+        except Exception:
+            return ""
+        return context.rendered
 
     def _append_policy_guidelines(self, file_path: Path, guidelines: str) -> None:
         if not guidelines:

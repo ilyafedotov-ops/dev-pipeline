@@ -104,6 +104,7 @@ class DiscoveryAgentService(Service):
         repo_root: Path,
         engine_id: str = "opencode",
         model: Optional[str] = None,
+        workflow_context: str = "",
         pipeline: bool = True,
         stages: Optional[list[str]] = None,
         timeout_seconds: int = 900,
@@ -287,6 +288,8 @@ class DiscoveryAgentService(Service):
                 continue
 
             prompt_text = prompt_path.read_text(encoding="utf-8")
+            if workflow_context.strip():
+                prompt_text = f"{workflow_context.strip()}\n\n---\n\n{prompt_text}"
             
             # Log stage start
             tracker.log(execution.execution_id, "info", f"Executing stage: {stage}", source=engine_id, metadata={"prompt": prompt_name})

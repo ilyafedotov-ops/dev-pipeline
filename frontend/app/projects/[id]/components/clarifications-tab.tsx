@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { CheckCircle2, Lock, MessageCircle,Unlock } from "lucide-react";
+import { CheckCircle2, Lock, MessageCircle, Unlock } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -17,9 +17,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useAnswerClarification,useProjectClarifications } from "@/lib/api";
+import { useAnswerClarification, useProjectClarifications } from "@/lib/api";
 import type { Clarification } from "@/lib/api/types";
 import { formatRelativeTime } from "@/lib/format";
+
+const resolveClarificationText = (
+  value: Clarification["answer"] | Clarification["recommended"]
+) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  const candidate =
+    value.text ||
+    value.value ||
+    value.answer ||
+    value.recommended ||
+    value.default ||
+    value.option ||
+    "";
+  return typeof candidate === "string" ? candidate : "";
+};
 
 interface ClarificationsTabProps {
   projectId: number;
@@ -87,7 +103,7 @@ function ClarificationCard({
   clarification: Clarification;
   projectId: number;
 }) {
-  const initialAnswer = typeof clarification.answer === "string" ? clarification.answer : "";
+  const initialAnswer = resolveClarificationText(clarification.answer);
   const [answer, setAnswer] = useState(initialAnswer);
   const answerMutation = useAnswerClarification();
 
@@ -137,9 +153,7 @@ function ClarificationCard({
           <p className="text-muted-foreground text-sm">
             Recommended:{" "}
             <span className="font-medium">
-              {typeof clarification.recommended === "string"
-                ? clarification.recommended
-                : JSON.stringify(clarification.recommended)}
+              {resolveClarificationText(clarification.recommended)}
             </span>
           </p>
         )}
@@ -152,11 +166,13 @@ function ClarificationCard({
                   <SelectValue placeholder="Select an option" />
                 </SelectTrigger>
                 <SelectContent>
-                  {clarification.options.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {option}
-                    </SelectItem>
-                  ))}
+                  {clarification.options
+                    .filter((option) => option.trim() !== "")
+                    .map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             ) : (
@@ -178,9 +194,7 @@ function ClarificationCard({
           <div className="bg-muted rounded-lg p-3">
             <p className="text-sm">
               <span className="font-medium">Answer:</span>{" "}
-              {typeof clarification.answer === "string"
-                ? clarification.answer
-                : JSON.stringify(clarification.answer)}
+              {resolveClarificationText(clarification.answer)}
             </p>
             {clarification.answered_by && (
               <p className="text-muted-foreground mt-1 text-xs">

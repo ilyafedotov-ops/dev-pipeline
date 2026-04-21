@@ -22,6 +22,7 @@ from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.policy import PolicyService
 from devgodzilla.services.clarifier import ClarifierService
 from devgodzilla.services.specification import SpecificationService
+from devgodzilla.services.workflow_context import build_workflow_prompt_context
 from pathlib import Path
 
 router = APIRouter()
@@ -680,19 +681,28 @@ def _run_onboarding_work(
     )
 
     constitution_content = request.constitution_content
+    onboarding_workflow_context = ""
     effective_policy = None
+    try:
+        workflow_context = build_workflow_prompt_context(
+            ctx,
+            db,
+            project_id=project_id,
+            repo_root=repo_path,
+            stage="onboarding",
+        )
+        effective_policy = workflow_context.effective_policy
+        onboarding_workflow_context = workflow_context.rendered
+    except Exception:
+        effective_policy = None
+        onboarding_workflow_context = ""
+
     if constitution_content is None:
         try:
             policy_service = PolicyService(ctx, db)
-            effective_policy = policy_service.resolve_effective_policy(
-                project_id,
-                repo_root=repo_path,
-                include_repo_local=True,
-            )
             constitution_content = policy_service.render_constitution(effective_policy)
         except Exception:
             constitution_content = None
-            effective_policy = None
 
     spec_service = SpecificationService(ctx, db)
     spec_init_start = time.perf_counter()
@@ -760,6 +770,7 @@ def _run_onboarding_work(
                 repo_root=repo_path,
                 engine_id=request.discovery_engine_id or "opencode",
                 model=request.discovery_model,
+                workflow_context=onboarding_workflow_context,
                 pipeline=bool(request.discovery_pipeline),
                 stages=None,
                 timeout_seconds=int(os.environ.get("DEVGODZILLA_DISCOVERY_TIMEOUT_SECONDS", "900")),
@@ -1005,14 +1016,27 @@ def retry_project_discovery(
     discovery_error: Optional[str] = None
     discovery_warning: Optional[str] = None
     fallback_engine_id: Optional[str] = None
+    onboarding_workflow_context = ""
     try:
         from devgodzilla.services.discovery_agent import DiscoveryAgentService
+
+        try:
+            onboarding_workflow_context = build_workflow_prompt_context(
+                ctx,
+                db,
+                project_id=project_id,
+                repo_root=repo_root,
+                stage="onboarding",
+            ).rendered
+        except Exception:
+            onboarding_workflow_context = ""
 
         svc = DiscoveryAgentService(ctx)
         disc = svc.run_discovery(
             repo_root=repo_root,
             engine_id=engine_id,
             model=request.discovery_model,
+            workflow_context=onboarding_workflow_context,
             pipeline=pipeline,
             stages=request.stages,
             timeout_seconds=int(os.environ.get("DEVGODZILLA_DISCOVERY_TIMEOUT_SECONDS", "900")),
@@ -1489,7 +1513,8 @@ def answer_project_clarification(
     project_id: int,
     key: str,
     answer: schemas.ClarificationAnswer,
-    db: Database = Depends(get_db)
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
 ):
     """Answer a clarification scoped to a project."""
     try:
@@ -1497,19 +1522,13 @@ def answer_project_clarification(
     except KeyError:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Construct scope for project-level clarification
-    scope = f"project:{project_id}"
-    
-    # Store answer as structured JSON
-    payload = {"text": answer.answer}
-    
+    clarifier = ClarifierService(ctx, db)
     try:
-        updated = db.answer_clarification(
-            scope=scope,
+        updated = clarifier.answer(
+            project_id=project_id,
             key=key,
-            answer=payload,
+            answer=answer.answer,
             answered_by=answer.answered_by,
-            status="answered",
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="Clarification not found")

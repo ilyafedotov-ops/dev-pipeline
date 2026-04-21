@@ -5,6 +5,9 @@ from devgodzilla.api import schemas
 from devgodzilla.api.dependencies import get_db
 from devgodzilla.db.database import Database
 from devgodzilla.logging import get_logger, log_extra
+from devgodzilla.services.base import ServiceContext
+from devgodzilla.services.clarifier import ClarifierService
+from devgodzilla.api.dependencies import get_service_context
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -40,7 +43,8 @@ def list_clarifications(
 def answer_clarification(
     clarification_id: int,
     answer: schemas.ClarificationAnswer,
-    db: Database = Depends(get_db)
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
 ):
     """Answer a clarification."""
     try:
@@ -52,13 +56,15 @@ def answer_clarification(
     # Store answer as structured JSON (so UI can render rich answers later)
     payload = {"text": answer.answer}
 
+    clarifier = ClarifierService(ctx, db)
     try:
-        updated = db.answer_clarification(
-            scope=clarification.scope,
+        updated = clarifier.answer(
+            project_id=clarification.project_id,
             key=clarification.key,
             answer=payload,
+            protocol_run_id=clarification.protocol_run_id,
+            step_run_id=clarification.step_run_id,
             answered_by=answer.answered_by,
-            status="answered",
         )
     except KeyError:
         logger.warning(

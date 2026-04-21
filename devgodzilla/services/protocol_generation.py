@@ -34,12 +34,24 @@ class ProtocolGenerationResult:
     error: Optional[str] = None
 
 
-def _render_prompt(template: str, *, protocol_name: str, description: str, step_count: int) -> str:
-    return (
+def _render_prompt(
+    template: str,
+    *,
+    protocol_name: str,
+    description: str,
+    step_count: int,
+    workflow_context: str = "",
+) -> str:
+    rendered = (
         template.replace("{{PROTOCOL_NAME}}", protocol_name)
         .replace("{{PROTOCOL_DESCRIPTION}}", description)
         .replace("{{STEP_COUNT}}", str(step_count))
     )
+    if "{{WORKFLOW_CONTEXT}}" in rendered:
+        rendered = rendered.replace("{{WORKFLOW_CONTEXT}}", workflow_context.strip())
+    elif workflow_context.strip():
+        rendered = f"{rendered.rstrip()}\n\n{workflow_context.strip()}\n"
+    return rendered
 
 
 class ProtocolGenerationService(Service):
@@ -57,6 +69,7 @@ class ProtocolGenerationService(Service):
         model: Optional[str] = None,
         project_id: Optional[int] = None,
         prompt_path: Optional[Path] = None,
+        workflow_context: str = "",
         timeout_seconds: int = 900,
         strict_outputs: bool = True,
     ) -> ProtocolGenerationResult:
@@ -139,6 +152,7 @@ class ProtocolGenerationService(Service):
             protocol_name=protocol_name,
             description=description,
             step_count=max(1, int(step_count)),
+            workflow_context=workflow_context,
         )
 
         req = EngineRequest(

@@ -41,6 +41,7 @@ from devgodzilla.services.events import get_event_bus, StepStarted, StepComplete
 from devgodzilla.services.clarifier import ClarifierService
 from devgodzilla.services.policy import PolicyService
 from devgodzilla.services.quality import QualityService
+from devgodzilla.services.workflow_context import build_workflow_prompt_context
 from devgodzilla.services.workspace_paths import resolve_protocol_root, resolve_workspace_root
 
 logger = get_logger(__name__)
@@ -217,24 +218,6 @@ class ExecutionService(Service):
         enforcement_mode = _normalize_policy_enforcement_mode(project.policy_enforcement_mode)
         if enforcement_mode == "block":
             clarifier = ClarifierService(self.context, self.db)
-            blocked = any(
-                clarifier.has_blocking_open(**params)
-                for params in (
-                    {"project_id": project.id},
-                    {"protocol_run_id": run.id},
-                    {"step_run_id": step.id},
-                )
-            )
-            if blocked:
-                self.db.update_step_status(step_run_id, StepStatus.BLOCKED, summary="Blocked on clarifications")
-                self.db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
-                return ExecutionResult(
-                    success=False,
-                    step_run_id=step_run_id,
-                    engine_id=engine_id or step.engine_id or "unknown",
-                    error="Blocked on clarifications",
-                )
-
             policy_service = PolicyService(self.context, self.db)
             try:
                 workspace_root = resolve_workspace_root(run, project)
@@ -245,11 +228,24 @@ class ExecutionService(Service):
                     error=str(exc),
                     engine_id=engine_id or step.engine_id or "unknown",
                 )
-            effective = policy_service.resolve_effective_policy(
-                project.id,
+            workflow_context = build_workflow_prompt_context(
+                self.context,
+                self.db,
+                project_id=project.id,
                 repo_root=workspace_root,
-                include_repo_local=True,
+                stage="execution",
             )
+            if clarifier.has_blocking_open_for_stage(project_id=project.id, stage="execution"):
+                self.db.update_step_status(step_run_id, StepStatus.BLOCKED, summary="Blocked on clarifications")
+                self.db.update_protocol_status(run.id, ProtocolStatus.BLOCKED)
+                return ExecutionResult(
+                    success=False,
+                    step_run_id=step_run_id,
+                    engine_id=engine_id or step.engine_id or "unknown",
+                    error="Blocked on clarifications",
+                )
+
+            effective = workflow_context.effective_policy
             findings = policy_service.evaluate_step(step_run_id, repo_root=workspace_root)
             enforced = PolicyService.apply_enforcement_mode(findings, enforcement_mode, policy=effective.policy)
             if PolicyService.has_blocking_findings(enforced):
@@ -499,6 +495,18 @@ class ExecutionService(Service):
         else:
             step_prompt_path = protocol_root / f"{step.step_name}.md"
 
+        workflow_context = ""
+        try:
+            workflow_context = build_workflow_prompt_context(
+                self.context,
+                self.db,
+                project_id=project.id,
+                repo_root=workspace_root,
+                stage="execution",
+            ).rendered
+        except Exception:
+            workflow_context = ""
+
         # Build prompt
         prompt_text = self._build_prompt(
             step,
@@ -506,6 +514,7 @@ class ExecutionService(Service):
             workspace_root,
             step_prompt_path=step_prompt_path,
             prompt_template_path=prompt_template_path,
+            workflow_context=workflow_context,
         )
         prompt_path = step_prompt_path
         
@@ -548,6 +557,7 @@ class ExecutionService(Service):
         *,
         step_prompt_path: Optional[Path] = None,
         prompt_template_path: Optional[Path] = None,
+        workflow_context: str = "",
     ) -> str:
         """Build execution prompt for step."""
         parts = []
@@ -567,6 +577,9 @@ class ExecutionService(Service):
             parts.append(f"# Task\n\n{step_path.read_text(encoding='utf-8')}")
         elif step.summary:
             parts.append(f"# Task\n\n{step.summary}")
+
+        if workflow_context.strip():
+            parts.append(workflow_context.strip())
         
         return "\n\n---\n\n".join(parts) if parts else f"Execute step: {step.step_name}"
 

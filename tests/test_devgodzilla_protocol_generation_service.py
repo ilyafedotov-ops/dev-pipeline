@@ -98,6 +98,19 @@ class TestProtocolGenerationService:
         )
         assert result == "Fixed template with no placeholders"
 
+    def test_render_prompt_appends_workflow_context_when_placeholder_missing(self):
+        """Workflow context should still be appended when the template lacks an explicit placeholder."""
+        template = "Fixed template"
+        result = _render_prompt(
+            template,
+            protocol_name="name",
+            description="desc",
+            step_count=1,
+            workflow_context="## Effective Policy\n\n- Pack: default@1.0",
+        )
+        assert result.startswith("Fixed template")
+        assert "## Effective Policy" in result
+
     # ==================== generate Tests ====================
 
     def test_generate_success(self, generation_service, worktree_root, prompt_path):

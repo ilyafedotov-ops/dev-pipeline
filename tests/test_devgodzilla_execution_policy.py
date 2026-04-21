@@ -2,6 +2,7 @@
 Tests for policy gating in ExecutionService.
 """
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -10,6 +11,7 @@ from devgodzilla.models.domain import ProtocolStatus, StepStatus
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.execution import ExecutionService
 from devgodzilla.services.policy import EffectivePolicy, Finding
+from devgodzilla.services.workflow_context import WorkflowPromptContext
 
 
 @pytest.fixture
@@ -53,7 +55,28 @@ def test_execute_step_blocks_on_clarifications(service_context, monkeypatch):
     db, step, run, _project = _build_execution_db()
 
     monkeypatch.setattr(
-        "devgodzilla.services.execution.ClarifierService.has_blocking_open",
+        "devgodzilla.services.execution.resolve_workspace_root",
+        lambda *args, **kwargs: Path("/tmp"),
+    )
+    effective = EffectivePolicy(
+        policy={},
+        effective_hash="hash",
+        pack_key="default",
+        pack_version="1.0",
+    )
+    monkeypatch.setattr(
+        "devgodzilla.services.execution.build_workflow_prompt_context",
+        lambda *args, **kwargs: WorkflowPromptContext(
+            effective_policy=effective,
+            policy_context="",
+            answered_clarifications=[],
+            open_clarifications=[],
+            blocking_open_clarifications=[],
+            rendered="",
+        ),
+    )
+    monkeypatch.setattr(
+        "devgodzilla.services.execution.ClarifierService.has_blocking_open_for_stage",
         lambda *args, **kwargs: True,
     )
 
@@ -75,7 +98,7 @@ def test_execute_step_blocks_on_policy_findings(service_context, monkeypatch, tm
     project.local_path = str(tmp_path)
 
     monkeypatch.setattr(
-        "devgodzilla.services.execution.ClarifierService.has_blocking_open",
+        "devgodzilla.services.execution.ClarifierService.has_blocking_open_for_stage",
         lambda *args, **kwargs: False,
     )
 
@@ -86,8 +109,15 @@ def test_execute_step_blocks_on_policy_findings(service_context, monkeypatch, tm
         pack_version="1.0",
     )
     monkeypatch.setattr(
-        "devgodzilla.services.execution.PolicyService.resolve_effective_policy",
-        lambda *args, **kwargs: effective,
+        "devgodzilla.services.execution.build_workflow_prompt_context",
+        lambda *args, **kwargs: WorkflowPromptContext(
+            effective_policy=effective,
+            policy_context="",
+            answered_clarifications=[],
+            open_clarifications=[],
+            blocking_open_clarifications=[],
+            rendered="",
+        ),
     )
     finding = Finding(
         code="policy.step.file_missing",

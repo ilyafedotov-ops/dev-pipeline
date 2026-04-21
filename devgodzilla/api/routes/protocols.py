@@ -13,6 +13,7 @@ from devgodzilla.db.database import Database
 from devgodzilla.models.domain import ProtocolStatus, StepStatus
 from devgodzilla.speckit_metadata import extract_spec_run_id
 from devgodzilla.services.execution import ExecutionService
+from devgodzilla.services.clarifier import ClarifierService
 from devgodzilla.services.orchestrator import OrchestratorMode, OrchestratorService
 from devgodzilla.services.planning import PlanningService
 from devgodzilla.services.policy import PolicyService
@@ -949,7 +950,8 @@ def answer_protocol_clarification(
     protocol_id: int,
     key: str,
     answer: schemas.ClarificationAnswer,
-    db: Database = Depends(get_db)
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
 ):
     """Answer a clarification scoped to a protocol."""
     try:
@@ -957,19 +959,15 @@ def answer_protocol_clarification(
     except KeyError:
         raise HTTPException(status_code=404, detail="Protocol not found")
     
-    # Construct scope for protocol-level clarification
-    scope = f"protocol:{protocol_id}"
-    
-    # Store answer as structured JSON
-    payload = {"text": answer.answer}
-    
+    clarifier = ClarifierService(ctx, db)
+    run = db.get_protocol_run(protocol_id)
     try:
-        updated = db.answer_clarification(
-            scope=scope,
+        updated = clarifier.answer(
+            project_id=run.project_id,
+            protocol_run_id=protocol_id,
             key=key,
-            answer=payload,
+            answer=answer.answer,
             answered_by=answer.answered_by,
-            status="answered",
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="Clarification not found")

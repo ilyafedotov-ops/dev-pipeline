@@ -586,8 +586,45 @@ class PolicyService(Service):
         # QA policy
         lines.append("### QA Policy: prompt-driven (auto-run after execution)")
         lines.append("")
-        
+
         return "\n".join(lines)
+
+    def build_policy_prompt_context(
+        self,
+        effective: EffectivePolicy,
+        *,
+        stage: Optional[str] = None,
+    ) -> str:
+        """Build a richer prompt context block for the effective policy."""
+        policy = effective.policy
+        meta = policy.get("meta") if isinstance(policy.get("meta"), dict) else {}
+        lines = [
+            "## Effective Policy",
+            "",
+            f"- Pack: {meta.get('label') or effective.pack_key} (`{effective.pack_key}@{effective.pack_version}`)",
+            f"- Effective hash: `{effective.effective_hash}`",
+        ]
+        if stage:
+            lines.append(f"- Current stage: `{stage}`")
+        if effective.sources:
+            source_labels = ", ".join(sorted(str(key) for key in effective.sources.keys()))
+            if source_labels:
+                lines.append(f"- Sources: {source_labels}")
+
+        guidelines = self.build_policy_guidelines(effective).strip()
+        if guidelines:
+            lines.extend(["", guidelines])
+
+        lines.extend(
+            [
+                "",
+                "### Effective Policy JSON",
+                "```json",
+                json.dumps(policy, indent=2, sort_keys=True),
+                "```",
+            ]
+        )
+        return "\n".join(lines).strip()
 
     @staticmethod
     def apply_enforcement_mode(

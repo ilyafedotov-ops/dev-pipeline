@@ -200,3 +200,48 @@ class TestClarificationsAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "answered"
+
+    def test_answer_project_clarification_route(self, client, sample_project, db):
+        """Project-scoped answer route should persist normalized answer payloads."""
+        db.upsert_clarification(
+            scope=f"project:{sample_project.id}",
+            project_id=sample_project.id,
+            key="release_window",
+            question="Which release window should be used?",
+            applies_to="onboarding",
+            blocking=True,
+        )
+
+        resp = client.post(
+            f"/projects/{sample_project.id}/clarifications/release_window",
+            json={"answer": "weekday evenings", "answered_by": "owner"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "answered"
+        assert data["answer"]["text"] == "weekday evenings"
+        assert data["answered_by"] == "owner"
+
+    def test_answer_protocol_clarification_route(self, client, sample_project, sample_protocol, db):
+        """Protocol-scoped answer route should delegate through the shared clarifier flow."""
+        db.upsert_clarification(
+            scope=f"protocol:{sample_protocol.id}",
+            project_id=sample_project.id,
+            protocol_run_id=sample_protocol.id,
+            key="protocol_owner",
+            question="Who owns this protocol?",
+            applies_to="planning",
+            blocking=True,
+        )
+
+        resp = client.post(
+            f"/protocols/{sample_protocol.id}/clarifications/protocol_owner",
+            json={"answer": "platform team", "answered_by": "lead"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "answered"
+        assert data["answer"]["text"] == "platform team"
+        assert data["answered_by"] == "lead"

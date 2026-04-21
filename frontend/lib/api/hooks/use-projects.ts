@@ -250,11 +250,26 @@ export function useAnswerClarification() {
           queryKey: queryKeys.projects.clarifications(scopeId),
         });
         queryClient.invalidateQueries({
+          queryKey: queryKeys.projects.detail(scopeId),
+        });
+        queryClient.invalidateQueries({
           queryKey: queryKeys.projects.onboarding(scopeId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.projects.policy(scopeId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.projects.policyEffective(scopeId),
         });
       } else {
         queryClient.invalidateQueries({
           queryKey: queryKeys.protocols.clarifications(scopeId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.protocols.detail(scopeId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.protocols.policySnapshot(scopeId),
         });
       }
     },
