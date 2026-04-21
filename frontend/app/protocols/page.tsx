@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 
 import { AlertTriangle,CheckCircle, Filter, Pause, Play, Search, XCircle } from "lucide-react";
@@ -18,14 +18,30 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
-import { useProtocols } from "@/lib/api";
-import type { ProtocolRun } from "@/lib/api/types";
+import { useProjects, useProtocols } from "@/lib/api";
+import type { Project, ProtocolRun } from "@/lib/api/types";
 import { formatRelativeTime } from "@/lib/format";
 
+const ALL_PROJECTS = "all";
+
 export default function ProtocolsPage() {
-  const { data: protocols, isLoading, error } = useProtocols();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [projectFilter, setProjectFilter] = useState<string>(ALL_PROJECTS);
+
+  const projectIdFilter =
+    projectFilter !== ALL_PROJECTS ? Number.parseInt(projectFilter, 10) : undefined;
+
+  const { data: protocols, isLoading, error } = useProtocols(
+    projectIdFilter ? { project_id: projectIdFilter } : undefined
+  );
+  const { data: projects } = useProjects();
+
+  const projectNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    projects?.forEach((p) => map.set(p.id, p.name));
+    return map;
+  }, [projects]);
 
   if (isLoading) return <LoadingState message="Loading protocols..." />;
   if (error) return <EmptyState title="Error loading protocols" description={error.message} />;
@@ -105,8 +121,8 @@ export default function ProtocolsPage() {
       </div>
 
       {/* Filters */}
-      <div className="mb-6 flex gap-4">
-        <div className="relative flex-1">
+      <div className="mb-6 flex flex-wrap gap-4">
+        <div className="relative min-w-[240px] flex-1">
           <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
           <Input
             placeholder="Search protocols by name or ID..."
@@ -115,6 +131,20 @@ export default function ProtocolsPage() {
             className="pl-10"
           />
         </div>
+        <Select value={projectFilter} onValueChange={setProjectFilter}>
+          <SelectTrigger className="w-[220px]">
+            <Filter className="mr-2 h-4 w-4" />
+            <SelectValue placeholder="Project" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_PROJECTS}>All Projects</SelectItem>
+            {projects?.map((p: Project) => (
+              <SelectItem key={p.id} value={p.id.toString()}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[180px]">
             <Filter className="mr-2 h-4 w-4" />
@@ -135,19 +165,24 @@ export default function ProtocolsPage() {
       {!filteredProtocols || filteredProtocols.length === 0 ? (
         <EmptyState
           icon={AlertTriangle}
-          title={search || statusFilter !== "all" ? "No protocols found" : "No protocols yet"}
+          title={
+            search || statusFilter !== "all" || projectFilter !== ALL_PROJECTS
+              ? "No protocols found"
+              : "No protocols yet"
+          }
           description={
-            search || statusFilter !== "all"
+            search || statusFilter !== "all" || projectFilter !== ALL_PROJECTS
               ? "Try adjusting your filters"
               : "Protocols will appear here when they are created"
           }
           action={
-            search || statusFilter !== "all" ? (
+            search || statusFilter !== "all" || projectFilter !== ALL_PROJECTS ? (
               <Button
                 variant="outline"
                 onClick={() => {
                   setSearch("");
                   setStatusFilter("all");
+                  setProjectFilter(ALL_PROJECTS);
                 }}
               >
                 Clear Filters
@@ -158,7 +193,11 @@ export default function ProtocolsPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredProtocols.map((protocol) => (
-            <ProtocolCard key={protocol.id} protocol={protocol} />
+            <ProtocolCard
+              key={protocol.id}
+              protocol={protocol}
+              projectName={projectNameById.get(protocol.project_id)}
+            />
           ))}
         </div>
       )}
@@ -166,40 +205,52 @@ export default function ProtocolsPage() {
   );
 }
 
-function ProtocolCard({ protocol }: { protocol: ProtocolRun }) {
+function ProtocolCard({
+  protocol,
+  projectName,
+}: {
+  protocol: ProtocolRun;
+  projectName: string | undefined;
+}) {
   return (
-    <Link href={`/protocols/${protocol.id}`}>
-      <Card className="hover:border-primary/50 h-full transition-colors">
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0 flex-1">
+    <Card className="hover:border-primary/50 h-full transition-colors">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <Link href={`/protocols/${protocol.id}`} className="hover:underline">
               <CardTitle className="truncate text-lg">{protocol.protocol_name}</CardTitle>
-              <CardDescription className="text-xs">ID: {protocol.id}</CardDescription>
-            </div>
-            <StatusPill status={protocol.status} />
+            </Link>
+            <CardDescription className="text-xs">ID: {protocol.id}</CardDescription>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <p className="text-muted-foreground text-xs">Project</p>
-              <p className="font-medium">Project {protocol.project_id}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground text-xs">Branch</p>
-              <p className="truncate font-medium">{protocol.base_branch || "main"}</p>
-            </div>
+          <StatusPill status={protocol.status} />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div>
+            <p className="text-muted-foreground text-xs">Project</p>
+            <Link
+              href={`/projects/${protocol.project_id}`}
+              className="text-primary truncate font-medium hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {projectName ?? `Project ${protocol.project_id}`}
+            </Link>
           </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Branch</p>
+            <p className="truncate font-medium">{protocol.base_branch || "main"}</p>
+          </div>
+        </div>
 
-          {protocol.description && (
-            <p className="text-muted-foreground line-clamp-2 text-xs">{protocol.description}</p>
-          )}
+        {protocol.description && (
+          <p className="text-muted-foreground line-clamp-2 text-xs">{protocol.description}</p>
+        )}
 
-          <p className="text-muted-foreground text-xs">
-            Updated {formatRelativeTime(protocol.updated_at)}
-          </p>
-        </CardContent>
-      </Card>
-    </Link>
+        <p className="text-muted-foreground text-xs">
+          Updated {formatRelativeTime(protocol.updated_at)}
+        </p>
+      </CardContent>
+    </Card>
   );
 }

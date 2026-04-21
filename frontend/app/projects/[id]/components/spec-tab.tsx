@@ -36,6 +36,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DisabledTooltip } from "@/components/ui/disabled-tooltip";
 import {
   Dialog,
   DialogContent,
@@ -569,48 +570,96 @@ export function SpecTab({ projectId }: SpecTabProps) {
                         </Link>
                       </Button>
                     )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (!specPath) return;
-                        setClarifySpecPath(specPath);
-                        setClarifySpecRunId(spec.spec_run_id ?? null);
-                        setClarifyOpen(true);
-                      }}
-                      disabled={!specPath || isCleaned || isFailed}
-                    >
-                      <MessageSquare className="mr-2 h-3.5 w-3.5" />
-                      Clarify
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleChecklist(specPath, spec.spec_run_id)}
-                      disabled={!specPath || isCleaned || isFailed}
-                    >
-                      <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
-                      Checklist
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
+                    <DisabledTooltip
+                      reason={
+                        isCleaned
+                          ? "This spec run has been cleaned up."
+                          : isFailed
+                            ? "Spec generation failed — retry before running actions."
+                            : !specPath
+                              ? "Spec file not generated yet — run Specify first."
+                              : null
                       }
-                      disabled={!specPath || isCleaned || isFailed}
                     >
-                      <FileSearch className="mr-2 h-3.5 w-3.5" />
-                      Analyze
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => handleImplement(specPath, spec.spec_run_id)}
-                      disabled={!specPath || isCleaned || isFailed}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (!specPath) return;
+                          setClarifySpecPath(specPath);
+                          setClarifySpecRunId(spec.spec_run_id ?? null);
+                          setClarifyOpen(true);
+                        }}
+                        disabled={!specPath || isCleaned || isFailed}
+                      >
+                        <MessageSquare className="mr-2 h-3.5 w-3.5" />
+                        Clarify
+                      </Button>
+                    </DisabledTooltip>
+                    <DisabledTooltip
+                      reason={
+                        isCleaned
+                          ? "This spec run has been cleaned up."
+                          : isFailed
+                            ? "Spec generation failed — retry before running actions."
+                            : !specPath
+                              ? "Spec file not generated yet — run Specify first."
+                              : null
+                      }
                     >
-                      <PlayCircle className="mr-2 h-3.5 w-3.5" />
-                      Implement
-                    </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleChecklist(specPath, spec.spec_run_id)}
+                        disabled={!specPath || isCleaned || isFailed}
+                      >
+                        <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
+                        Checklist
+                      </Button>
+                    </DisabledTooltip>
+                    <DisabledTooltip
+                      reason={
+                        isCleaned
+                          ? "This spec run has been cleaned up."
+                          : isFailed
+                            ? "Spec generation failed — retry before running actions."
+                            : !specPath
+                              ? "Spec file not generated yet — run Specify first."
+                              : null
+                      }
+                    >
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
+                        }
+                        disabled={!specPath || isCleaned || isFailed}
+                      >
+                        <FileSearch className="mr-2 h-3.5 w-3.5" />
+                        Analyze
+                      </Button>
+                    </DisabledTooltip>
+                    <DisabledTooltip
+                      reason={
+                        isCleaned
+                          ? "This spec run has been cleaned up."
+                          : isFailed
+                            ? "Spec generation failed — retry before running actions."
+                            : !specPath
+                              ? "Spec file not generated yet — run Specify first."
+                              : null
+                      }
+                    >
+                      <Button
+                        size="sm"
+                        onClick={() => handleImplement(specPath, spec.spec_run_id)}
+                        disabled={!specPath || isCleaned || isFailed}
+                      >
+                        <PlayCircle className="mr-2 h-3.5 w-3.5" />
+                        Implement
+                      </Button>
+                    </DisabledTooltip>
                     {spec.spec_run_id && spec.status === "in-progress" && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -697,49 +746,89 @@ export function SpecTab({ projectId }: SpecTabProps) {
                       <p className="text-muted-foreground text-xs">{specPath}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          if (!specPath) return;
-                          setClarifySpecPath(specPath);
-                          setClarifySpecRunId(spec.spec_run_id ?? null);
-                          setClarifyOpen(true);
-                        }}
-                        disabled={!specPath || isCleaned}
-                      >
-                        <MessageSquare className="mr-2 h-3.5 w-3.5" />
-                        Clarify
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleChecklist(specPath, spec.spec_run_id)}
-                        disabled={!specPath || isCleaned}
-                      >
-                        <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
-                        Checklist
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
+                      <DisabledTooltip
+                        reason={
+                          isCleaned
+                            ? "This spec run has been cleaned up."
+                            : !specPath
+                              ? "Spec file not generated yet — run Specify first."
+                              : null
                         }
-                        disabled={!specPath || isCleaned}
                       >
-                        <FileSearch className="mr-2 h-3.5 w-3.5" />
-                        Analyze
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="default"
-                        onClick={() => handleImplement(specPath, spec.spec_run_id)}
-                        disabled={!specPath || isCleaned}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            if (!specPath) return;
+                            setClarifySpecPath(specPath);
+                            setClarifySpecRunId(spec.spec_run_id ?? null);
+                            setClarifyOpen(true);
+                          }}
+                          disabled={!specPath || isCleaned}
+                        >
+                          <MessageSquare className="mr-2 h-3.5 w-3.5" />
+                          Clarify
+                        </Button>
+                      </DisabledTooltip>
+                      <DisabledTooltip
+                        reason={
+                          isCleaned
+                            ? "This spec run has been cleaned up."
+                            : !specPath
+                              ? "Spec file not generated yet — run Specify first."
+                              : null
+                        }
                       >
-                        <PlayCircle className="mr-2 h-3.5 w-3.5" />
-                        Implement
-                      </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleChecklist(specPath, spec.spec_run_id)}
+                          disabled={!specPath || isCleaned}
+                        >
+                          <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
+                          Checklist
+                        </Button>
+                      </DisabledTooltip>
+                      <DisabledTooltip
+                        reason={
+                          isCleaned
+                            ? "This spec run has been cleaned up."
+                            : !specPath
+                              ? "Spec file not generated yet — run Specify first."
+                              : null
+                        }
+                      >
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
+                          }
+                          disabled={!specPath || isCleaned}
+                        >
+                          <FileSearch className="mr-2 h-3.5 w-3.5" />
+                          Analyze
+                        </Button>
+                      </DisabledTooltip>
+                      <DisabledTooltip
+                        reason={
+                          isCleaned
+                            ? "This spec run has been cleaned up."
+                            : !specPath
+                              ? "Spec file not generated yet — run Specify first."
+                              : null
+                        }
+                      >
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={() => handleImplement(specPath, spec.spec_run_id)}
+                          disabled={!specPath || isCleaned}
+                        >
+                          <PlayCircle className="mr-2 h-3.5 w-3.5" />
+                          Implement
+                        </Button>
+                      </DisabledTooltip>
                       {spec.spec_run_id && spec.status === "in-progress" && (
                         <AlertDialog>
                           <AlertDialogTrigger asChild>

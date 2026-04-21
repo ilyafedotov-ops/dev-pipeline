@@ -10,6 +10,7 @@ import {
   Clock,
   ExternalLink,
   FileCode2,
+  FileText,
   GitBranch,
   GitPullRequest,
   Kanban,
@@ -40,6 +41,7 @@ import { ClarificationsTab } from "./components/clarifications-tab";
 import { OnboardingTab } from "./components/onboarding-tab";
 import { OverviewTab } from "./components/overview-tab";
 import { PolicyTab } from "./components/policy-tab";
+import { ProtocolsTab } from "./components/protocols-tab";
 import { SettingsTab } from "./components/settings-tab";
 import { SpecTab } from "./components/spec-tab";
 import { SprintTab } from "./components/sprint-tab";
@@ -111,6 +113,13 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           label: "Specifications",
           icon: FileCode2,
           description: "Technical specs and features",
+        },
+        {
+          id: "protocols",
+          label: "Protocols",
+          icon: FileText,
+          description: "Protocol runs for this project",
+          badge: protocols?.length || 0,
         },
         {
           id: "branches",
@@ -389,6 +398,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             {activeTab === "task_cycle" && <TaskCycleTab projectId={projectId} />}
             {activeTab === "onboarding" && <OnboardingTab projectId={projectId} />}
             {activeTab === "spec" && <SpecTab projectId={projectId} />}
+            {activeTab === "protocols" && <ProtocolsTab projectId={projectId} />}
             {activeTab === "policy" && <PolicyTab projectId={projectId} />}
             {activeTab === "clarifications" && <ClarificationsTab projectId={projectId} />}
             {activeTab === "branches" && <BranchesTab projectId={projectId} />}

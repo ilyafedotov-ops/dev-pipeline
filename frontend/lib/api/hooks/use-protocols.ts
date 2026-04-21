@@ -45,12 +45,18 @@ const useConditionalRefetchInterval = (baseInterval: number) => {
   return document.hidden ? false : baseInterval;
 };
 
-// List all Protocols across all projects
-export function useProtocols() {
+// List all Protocols across all projects, optionally filtered by project_id
+export function useProtocols(filters?: { project_id?: number }) {
   const refetchInterval = useConditionalRefetchInterval(10000);
+  const projectId = filters?.project_id;
   return useQuery({
-    queryKey: queryKeys.protocols.all,
-    queryFn: async () => adaptProtocols(await apiClient.get<RawProtocolRun[]>("/protocols")),
+    queryKey: projectId
+      ? [...queryKeys.protocols.all, { project_id: projectId }]
+      : queryKeys.protocols.all,
+    queryFn: async () => {
+      const url = projectId ? `/protocols?project_id=${projectId}` : "/protocols";
+      return adaptProtocols(await apiClient.get<RawProtocolRun[]>(url));
+    },
     refetchInterval,
   });
 }
