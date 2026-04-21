@@ -336,6 +336,26 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id, board_status);
 CREATE INDEX IF NOT EXISTS idx_tasks_sprint ON tasks(sprint_id);
+
+CREATE TABLE IF NOT EXISTS cli_executions (
+    execution_id TEXT PRIMARY KEY,
+    execution_type TEXT NOT NULL,
+    engine_id TEXT NOT NULL,
+    project_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'running',
+    started_at DATETIME,
+    finished_at DATETIME,
+    command TEXT,
+    working_dir TEXT,
+    pid INTEGER,
+    exit_code INTEGER,
+    error TEXT,
+    metadata TEXT DEFAULT '{}',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_cli_executions_status ON cli_executions(status, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cli_executions_project ON cli_executions(project_id, started_at DESC);
 """
 
 SCHEMA_POSTGRES = """
@@ -669,4 +689,24 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id, board_status);
 CREATE INDEX IF NOT EXISTS idx_tasks_sprint ON tasks(sprint_id);
+
+CREATE TABLE IF NOT EXISTS cli_executions (
+    execution_id TEXT PRIMARY KEY,
+    execution_type TEXT NOT NULL,
+    engine_id TEXT NOT NULL,
+    project_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'running',
+    started_at TIMESTAMP,
+    finished_at TIMESTAMP,
+    command TEXT,
+    working_dir TEXT,
+    pid INTEGER,
+    exit_code INTEGER,
+    error TEXT,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_cli_executions_status ON cli_executions(status, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cli_executions_project ON cli_executions(project_id, started_at DESC);
 """

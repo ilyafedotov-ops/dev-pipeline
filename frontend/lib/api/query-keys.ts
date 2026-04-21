@@ -17,6 +17,7 @@ export const queryKeys = {
     policy: (id: number) => [...queryKeys.projects.all, "policy", id] as const,
     policyEffective: (id: number) => [...queryKeys.projects.all, "policyEffective", id] as const,
     policyFindings: (id: number) => [...queryKeys.projects.all, "policyFindings", id] as const,
+    policyAudit: (id: number) => [...queryKeys.projects.all, "policyAudit", id] as const,
     clarifications: (id: number, status?: string) =>
       [...queryKeys.projects.all, "clarifications", id, { status }] as const,
     branches: (id: number) => [...queryKeys.projects.all, "branches", id] as const,

@@ -642,6 +642,16 @@ class PolicyFindingOut(BaseModel):
     suggested_fix: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
+class PolicyAuditOut(BaseModel):
+    """Full policy audit result."""
+    project_id: int
+    total_findings: int
+    project_findings: List[PolicyFindingOut]
+    protocol_findings: List[dict]  # [{protocol_run_id, protocol_name, findings: [PolicyFindingOut]}]
+    step_findings: List[dict]  # [{step_run_id, step_name, protocol_run_id, findings: [PolicyFindingOut]}]
+    effective_policy_hash: Optional[str] = None
+    enforcement_mode: str = "off"
+
 class BranchOut(BaseModel):
     name: str
     sha: str

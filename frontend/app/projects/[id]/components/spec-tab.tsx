@@ -1,23 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle,
+  ChevronDown,
+  ChevronRight,
   ClipboardCheck,
   Clock,
   Download,
+  Eye,
   FileSearch,
   FileText,
   Loader2,
+  ListPlus,
   MessageSquare,
   PlayCircle,
   RefreshCw,
   RotateCcw,
   Sparkles,
   StopCircle,
+  Target,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -46,29 +52,153 @@ import { DisabledTooltip } from "@/components/ui/disabled-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingState } from "@/components/ui/loading-state";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useAnalyzeSpec,
   useClarifySpec,
+  useDetectAmbiguities,
   useGenerateChecklist,
+  useGeneratePlan,
   useGenerateSpec,
+  useGenerateTasks,
   useInitSpecKit,
   useProject,
   useRunImplement,
+  useSpecificationContent,
   useSpecifications,
   useSpecKitStatus,
   useStopSpecRun,
+  ClarificationItem,
 } from "@/lib/api";
 import { getProjectSpecWorkflowPath, getSpecificationReviewPath } from "@/lib/project-routes";
 import { getImplementSuccessOutcome } from "@/lib/workflow/implement-result";
 
 import { SpecKitWorkflowPanel } from "./speckit-workflow-panel";
 
+/** Extract policy violation findings from a 422 error response */
+function extractPolicyFindings(error: unknown): Array<{ code: string; message: string; suggested_fix?: string }> | null {
+  if (!error || typeof error !== "object") return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const err = error as any;
+  // TanStack Query wraps Axios errors
+  const response = err?.response ?? err?.error?.response;
+  if (!response || typeof response !== "object") return null;
+  if (response.status !== 422) return null;
+  return response.data?.detail?.findings ?? null;
+}
+
 interface SpecTabProps {
   projectId: number;
 }
 
 const LAST_UPDATED_BASE = Date.now();
+
+function SpecPreviewContent({ specId }: { specId: number }) {
+  const { data, isLoading, error } = useSpecificationContent(specId);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="text-muted-foreground py-8 text-center text-sm">
+        Failed to load specification content.
+      </div>
+    );
+  }
+
+  const sections = [
+    { label: "Specification", content: data.spec_content },
+    { label: "Plan", content: data.plan_content },
+    { label: "Tasks", content: data.tasks_content },
+    { label: "Checklist", content: data.checklist_content },
+    { label: "Analysis", content: data.analysis_content },
+  ].filter((s) => s.content);
+
+  if (sections.length === 0) {
+    return (
+      <div className="text-muted-foreground py-8 text-center text-sm">
+        No content available yet. Run specification generation first.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {sections.map((section) => (
+        <div key={section.label}>
+          <h4 className="mb-2 text-sm font-semibold">{section.label}</h4>
+          <pre className="bg-muted max-h-96 overflow-auto whitespace-pre-wrap rounded-lg p-4 text-xs">
+            {section.content}
+          </pre>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Inline artifact viewer with tabs for each artifact type */
+function SpecArtifactViewer({ specId }: { specId: number }) {
+  const { data, isLoading, error } = useSpecificationContent(specId);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="text-muted-foreground py-4 text-center text-sm">
+        Failed to load artifact content.
+      </div>
+    );
+  }
+
+  const tabs = [
+    { key: "spec", label: "Spec", content: data.spec_content, Icon: FileText },
+    { key: "plan", label: "Plan", content: data.plan_content, Icon: Target },
+    { key: "tasks", label: "Tasks", content: data.tasks_content, Icon: ListPlus },
+    { key: "checklist", label: "Checklist", content: data.checklist_content, Icon: ClipboardCheck },
+    { key: "analysis", label: "Analysis", content: data.analysis_content, Icon: FileSearch },
+  ].filter((t) => t.content);
+
+  if (tabs.length === 0) {
+    return (
+      <div className="text-muted-foreground py-4 text-center text-sm">
+        No artifacts generated yet. Run Plan / Checklist / Tasks to create artifacts.
+      </div>
+    );
+  }
+
+  return (
+    <Tabs defaultValue={tabs[0].key} className="w-full">
+      <TabsList className="h-8">
+        {tabs.map((tab) => (
+          <TabsTrigger key={tab.key} value={tab.key} className="text-xs h-7 px-2.5">
+            <tab.Icon className="mr-1.5 h-3 w-3" />
+            {tab.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      {tabs.map((tab) => (
+        <TabsContent key={tab.key} value={tab.key} className="mt-2">
+          <pre className="bg-muted max-h-72 overflow-auto whitespace-pre-wrap rounded-lg p-3 text-xs leading-relaxed">
+            {tab.content}
+          </pre>
+        </TabsContent>
+      ))}
+    </Tabs>
+  );
+}
 
 function getReviewState(spec: {
   has_tasks?: boolean;
@@ -102,7 +232,17 @@ export function SpecTab({ projectId }: SpecTabProps) {
     refetch: refetchSpecs,
   } = useSpecifications({ project_id: projectId });
   const clarifySpec = useClarifySpec();
+  const detectAmbiguities = useDetectAmbiguities();
+
+  // Wire up detect-ambiguities response to local state
+  React.useEffect(() => {
+    if (detectAmbiguities.data?.success && detectAmbiguities.data.clarifications) {
+      setDetectedClarifications(detectAmbiguities.data.clarifications);
+    }
+  }, [detectAmbiguities.data]);
   const generateChecklist = useGenerateChecklist();
+  const generatePlan = useGeneratePlan();
+  const generateTasks = useGenerateTasks();
   const analyzeSpec = useAnalyzeSpec();
   const runImplement = useRunImplement();
   const generateSpec = useGenerateSpec();
@@ -115,6 +255,16 @@ export function SpecTab({ projectId }: SpecTabProps) {
   const [clarifyQuestion, setClarifyQuestion] = useState("");
   const [clarifyAnswer, setClarifyAnswer] = useState("");
   const [clarifyNotes, setClarifyNotes] = useState("");
+  const [clarifyMode, setClarifyMode] = useState<"ai" | "manual">("ai");
+  const [detectedClarifications, setDetectedClarifications] = useState<ClarificationItem[]>([]);
+  const [clarifyAnswers, setClarifyAnswers] = useState<Record<string, string>>({});
+
+  const [activeAction, setActiveAction] = useState<{
+    action: string;
+    specPath: string;
+  } | null>(null);
+  const [previewSpecId, setPreviewSpecId] = useState<number | null>(null);
+  const [expandedSpecId, setExpandedSpecId] = useState<number | null>(null);
 
   const isLoading = projectLoading || statusLoading || specsLoading;
 
@@ -204,6 +354,7 @@ export function SpecTab({ projectId }: SpecTabProps) {
   };
 
   const handleChecklist = async (specPath: string, specRunId?: number | null) => {
+    setActiveAction({ action: "checklist", specPath });
     try {
       const result = await generateChecklist.mutateAsync({
         project_id: projectId,
@@ -212,11 +363,87 @@ export function SpecTab({ projectId }: SpecTabProps) {
       });
       if (result.success) {
         toast.success(`Checklist generated (${result.item_count} items)`);
+        refetchSpecs();
+        refetchStatus();
       } else {
         toast.error(result.error || "Checklist generation failed");
       }
-    } catch {
+    } catch (err) {
+      const policyFindings = extractPolicyFindings(err);
+      if (policyFindings && policyFindings.length > 0) {
+        toast.error("Policy violations blocked this operation", {
+          description: policyFindings.map(f => `${f.code}: ${f.message}${f.suggested_fix ? ` → ${f.suggested_fix}` : ""}`).join("\n"),
+          duration: 8000,
+        });
+        return;
+      }
       toast.error("Checklist generation failed");
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const handlePlan = async (specPath: string, specRunId?: number | null) => {
+    setActiveAction({ action: "plan", specPath });
+    try {
+      const result = await generatePlan.mutateAsync({
+        project_id: projectId,
+        spec_path: specPath,
+        spec_run_id: specRunId ?? undefined,
+      });
+      if (result.success) {
+        toast.success("Implementation plan generated");
+        refetchSpecs();
+        refetchStatus();
+      } else {
+        toast.error(result.error || "Plan generation failed");
+      }
+    } catch (err) {
+      const policyFindings = extractPolicyFindings(err);
+      if (policyFindings && policyFindings.length > 0) {
+        toast.error("Policy violations blocked this operation", {
+          description: policyFindings.map(f => `${f.code}: ${f.message}${f.suggested_fix ? ` → ${f.suggested_fix}` : ""}`).join("\\n"),
+          duration: 8000,
+        });
+        return;
+      }
+      toast.error("Plan generation failed");
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const handleTasks = async (planPath: string | null | undefined, specRunId?: number | null) => {
+    if (!planPath) {
+      toast.error("Generate a plan first before creating tasks");
+      return;
+    }
+    setActiveAction({ action: "tasks", specPath: planPath });
+    try {
+      const result = await generateTasks.mutateAsync({
+        project_id: projectId,
+        plan_path: planPath,
+        spec_run_id: specRunId ?? undefined,
+      });
+      if (result.success) {
+        toast.success(`Tasks generated (${result.task_count} tasks, ${result.parallelizable_count} parallelizable)`);
+        refetchSpecs();
+        refetchStatus();
+      } else {
+        toast.error(result.error || "Tasks generation failed");
+      }
+    } catch (err) {
+      const policyFindings = extractPolicyFindings(err);
+      if (policyFindings && policyFindings.length > 0) {
+        toast.error("Policy violations blocked this operation", {
+          description: policyFindings.map(f => `${f.code}: ${f.message}${f.suggested_fix ? ` → ${f.suggested_fix}` : ""}`).join("\\n"),
+          duration: 8000,
+        });
+        return;
+      }
+      toast.error("Tasks generation failed");
+    } finally {
+      setActiveAction(null);
     }
   };
 
@@ -226,6 +453,7 @@ export function SpecTab({ projectId }: SpecTabProps) {
     tasksPath?: string | null,
     specRunId?: number | null
   ) => {
+    setActiveAction({ action: "analyze", specPath });
     try {
       const result = await analyzeSpec.mutateAsync({
         project_id: projectId,
@@ -236,15 +464,28 @@ export function SpecTab({ projectId }: SpecTabProps) {
       });
       if (result.success) {
         toast.success("Analysis report generated");
+        refetchSpecs();
+        refetchStatus();
       } else {
         toast.error(result.error || "Analysis failed");
       }
-    } catch {
+    } catch (err) {
+      const policyFindings = extractPolicyFindings(err);
+      if (policyFindings && policyFindings.length > 0) {
+        toast.error("Policy violations blocked this operation", {
+          description: policyFindings.map(f => `${f.code}: ${f.message}${f.suggested_fix ? ` → ${f.suggested_fix}` : ""}`).join("\n"),
+          duration: 8000,
+        });
+        return;
+      }
       toast.error("Analysis failed");
+    } finally {
+      setActiveAction(null);
     }
   };
 
   const handleImplement = async (specPath: string, specRunId?: number | null) => {
+    setActiveAction({ action: "implement", specPath });
     try {
       const result = await runImplement.mutateAsync({
         project_id: projectId,
@@ -254,14 +495,23 @@ export function SpecTab({ projectId }: SpecTabProps) {
       if (result.success) {
         const outcome = getImplementSuccessOutcome(result);
         toast.success(outcome.message);
-        // Do NOT redirect — stay on spec tab so the user can click
-        // "Review Implementation" inline. React Query will refetch
-        // the specs list and the review link will appear automatically.
+        refetchSpecs();
+        refetchStatus();
       } else {
         toast.error(result.error || "Implement initialization failed");
       }
-    } catch {
+    } catch (err) {
+      const policyFindings = extractPolicyFindings(err);
+      if (policyFindings && policyFindings.length > 0) {
+        toast.error("Policy violations blocked this operation", {
+          description: policyFindings.map(f => `${f.code}: ${f.message}${f.suggested_fix ? ` → ${f.suggested_fix}` : ""}`).join("\n"),
+          duration: 8000,
+        });
+        return;
+      }
       toast.error("Implement initialization failed");
+    } finally {
+      setActiveAction(null);
     }
   };
 
@@ -474,6 +724,7 @@ export function SpecTab({ projectId }: SpecTabProps) {
               const isCleaned = spec.status === "cleaned";
               const isFailed = spec.status === "failed";
               const specPath = spec.spec_path || spec.path || "";
+              const isExpanded = expandedSpecId === spec.id;
               const reviewState = getReviewState(spec);
               const reviewPath =
                 spec.id &&
@@ -486,10 +737,19 @@ export function SpecTab({ projectId }: SpecTabProps) {
               return (
                 <div
                   key={spec.id}
-                  className={`space-y-2 rounded-lg border p-4 ${isFailed ? "border-red-500/50 bg-red-500/5" : ""}`}
+                  className={`space-y-2 rounded-lg border p-4 transition-colors ${isFailed ? "border-red-500/50 bg-red-500/5" : isExpanded ? "border-primary/30 bg-muted/30" : ""}`}
                 >
-                  <div className="flex items-center justify-between">
+                  {/* Header row — clickable to expand */}
+                  <div
+                    className="flex items-center justify-between cursor-pointer"
+                    onClick={() => spec.id && setExpandedSpecId(isExpanded ? null : spec.id)}
+                  >
                     <div className="flex items-center gap-2">
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      )}
                       <h4 className="font-medium">{spec.title}</h4>
                       {reviewState.reviewReady && (
                         <Badge
@@ -551,15 +811,30 @@ export function SpecTab({ projectId }: SpecTabProps) {
                       </div>
                     )}
                   </div>
+                  {/* Workflow action buttons — canonical order */}
                   <div className="flex flex-wrap gap-2 pt-2">
+                    {spec.id && specPath && !isFailed && !isCleaned && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); setPreviewSpecId(spec.id!); }}
+                      >
+                        <Eye className="mr-2 h-3.5 w-3.5" />
+                        Preview
+                      </Button>
+                    )}
                     {isFailed && (
                       <Button
                         variant="destructive"
                         size="sm"
-                        onClick={() => handleRetry(spec.feature_name || spec.title, spec.title)}
+                        onClick={(e) => { e.stopPropagation(); handleRetry(spec.feature_name || spec.title, spec.title); }}
                         disabled={generateSpec.isPending}
                       >
-                        <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                        {generateSpec.isPending ? (
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                        )}
                         {generateSpec.isPending ? "Retrying..." : "Retry"}
                       </Button>
                     )}
@@ -585,12 +860,7 @@ export function SpecTab({ projectId }: SpecTabProps) {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => {
-                          if (!specPath) return;
-                          setClarifySpecPath(specPath);
-                          setClarifySpecRunId(spec.spec_run_id ?? null);
-                          setClarifyOpen(true);
-                        }}
+                        onClick={(e) => { e.stopPropagation(); if (!specPath) return; setClarifySpecPath(specPath); setClarifySpecRunId(spec.spec_run_id ?? null); setClarifyOpen(true); }}
                         disabled={!specPath || isCleaned || isFailed}
                       >
                         <MessageSquare className="mr-2 h-3.5 w-3.5" />
@@ -604,18 +874,22 @@ export function SpecTab({ projectId }: SpecTabProps) {
                           : isFailed
                             ? "Spec generation failed — retry before running actions."
                             : !specPath
-                              ? "Spec file not generated yet — run Specify first."
+                              ? "Spec file not generated yet."
                               : null
                       }
                     >
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleChecklist(specPath, spec.spec_run_id)}
-                        disabled={!specPath || isCleaned || isFailed}
+                        onClick={(e) => { e.stopPropagation(); handlePlan(specPath, spec.spec_run_id); }}
+                        disabled={!specPath || isCleaned || isFailed || activeAction?.specPath === specPath}
                       >
-                        <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
-                        Checklist
+                        {activeAction?.action === "plan" && activeAction?.specPath === specPath ? (
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Target className="mr-2 h-3.5 w-3.5" />
+                        )}
+                        {activeAction?.action === "plan" && activeAction?.specPath === specPath ? "Planning..." : "Plan"}
                       </Button>
                     </DisabledTooltip>
                     <DisabledTooltip
@@ -625,20 +899,47 @@ export function SpecTab({ projectId }: SpecTabProps) {
                           : isFailed
                             ? "Spec generation failed — retry before running actions."
                             : !specPath
-                              ? "Spec file not generated yet — run Specify first."
+                              ? "Spec file not generated yet."
                               : null
                       }
                     >
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() =>
-                          handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id)
-                        }
-                        disabled={!specPath || isCleaned || isFailed}
+                        onClick={(e) => { e.stopPropagation(); handleChecklist(specPath, spec.spec_run_id); }}
+                        disabled={!specPath || isCleaned || isFailed || activeAction?.specPath === specPath}
                       >
-                        <FileSearch className="mr-2 h-3.5 w-3.5" />
-                        Analyze
+                        {activeAction?.action === "checklist" && activeAction?.specPath === specPath ? (
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
+                        )}
+                        {activeAction?.action === "checklist" && activeAction?.specPath === specPath ? "Generating..." : "Checklist"}
+                      </Button>
+                    </DisabledTooltip>
+                    <DisabledTooltip
+                      reason={
+                        isCleaned
+                          ? "This spec run has been cleaned up."
+                          : isFailed
+                            ? "Spec generation failed — retry before running actions."
+                            : !spec.plan_path
+                              ? "Generate a plan first."
+                              : null
+                      }
+                    >
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); handleTasks(spec.plan_path, spec.spec_run_id); }}
+                        disabled={!spec.plan_path || isCleaned || isFailed || activeAction?.specPath === spec.plan_path}
+                      >
+                        {activeAction?.action === "tasks" && activeAction?.specPath === spec.plan_path ? (
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ListPlus className="mr-2 h-3.5 w-3.5" />
+                        )}
+                        {activeAction?.action === "tasks" && activeAction?.specPath === spec.plan_path ? "Generating..." : "Tasks"}
                       </Button>
                     </DisabledTooltip>
                     <DisabledTooltip
@@ -648,23 +949,57 @@ export function SpecTab({ projectId }: SpecTabProps) {
                           : isFailed
                             ? "Spec generation failed — retry before running actions."
                             : !specPath
-                              ? "Spec file not generated yet — run Specify first."
+                              ? "Spec file not generated yet."
+                              : null
+                      }
+                    >
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); handleAnalyze(specPath, spec.plan_path, spec.tasks_path, spec.spec_run_id); }}
+                        disabled={!specPath || isCleaned || isFailed || activeAction?.specPath === specPath}
+                      >
+                        {activeAction?.action === "analyze" && activeAction?.specPath === specPath ? (
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <FileSearch className="mr-2 h-3.5 w-3.5" />
+                        )}
+                        {activeAction?.action === "analyze" && activeAction?.specPath === specPath ? "Analyzing..." : "Analyze"}
+                      </Button>
+                    </DisabledTooltip>
+                    <DisabledTooltip
+                      reason={
+                        isCleaned
+                          ? "This spec run has been cleaned up."
+                          : isFailed
+                            ? "Spec generation failed — retry before running actions."
+                            : !specPath
+                              ? "Spec file not generated yet."
                               : null
                       }
                     >
                       <Button
                         size="sm"
-                        onClick={() => handleImplement(specPath, spec.spec_run_id)}
-                        disabled={!specPath || isCleaned || isFailed}
+                        onClick={(e) => { e.stopPropagation(); handleImplement(specPath, spec.spec_run_id); }}
+                        disabled={!specPath || isCleaned || isFailed || activeAction?.specPath === specPath}
                       >
-                        <PlayCircle className="mr-2 h-3.5 w-3.5" />
-                        Implement
+                        {activeAction?.action === "implement" && activeAction?.specPath === specPath ? (
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <PlayCircle className="mr-2 h-3.5 w-3.5" />
+                        )}
+                        {activeAction?.action === "implement" && activeAction?.specPath === specPath ? "Implementing..." : "Implement"}
                       </Button>
                     </DisabledTooltip>
                     {spec.spec_run_id && spec.status === "in-progress" && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="destructive" size="sm" disabled={stopSpecRun.isPending}>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={stopSpecRun.isPending}
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <StopCircle className="mr-2 h-3.5 w-3.5" />
                             Stop Run
                           </Button>
@@ -710,6 +1045,12 @@ export function SpecTab({ projectId }: SpecTabProps) {
                       </AlertDialog>
                     )}
                   </div>
+                  {/* Expanded artifact viewer */}
+                  {isExpanded && spec.id && (
+                    <div className="border-t pt-3">
+                      <SpecArtifactViewer specId={spec.id} />
+                    </div>
+                  )}
                 </div>
               );
             })
@@ -717,230 +1058,242 @@ export function SpecTab({ projectId }: SpecTabProps) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">SpecKit Actions</CardTitle>
-          <CardDescription>
-            Run clarification, checklist, analysis, and implementation steps
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {!status?.specs || status.specs.length === 0 ? (
-            <div className="text-muted-foreground py-6 text-center">
-              <FileText className="mx-auto mb-2 h-8 w-8 opacity-50" />
-              <p className="text-sm">No spec artifacts available yet.</p>
-            </div>
-          ) : (
-            status.specs.map((spec, index) => {
-              const isCleaned = spec.status === "cleaned";
-              const specPath = spec.spec_path || spec.path || "";
-              const uniqueKey = specPath || spec.name || `spec-${index}`;
-              return (
-                <div key={uniqueKey} className="space-y-3 rounded-lg border p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{spec.name}</p>
-                      <p className="text-muted-foreground text-xs">{specPath}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <DisabledTooltip
-                        reason={
-                          isCleaned
-                            ? "This spec run has been cleaned up."
-                            : !specPath
-                              ? "Spec file not generated yet — run Specify first."
-                              : null
-                        }
-                      >
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            if (!specPath) return;
-                            setClarifySpecPath(specPath);
-                            setClarifySpecRunId(spec.spec_run_id ?? null);
-                            setClarifyOpen(true);
-                          }}
-                          disabled={!specPath || isCleaned}
-                        >
-                          <MessageSquare className="mr-2 h-3.5 w-3.5" />
-                          Clarify
-                        </Button>
-                      </DisabledTooltip>
-                      <DisabledTooltip
-                        reason={
-                          isCleaned
-                            ? "This spec run has been cleaned up."
-                            : !specPath
-                              ? "Spec file not generated yet — run Specify first."
-                              : null
-                        }
-                      >
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleChecklist(specPath, spec.spec_run_id)}
-                          disabled={!specPath || isCleaned}
-                        >
-                          <ClipboardCheck className="mr-2 h-3.5 w-3.5" />
-                          Checklist
-                        </Button>
-                      </DisabledTooltip>
-                      <DisabledTooltip
-                        reason={
-                          isCleaned
-                            ? "This spec run has been cleaned up."
-                            : !specPath
-                              ? "Spec file not generated yet — run Specify first."
-                              : null
-                        }
-                      >
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            handleAnalyze(
-                              specPath,
-                              spec.plan_path,
-                              spec.tasks_path,
-                              spec.spec_run_id
-                            )
-                          }
-                          disabled={!specPath || isCleaned}
-                        >
-                          <FileSearch className="mr-2 h-3.5 w-3.5" />
-                          Analyze
-                        </Button>
-                      </DisabledTooltip>
-                      <DisabledTooltip
-                        reason={
-                          isCleaned
-                            ? "This spec run has been cleaned up."
-                            : !specPath
-                              ? "Spec file not generated yet — run Specify first."
-                              : null
-                        }
-                      >
-                        <Button
-                          size="sm"
-                          variant="default"
-                          onClick={() => handleImplement(specPath, spec.spec_run_id)}
-                          disabled={!specPath || isCleaned}
-                        >
-                          <PlayCircle className="mr-2 h-3.5 w-3.5" />
-                          Implement
-                        </Button>
-                      </DisabledTooltip>
-                      {spec.spec_run_id && spec.status === "in-progress" && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              disabled={stopSpecRun.isPending}
-                            >
-                              <StopCircle className="mr-2 h-3.5 w-3.5" />
-                              Stop Run
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Stop Spec Run</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to stop this spec run? The run will be marked
-                                as stopped and any in-progress work will be halted. This action
-                                cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>No, keep running</AlertDialogCancel>
-                              <AlertDialogAction
-                                className="bg-destructive hover:bg-destructive/90 text-white"
-                                disabled={stopSpecRun.isPending}
-                                onClick={async () => {
-                                  try {
-                                    const result = await stopSpecRun.mutateAsync(spec.spec_run_id!);
-                                    if (result.success) {
-                                      toast.success("Spec run stopped successfully");
-                                    } else {
-                                      toast.error(result.error || "Failed to stop spec run");
-                                    }
-                                  } catch {
-                                    toast.error("Failed to stop spec run");
-                                  }
-                                }}
-                              >
-                                {stopSpecRun.isPending ? (
-                                  <>
-                                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                                    Stopping...
-                                  </>
-                                ) : (
-                                  "Yes, stop run"
-                                )}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-muted-foreground flex gap-4 text-xs">
-                    <span>Plan: {spec.has_plan ? "✓" : "—"}</span>
-                    <span>Tasks: {spec.has_tasks ? "✓" : "—"}</span>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </CardContent>
-      </Card>
+      {/* Preview Specification Dialog */}
+      <Dialog open={previewSpecId !== null} onOpenChange={(open) => !open && setPreviewSpecId(null)}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Specification Preview</DialogTitle>
+            <DialogDescription>
+              View the generated specification and related artifacts.
+            </DialogDescription>
+          </DialogHeader>
+          {previewSpecId !== null && <SpecPreviewContent specId={previewSpecId} />}
+        </DialogContent>
+      </Dialog>
 
-      <Dialog open={clarifyOpen} onOpenChange={setClarifyOpen}>
-        <DialogContent className="max-w-xl">
+      <Dialog open={clarifyOpen} onOpenChange={(open) => {
+        if (!open) {
+          setClarifyOpen(false);
+          setDetectedClarifications([]);
+          setClarifyAnswers({});
+          setClarifyQuestion("");
+          setClarifyAnswer("");
+          setClarifyNotes("");
+        }
+      }}>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Clarify Specification</DialogTitle>
             <DialogDescription>
-              Add a clarification entry or free-form notes to the spec.
+              Use AI to detect ambiguities or add manual clarifications.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="clarify-question">Question (optional)</Label>
-              <Input
-                id="clarify-question"
-                placeholder="What needs clarification?"
-                value={clarifyQuestion}
-                onChange={(event) => setClarifyQuestion(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="clarify-answer">Answer (optional)</Label>
-              <Input
-                id="clarify-answer"
-                placeholder="Provide the resolved answer"
-                value={clarifyAnswer}
-                onChange={(event) => setClarifyAnswer(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="clarify-notes">Notes (optional)</Label>
-              <Textarea
-                id="clarify-notes"
-                placeholder="Additional clarification notes"
-                rows={4}
-                value={clarifyNotes}
-                onChange={(event) => setClarifyNotes(event.target.value)}
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setClarifyOpen(false)}>
-                Cancel
+            {/* Mode toggle */}
+            <div className="flex gap-2">
+              <Button
+                variant={clarifyMode === "ai" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setClarifyMode("ai")}
+              >
+                <Sparkles className="mr-2 h-3.5 w-3.5" />
+                AI Detection
               </Button>
-              <Button onClick={handleClarify} disabled={clarifySpec.isPending}>
-                {clarifySpec.isPending ? "Saving..." : "Save Clarification"}
+              <Button
+                variant={clarifyMode === "manual" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setClarifyMode("manual")}
+              >
+                <MessageSquare className="mr-2 h-3.5 w-3.5" />
+                Manual
               </Button>
             </div>
+
+            {clarifyMode === "ai" ? (
+              /* AI-powered clarification flow */
+              <div className="space-y-3">
+                {detectedClarifications.length === 0 ? (
+                  <div className="flex flex-col items-center gap-3 py-6">
+                    <p className="text-muted-foreground text-sm">
+                      Click &quot;Detect Ambiguities&quot; to analyze the spec with AI.
+                    </p>
+                    <Button
+                      onClick={() => {
+                        if (!clarifySpecPath) return;
+                        detectAmbiguities.mutate({
+                          project_id: projectId,
+                          spec_path: clarifySpecPath,
+                          spec_run_id: clarifySpecRunId ?? undefined,
+                        });
+                      }}
+                      disabled={detectAmbiguities.isPending}
+                    >
+                      {detectAmbiguities.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          Analyzing...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="mr-2 h-3.5 w-3.5" />
+                          Detect Ambiguities
+                        </>
+                      )}
+                    </Button>
+                    {detectAmbiguities.isError && (
+                      <p className="text-xs text-red-500">
+                        Failed to detect ambiguities. Try manual mode instead.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      Found {detectedClarifications.length} ambiguity(ies). Provide answers below.
+                    </p>
+                    {detectedClarifications.map((item) => (
+                      <div key={item.key ?? item.id} className="rounded-lg border p-3 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <span className="text-sm font-medium flex-1">{item.question}</span>
+                          {item.blocking && (
+                            <span className="text-xs bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 px-1.5 py-0.5 rounded">
+                              blocking
+                            </span>
+                          )}
+                        </div>
+                        {item.options && item.options.length > 0 ? (
+                          <select
+                            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                            value={clarifyAnswers[item.key ?? ""] ?? ""}
+                            onChange={(e) =>
+                              setClarifyAnswers((prev) => ({
+                                ...prev,
+                                [item.key ?? ""]: e.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">— Select answer —</option>
+                            {item.options.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input
+                            placeholder="Your answer..."
+                            value={clarifyAnswers[item.key ?? ""] ?? ""}
+                            onChange={(e) =>
+                              setClarifyAnswers((prev) => ({
+                                ...prev,
+                                [item.key ?? ""]: e.target.value,
+                              }))
+                            }
+                          />
+                        )}
+                      </div>
+                    ))}
+                    <div className="space-y-2">
+                      <Label htmlFor="ai-clarify-notes">Additional Notes (optional)</Label>
+                      <Textarea
+                        id="ai-clarify-notes"
+                        placeholder="Any additional context..."
+                        rows={2}
+                        value={clarifyNotes}
+                        onChange={(e) => setClarifyNotes(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setDetectedClarifications([])}>
+                        Re-detect
+                      </Button>
+                      <Button
+                        onClick={async () => {
+                          // Build Q&A entries from detected + answered
+                          const entries = detectedClarifications
+                            .filter((item) => {
+                              const key = item.key ?? "";
+                              return key && clarifyAnswers[key]?.trim();
+                            })
+                            .map((item) => ({
+                              question: item.question,
+                              answer: clarifyAnswers[item.key ?? ""] ?? "",
+                            }));
+                          if (entries.length === 0 && !clarifyNotes.trim()) {
+                            toast.error("Answer at least one question or add notes.");
+                            return;
+                          }
+                          try {
+                            await clarifySpec.mutateAsync({
+                              project_id: projectId,
+                              spec_path: clarifySpecPath!,
+                              entries,
+                              notes: clarifyNotes || undefined,
+                              spec_run_id: clarifySpecRunId ?? undefined,
+                            });
+                            toast.success(`Clarified ${entries.length} item(s)!`);
+                            setClarifyOpen(false);
+                            setDetectedClarifications([]);
+                            setClarifyAnswers({});
+                            setClarifyNotes("");
+                          } catch {
+                            toast.error("Failed to save clarifications.");
+                          }
+                        }}
+                        disabled={clarifySpec.isPending}
+                      >
+                        {clarifySpec.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          "Submit Answers"
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              /* Manual mode — original Q&A + notes form */
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="clarify-question">Question (optional)</Label>
+                  <Input
+                    id="clarify-question"
+                    placeholder="What needs clarification?"
+                    value={clarifyQuestion}
+                    onChange={(event) => setClarifyQuestion(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="clarify-answer">Answer (optional)</Label>
+                  <Input
+                    id="clarify-answer"
+                    placeholder="Provide the resolved answer"
+                    value={clarifyAnswer}
+                    onChange={(event) => setClarifyAnswer(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="clarify-notes">Notes (optional)</Label>
+                  <Textarea
+                    id="clarify-notes"
+                    placeholder="Additional clarification notes"
+                    rows={4}
+                    value={clarifyNotes}
+                    onChange={(event) => setClarifyNotes(event.target.value)}
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setClarifyOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleClarify} disabled={clarifySpec.isPending}>
+                    {clarifySpec.isPending ? "Saving..." : "Save Clarification"}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

@@ -454,3 +454,51 @@ export function useRunWorkflow() {
     },
   });
 }
+
+// =============================================================================
+// AI-powered Clarification
+// =============================================================================
+
+export interface ClarificationItem {
+  id: number;
+  scope?: string | null;
+  project_id?: number | null;
+  protocol_run_id?: number | null;
+  step_run_id?: number | null;
+  key?: string | null;
+  question: string;
+  status: string;
+  options?: string[] | null;
+  recommended?: Record<string, unknown> | null;
+  applies_to?: string | null;
+  blocking?: boolean | null;
+  answer?: Record<string, unknown> | null;
+  created_at?: string | null;
+  answered_at?: string | null;
+  answered_by?: string | null;
+}
+
+export interface DetectAmbiguitiesRequest {
+  spec_path: string;
+  spec_run_id?: number | null;
+  context?: string | null;
+}
+
+export interface DetectAmbiguitiesResponse {
+  success: boolean;
+  clarifications: ClarificationItem[];
+  error?: string | null;
+}
+
+/**
+ * Detect ambiguities in a spec using AI-powered analysis
+ */
+export function useDetectAmbiguities() {
+  return useMutation({
+    mutationFn: ({ project_id, ...request }: { project_id: number } & DetectAmbiguitiesRequest) =>
+      apiClient.post<DetectAmbiguitiesResponse>(
+        `/projects/${project_id}/speckit/detect-ambiguities`,
+        request
+      ),
+  });
+}

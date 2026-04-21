@@ -2142,6 +2142,27 @@ Legend:
             model,
             project_id=project_id,
         )
+
+        # Create a CLI Execution entry so speckit operations appear on /executions page
+        execution = None
+        try:
+            from devgodzilla.services.cli_execution_tracker import get_execution_tracker
+            tracker = get_execution_tracker()
+            execution = tracker.start_execution(
+                execution_type=f"speckit_{job_id}",
+                engine_id=resolved_engine_id,
+                project_id=project_id,
+                command=f"speckit {job_id} prompt={prompt_name}",
+                working_dir=str(Path(project_path).expanduser()),
+                metadata={"job_id": job_id, "prompt_name": prompt_name},
+            )
+        except Exception:
+            execution = None
+
+        extra: Dict[str, Any] = {"job_id": job_id, "engine_id": resolved_engine_id}
+        if execution:
+            extra["cli_execution_id"] = execution.execution_id
+
         request = EngineRequest(
             project_id=project_id or 0,
             protocol_run_id=0,
@@ -2152,9 +2173,23 @@ Legend:
             working_dir=str(Path(project_path).expanduser()),
             sandbox=SandboxMode.FULL_ACCESS,
             timeout=timeout_seconds,
-            extra={"job_id": job_id, "engine_id": resolved_engine_id},
+            extra=extra,
         )
-        return engine.plan(request)
+        result = engine.plan(request)
+
+        # Mark execution as complete
+        if execution:
+            try:
+                tracker.complete(
+                    execution.execution_id,
+                    success=result.success,
+                    exit_code=0 if result.success else 1,
+                    error=result.error if not result.success else None,
+                )
+            except Exception:
+                pass
+
+        return result
 
     def _apply_template_values(self, file_path: Path, values: Dict[str, Any]) -> None:
         """Replace template placeholders in an existing file."""

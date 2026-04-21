@@ -13,12 +13,35 @@ from devgodzilla.db.database import Database
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.specification import SpecificationService
 from devgodzilla.services.policy import PolicyService
+from devgodzilla.services.clarifier import ClarifierService
+from devgodzilla.api.schemas import ClarificationOut
 from pathlib import Path
 import traceback as _traceback
 from devgodzilla.logging import get_logger as _get_logger
 _log = _get_logger(__name__)
 
 router = APIRouter(tags=["SpecKit"])
+
+
+def _check_policy_gate(db: Database, ctx: ServiceContext, project_id: int) -> Optional[List[dict]]:
+    """Run policy evaluation for speckit operations. Returns findings if policy has blocking issues."""
+    try:
+        project = db.get_project(project_id)
+        enforcement_mode = project.policy_enforcement_mode or "off"
+        if enforcement_mode == "off":
+            return None
+
+        policy_service = PolicyService(ctx, db)
+        findings = policy_service.evaluate_project(project_id)
+
+        if enforcement_mode == "block":
+            blocking = [f for f in findings if f.severity == "error"]
+            if blocking:
+                return [{"code": f.code, "severity": f.severity, "message": f.message,
+                         "scope": f.scope, "suggested_fix": f.suggested_fix} for f in blocking]
+        return None
+    except Exception:
+        return None  # Don't block speckit on policy errors
 
 
 class SpecKitResponse(BaseModel):
@@ -486,9 +509,20 @@ def project_speckit_checklist(
     project_id: int,
     request: ChecklistRequest,
     db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
     service: SpecificationService = Depends(_service),
 ):
     project = get_local_project_or_400(db, project_id)
+    # Policy gate
+    policy_violations = _check_policy_gate(db, ctx, project_id)
+    if policy_violations:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Policy violations blocked this operation",
+                "findings": policy_violations,
+            }
+        )
     result = service.run_checklist(
         project.local_path,
         request.spec_path,
@@ -510,9 +544,20 @@ def project_speckit_analyze(
     project_id: int,
     request: AnalyzeRequest,
     db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
     service: SpecificationService = Depends(_service),
 ):
     project = get_local_project_or_400(db, project_id)
+    # Policy gate
+    policy_violations = _check_policy_gate(db, ctx, project_id)
+    if policy_violations:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Policy violations blocked this operation",
+                "findings": policy_violations,
+            }
+        )
     result = service.run_analyze(
         project.local_path,
         request.spec_path,
@@ -530,14 +575,114 @@ def project_speckit_analyze(
     )
 
 
+# ---------------------------------------------------------------------------
+# Detect ambiguities (AI-powered clarification)
+# ---------------------------------------------------------------------------
+
+class DetectAmbiguitiesRequest(BaseModel):
+    spec_path: str
+    spec_run_id: Optional[int] = None
+    context: Optional[str] = None
+
+
+class DetectAmbiguitiesResponse(BaseModel):
+    success: bool
+    clarifications: List[ClarificationOut] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+def _clarification_to_out(c: Any) -> ClarificationOut:
+    return ClarificationOut(
+        id=c.id,
+        scope=getattr(c, "scope", None),
+        project_id=getattr(c, "project_id", None),
+        protocol_run_id=getattr(c, "protocol_run_id", None),
+        step_run_id=getattr(c, "step_run_id", None),
+        key=getattr(c, "key", None),
+        question=c.question,
+        status=getattr(c, "status", "open"),
+        options=getattr(c, "options", None),
+        recommended=getattr(c, "recommended", None),
+        applies_to=getattr(c, "applies_to", None),
+        blocking=getattr(c, "blocking", None),
+        answer=getattr(c, "answer", None),
+        created_at=str(c.created_at) if hasattr(c, "created_at") and c.created_at else None,
+        answered_at=str(c.answered_at) if hasattr(c, "answered_at") and c.answered_at else None,
+        answered_by=getattr(c, "answered_by", None),
+    )
+
+
+@router.post(
+    "/projects/{project_id}/speckit/detect-ambiguities",
+    response_model=DetectAmbiguitiesResponse,
+)
+def project_speckit_detect_ambiguities(
+    project_id: int,
+    request: DetectAmbiguitiesRequest,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """Use AI to detect ambiguities in a specification and return clarification questions."""
+    project = get_local_project_or_400(db, project_id)
+
+    # Resolve spec file
+    spec_file = Path(project.local_path) / request.spec_path
+    if not spec_file.exists():
+        raise HTTPException(404, f"Spec file not found: {request.spec_path}")
+
+    try:
+        content = spec_file.read_text(encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(500, f"Failed to read spec file: {exc}")
+
+    # Build context: spec content + optional extra context
+    context_parts: List[str] = []
+    if request.context:
+        context_parts.append(request.context)
+
+    # Try to load constitution for additional context
+    try:
+        constitution_path = Path(project.local_path) / ".speckit" / "constitution.md"
+        if constitution_path.exists():
+            context_parts.append(
+                "Project constitution:\n" + constitution_path.read_text(encoding="utf-8")[:4000]
+            )
+    except Exception:
+        pass
+
+    clarifier = ClarifierService(ctx, db)
+    detected = clarifier.detect_ambiguities(
+        content,
+        context="\n\n".join(context_parts),
+        project_id=project_id,
+        persist=True,
+    )
+
+    return DetectAmbiguitiesResponse(
+        success=True,
+        clarifications=[_clarification_to_out(c) for c in detected],
+    )
+
+
 @router.post("/projects/{project_id}/speckit/implement", response_model=ImplementResponse)
 def project_speckit_implement(
     project_id: int,
     request: ImplementRequest,
     db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
     service: SpecificationService = Depends(_service),
 ):
     project = get_local_project_or_400(db, project_id)
+    # Policy gate
+    policy_violations = _check_policy_gate(db, ctx, project_id)
+    if policy_violations:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Policy violations blocked this operation",
+                "findings": policy_violations,
+            }
+        )
     result = service.run_implement(
         project.local_path,
         request.spec_path,

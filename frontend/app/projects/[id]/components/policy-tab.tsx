@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 
-import { AlertCircle, AlertTriangle, CheckCircle2, Info, Save, Wand2 } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Info, Loader2, Save, Shield, ShieldAlert, ShieldCheck, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CodeBlock } from "@/components/ui/code-block";
@@ -25,9 +26,10 @@ import {
   usePolicyFindings,
   usePolicyPacks,
   useProjectPolicy,
+  useRunPolicyAudit,
   useUpdateProjectPolicy,
 } from "@/lib/api";
-import type { EffectivePolicy, PolicyConfig, PolicyFinding, PolicyPack } from "@/lib/api/types";
+import type { EffectivePolicy, PolicyAuditResult, PolicyConfig, PolicyFinding, PolicyPack } from "@/lib/api/types";
 import { truncateHash } from "@/lib/format";
 
 interface PolicyTabProps {
@@ -368,7 +370,108 @@ function PolicyForm({
           </CardContent>
         </Card>
       )}
+
+      <PolicyAuditPanel projectId={projectId} />
     </div>
+  );
+}
+
+function PolicyAuditPanel({ projectId }: { projectId: number }) {
+  const [auditResult, setAuditResult] = useState<PolicyAuditResult | null>(null);
+  const runAudit = useRunPolicyAudit();
+
+  const handleRunAudit = async () => {
+    try {
+      const result = await runAudit.mutateAsync(projectId);
+      setAuditResult(result);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Audit failed");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Full Policy Audit
+            </CardTitle>
+            <CardDescription>Deep scan across project, protocols, and steps</CardDescription>
+          </div>
+          <Button onClick={handleRunAudit} disabled={runAudit.isPending} variant="outline">
+            {runAudit.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <ShieldCheck className="mr-2 h-4 w-4" />
+            )}
+            {runAudit.isPending ? "Scanning..." : "Run Full Audit"}
+          </Button>
+        </div>
+      </CardHeader>
+      {auditResult && (
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4 text-sm">
+            <Badge variant={auditResult.total_findings > 0 ? "destructive" : "default"}>
+              {auditResult.total_findings} finding(s)
+            </Badge>
+            <span className="text-muted-foreground">
+              Mode: <span className="font-mono">{auditResult.enforcement_mode}</span>
+            </span>
+            {auditResult.effective_policy_hash && (
+              <span className="text-muted-foreground">
+                Hash: <span className="font-mono">{auditResult.effective_policy_hash.slice(0, 16)}</span>
+              </span>
+            )}
+          </div>
+
+          {auditResult.project_findings.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4" /> Project Findings ({auditResult.project_findings.length})
+              </h4>
+              <FindingsList findings={auditResult.project_findings} />
+            </div>
+          )}
+
+          {auditResult.protocol_findings.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Protocol Findings</h4>
+              {auditResult.protocol_findings.map((pf) => (
+                <div key={pf.protocol_run_id} className="space-y-1">
+                  <p className="text-muted-foreground text-xs font-mono">
+                    Protocol #{pf.protocol_run_id} — {pf.protocol_name} ({pf.findings.length} findings)
+                  </p>
+                  <FindingsList findings={pf.findings} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {auditResult.step_findings.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Step Findings</h4>
+              {auditResult.step_findings.map((sf) => (
+                <div key={sf.step_run_id} className="space-y-1">
+                  <p className="text-muted-foreground text-xs font-mono">
+                    Step #{sf.step_run_id} — {sf.step_name} (protocol #{sf.protocol_run_id}, {sf.findings.length} findings)
+                  </p>
+                  <FindingsList findings={sf.findings} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {auditResult.total_findings === 0 && (
+            <div className="flex items-center gap-2 text-green-600">
+              <ShieldCheck className="h-5 w-5" />
+              <span>All checks passed — no policy violations found.</span>
+            </div>
+          )}
+        </CardContent>
+      )}
+    </Card>
   );
 }
 

@@ -491,6 +491,29 @@ export interface PolicyFinding {
   metadata: Record<string, unknown> | null;
 }
 
+export interface ProtocolAuditFinding {
+  protocol_run_id: number;
+  protocol_name: string;
+  findings: PolicyFinding[];
+}
+
+export interface StepAuditFinding {
+  step_run_id: number;
+  step_name: string;
+  protocol_run_id: number;
+  findings: PolicyFinding[];
+}
+
+export interface PolicyAuditResult {
+  project_id: number;
+  total_findings: number;
+  project_findings: PolicyFinding[];
+  protocol_findings: ProtocolAuditFinding[];
+  step_findings: StepAuditFinding[];
+  effective_policy_hash: string | null;
+  enforcement_mode: string;
+}
+
 export interface EffectivePolicy {
   hash: string;
   policy: Record<string, unknown>;

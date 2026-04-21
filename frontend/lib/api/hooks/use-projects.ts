@@ -16,6 +16,7 @@ import type {
   DiscoveryRetryResponse,
   EffectivePolicy,
   OnboardingSummary,
+  PolicyAuditResult,
   PolicyConfig,
   PolicyFinding,
   Project,
@@ -208,6 +209,19 @@ export function usePolicyFindings(projectId: number | undefined) {
     queryKey: queryKeys.projects.policyFindings(projectId as number),
     queryFn: () => apiClient.get<PolicyFinding[]>(`/projects/${projectId}/policy/findings`),
     enabled: !!projectId,
+  });
+}
+
+export function useRunPolicyAudit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: number) =>
+      apiClient.post<PolicyAuditResult>(`/projects/${projectId}/policy/audit`),
+    onSuccess: (_, projectId) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.projects.policyFindings(projectId),
+      });
+    },
   });
 }
 

@@ -1287,6 +1287,121 @@ def get_policy_findings(
         for f in findings
     ]
 
+@router.post("/projects/{project_id}/policy/audit", response_model=schemas.PolicyAuditOut)
+def run_policy_audit(
+    project_id: int,
+    db: Database = Depends(get_db),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """Run a full policy audit across project, protocols, and steps."""
+    try:
+        project = db.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    policy_service = PolicyService(ctx, db)
+
+    # Determine repo root
+    repo_root = None
+    if project.local_path:
+        try:
+            repo_root = Path(project.local_path).expanduser()
+        except Exception:
+            pass
+
+    # 1. Project-level findings
+    project_findings_raw = policy_service.evaluate_project(project_id)
+    project_findings = [
+        schemas.PolicyFindingOut(
+            code=f.code,
+            severity=f.severity,
+            message=f.message,
+            scope=f.scope,
+            location=_policy_location(f.metadata),
+            suggested_fix=f.suggested_fix,
+            metadata=f.metadata,
+        )
+        for f in project_findings_raw
+    ]
+
+    # 2. Protocol-level findings
+    protocol_runs = db.list_protocol_runs(project_id)
+    protocol_findings: List[dict] = []
+    step_findings: List[dict] = []
+
+    for pr in protocol_runs:
+        pr_findings_raw = policy_service.evaluate_protocol(pr.id, repo_root=repo_root)
+        pr_finding_outs = [
+            schemas.PolicyFindingOut(
+                code=f.code,
+                severity=f.severity,
+                message=f.message,
+                scope=f.scope,
+                location=_policy_location(f.metadata),
+                suggested_fix=f.suggested_fix,
+                metadata=f.metadata,
+            )
+            for f in pr_findings_raw
+        ]
+        protocol_findings.append({
+            "protocol_run_id": pr.id,
+            "protocol_name": pr.protocol_name,
+            "findings": pr_finding_outs,
+        })
+
+        # 3. Step-level findings
+        step_runs = db.list_step_runs(pr.id)
+        for sr in step_runs:
+            sr_findings_raw = policy_service.evaluate_step(sr.id, repo_root=repo_root)
+            sr_finding_outs = [
+                schemas.PolicyFindingOut(
+                    code=f.code,
+                    severity=f.severity,
+                    message=f.message,
+                    scope=f.scope,
+                    location=_policy_location(f.metadata),
+                    suggested_fix=f.suggested_fix,
+                    metadata=f.metadata,
+                )
+                for f in sr_findings_raw
+            ]
+            step_findings.append({
+                "step_run_id": sr.id,
+                "step_name": sr.step_name,
+                "protocol_run_id": pr.id,
+                "findings": sr_finding_outs,
+            })
+
+    # Effective policy hash
+    effective_policy_hash = None
+    enforcement_mode = _normalize_policy_enforcement_mode(project.policy_enforcement_mode) or "off"
+    try:
+        if repo_root:
+            effective = policy_service.resolve_effective_policy(
+                project_id,
+                repo_root=repo_root,
+                include_repo_local=True,
+            )
+            effective_policy_hash = effective.effective_hash
+    except Exception:
+        pass
+
+    total = (
+        len(project_findings)
+        + sum(len(p["findings"]) for p in protocol_findings)
+        + sum(len(s["findings"]) for s in step_findings)
+    )
+
+    return schemas.PolicyAuditOut(
+        project_id=project_id,
+        total_findings=total,
+        project_findings=project_findings,
+        protocol_findings=protocol_findings,
+        step_findings=step_findings,
+        effective_policy_hash=effective_policy_hash,
+        enforcement_mode=enforcement_mode,
+    )
+
 @router.get("/projects/{project_id}/branches", response_model=List[schemas.BranchOut])
 def list_project_branches(
     project_id: int,
