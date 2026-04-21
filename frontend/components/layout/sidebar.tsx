@@ -33,6 +33,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useProjects } from "@/lib/api";
+import { useFeatures } from "@/lib/api/hooks/use-features";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -104,6 +105,7 @@ export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(["Workspace", "Execute"]);
   const { data: projects = [] } = useProjects();
+  const { data: features } = useFeatures();
 
   const toggleGroup = (title: string) => {
     setExpandedGroups((prev) =>
@@ -139,7 +141,9 @@ export function Sidebar() {
 
         <ScrollArea className="flex-1 px-3 py-4">
           <nav className="space-y-4">
-            {navigationGroups.map((group) => {
+            {navigationGroups
+              .filter((group) => group.title !== "Windmill" || (features?.windmill_enabled ?? false))
+              .map((group) => {
               const isExpanded = expandedGroups.includes(group.title);
               const hasActiveItem = group.items.some((item) => isItemActive(item.href));
 

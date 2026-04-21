@@ -14,6 +14,7 @@ export * from "./hooks/use-cli-executions";
 export * from "./hooks/use-constitution";
 export * from "./hooks/use-events";
 export * from "./hooks/use-feedback";
+export * from "./hooks/use-features";
 export * from "./hooks/use-logs";
 export * from "./hooks/use-ops";
 export * from "./hooks/use-policy-packs";

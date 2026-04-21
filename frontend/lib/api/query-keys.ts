@@ -180,4 +180,10 @@ export const queryKeys = {
     all: ["users"] as const,
     me: () => [...queryKeys.users.all, "me"] as const,
   },
+
+  // Features (feature flags)
+  features: {
+    all: ["features"] as const,
+    list: () => [...queryKeys.features.all, "list"] as const,
+  },
 };

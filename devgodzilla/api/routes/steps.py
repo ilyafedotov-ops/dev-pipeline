@@ -279,7 +279,13 @@ def execute_step(
     ctx: ServiceContext = Depends(get_service_context),
     db: Database = Depends(get_db),
 ):
-    """Execute a step (synchronous)."""
+    """Execute a step (synchronous, always LOCAL).
+
+    Manual step execution from the UI always runs in-process via ExecutionService.
+    This is intentional — the user expects immediate synchronous feedback.
+    For automated protocol flows that respect WINDMILL/LOCAL mode, use the
+    orchestrator's run_step() method instead (called via POST /tasks/{id}/execute).
+    """
     try:
         step = db.get_step_run(step_id)
     except KeyError:

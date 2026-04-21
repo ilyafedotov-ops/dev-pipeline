@@ -357,6 +357,14 @@ def health_agents(
             "error": str(exc),
         }
 
+@app.get("/api/v1/features")
+@app.get("/features")
+def get_features():
+    """Return available features based on configuration."""
+    return {
+        "windmill_enabled": getattr(config, "windmill_enabled", False),
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -72,7 +72,7 @@ class OrchestratorService(Service):
         db,
         windmill_client: Optional[WindmillClient] = None,
         *,
-        mode: OrchestratorMode = OrchestratorMode.WINDMILL,
+        mode: OrchestratorMode = OrchestratorMode.LOCAL,
         planning_service=None,
         execution_service=None,
         quality_service=None,

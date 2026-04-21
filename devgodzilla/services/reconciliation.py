@@ -300,16 +300,66 @@ class ReconciliationService(Service):
         """
         db_status = step.status
         
-        # If no Windmill client, we can't reconcile
         if not self.windmill:
+            # LOCAL mode reconciliation: check for stuck/timed-out steps
+            db_status = step.status
+
+            if db_status not in (StepStatus.RUNNING.value, "running"):
+                return ReconciliationDetail(
+                    step_run_id=step.id,
+                    step_name=step.step_name,
+                    protocol_run_id=step.protocol_run_id,
+                    db_status=db_status,
+                    windmill_status="local_mode",
+                    action=ReconciliationAction.NO_CHANGE,
+                    message="LOCAL mode: step not in running state, no action needed",
+                )
+
+            # Check if step has been running too long (>30 min)
+            step_updated = getattr(step, 'updated_at', None)
+            if step_updated:
+                try:
+                    if isinstance(step_updated, str):
+                        step_updated = datetime.fromisoformat(step_updated)
+                    elapsed = datetime.now(timezone.utc) - step_updated
+                    timeout_minutes = 30
+                    if elapsed.total_seconds() > timeout_minutes * 60:
+                        if not dry_run:
+                            self.db.update_step_status(step.id, StepStatus.FAILED.value)
+                            try:
+                                self.db.append_event(
+                                    protocol_run_id=step.protocol_run_id,
+                                    step_run_id=step.id,
+                                    event_type="reconciliation_local_timeout",
+                                    message=f"LOCAL mode: step timed out after {timeout_minutes} min, auto-fixed to failed",
+                                    metadata={
+                                        "previous_status": db_status,
+                                        "new_status": StepStatus.FAILED.value,
+                                        "mode": "local",
+                                    },
+                                )
+                            except Exception:
+                                pass
+                        return ReconciliationDetail(
+                            step_run_id=step.id,
+                            step_name=step.step_name,
+                            protocol_run_id=step.protocol_run_id,
+                            db_status=db_status,
+                            windmill_status="local_mode",
+                            action=ReconciliationAction.AUTO_FIXED,
+                            message=f"LOCAL mode: step running >{timeout_minutes} min, auto-fixed to failed",
+                        )
+                except Exception as exc:
+                    self.logger.warning("reconciliation_local_time_parse_error", extra={"step_run_id": step.id, "error": str(exc)})
+
             return ReconciliationDetail(
                 step_run_id=step.id,
                 step_name=step.step_name,
                 protocol_run_id=step.protocol_run_id,
                 db_status=db_status,
-                windmill_status="unknown",
-                action=ReconciliationAction.ERROR,
-                message="Windmill client not configured",
+                windmill_status="local_mode",
+                action=ReconciliationAction.NO_CHANGE,
+                message="LOCAL mode: step running normally (no timeout detected)",
             )
         
         # Find Windmill job for this step
