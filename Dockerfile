@@ -13,6 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
+# Git safe.directory — repos cloned from host/Windmill may have different UID.
+RUN git config --global --add safe.directory '*'
+
 # Optional: install CLI agents (opencode/codex/claude/gemini) inside the container.
 # Enabled by compose via build-arg INSTALL_AGENT_CLIS=1.
 ARG INSTALL_AGENT_CLIS=0
