@@ -2,10 +2,10 @@ import { expect, test } from "@playwright/test";
 
 import {
   goto,
-  mockHealthOk,
   mockAuth,
-  mockEmptyState,
   mockCreateProject,
+  mockEmptyState,
+  mockHealthOk,
   selectors,
 } from "./helpers";
 

@@ -359,12 +359,13 @@ export function SprintBoard({
                                   </DropdownMenu>
                                 </div>
 
-                                <p
-                                  className="hover:text-primary mb-2 line-clamp-2 cursor-pointer text-sm font-medium"
+                                <button
+                                  type="button"
+                                  className="hover:text-primary mb-2 line-clamp-2 w-full text-left text-sm font-medium"
                                   onClick={() => openViewModal(task)}
                                 >
                                   {task.title}
-                                </p>
+                                </button>
 
                                 <div className="mb-2 flex flex-wrap gap-1">
                                   {task.labels.slice(0, 2).map((label) => (

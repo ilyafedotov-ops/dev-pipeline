@@ -30,6 +30,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataTable } from "@/components/ui/data-table";
 import {
   Dialog,
   DialogContent,
@@ -37,7 +38,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { DataTable } from "@/components/ui/data-table";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -56,8 +56,8 @@ import {
   useCLIExecutions,
 } from "@/lib/api";
 import type { CLIExecution } from "@/lib/api/types/cli-executions";
-import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 // ─── Status badge ────────────────────────────────────────────────────────────
 

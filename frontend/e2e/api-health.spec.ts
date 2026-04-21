@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { goto, mockHealthOk, mockAuth, mockProjectsList } from "./helpers";
+import { goto, mockAuth, mockHealthOk, mockProjectsList } from "./helpers";
 
 test.describe("API Health & Connectivity", () => {
   test("Settings page shows 'Connected' when backend is healthy", async ({ page }) => {

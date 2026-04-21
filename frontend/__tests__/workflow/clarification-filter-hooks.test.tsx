@@ -4,9 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { apiClient } from "@/lib/api/client";
 import { useProjectClarifications } from "@/lib/api/hooks/use-projects";
 import { useProtocolClarifications } from "@/lib/api/hooks/use-protocols";
-import { apiClient } from "@/lib/api/client";
 
 vi.mock("@/lib/api/client", () => ({
   apiClient: {

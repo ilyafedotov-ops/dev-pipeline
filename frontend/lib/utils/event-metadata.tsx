@@ -3,9 +3,9 @@
  * Used by both the Events page and the EventFeed component.
  */
 import React from "react";
+import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
-import Link from "next/link";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers

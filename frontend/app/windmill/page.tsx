@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 
+import type { ColumnDef } from "@tanstack/react-table";
 import { Activity, GitBranch, Loader2, PlayCircle, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +19,6 @@ import {
   useWindmillFlows,
   useWindmillJobs,
 } from "@/lib/api";
-import type { ColumnDef } from "@tanstack/react-table";
 import { formatRelativeTime } from "@/lib/format";
 
 interface WindmillJob {

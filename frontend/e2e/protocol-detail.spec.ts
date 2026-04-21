@@ -1,6 +1,6 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, type Page, type Route,test } from "@playwright/test";
 
-import { goto, mockHealthOk, mockAuth } from "./helpers";
+import { goto, mockAuth,mockHealthOk } from "./helpers";
 
 const PROTOCOL_DETAIL = {
   id: 22,

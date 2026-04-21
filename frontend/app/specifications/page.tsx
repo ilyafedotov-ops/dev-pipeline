@@ -30,7 +30,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { DisabledTooltip } from "@/components/ui/disabled-tooltip";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DisabledTooltip } from "@/components/ui/disabled-tooltip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -473,7 +473,7 @@ export default function SpecificationsPage() {
               <div className="grid gap-4 md:grid-cols-4">
                 {/* Workflow Stage */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Workflow Stage</label>
+                  <Label className="text-sm font-medium">Workflow Stage</Label>
                   <Select value={workflowFilter} onValueChange={setWorkflowFilter}>
                     <SelectTrigger>
                       <SelectValue placeholder="All Stages" />
@@ -490,7 +490,7 @@ export default function SpecificationsPage() {
 
                 {/* Date From */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Created From</label>
+                  <Label className="text-sm font-medium">Created From</Label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button
@@ -514,7 +514,7 @@ export default function SpecificationsPage() {
 
                 {/* Date To */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Created To</label>
+                  <Label className="text-sm font-medium">Created To</Label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button

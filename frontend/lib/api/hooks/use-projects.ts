@@ -8,9 +8,9 @@ import { queryKeys } from "../query-keys";
 import type {
   ActionResponse,
   ArtifactContent,
+  Branch,
   BrownfieldRunRequest,
   BrownfieldRunResponse,
-  Branch,
   Clarification,
   Commit,
   DiscoveryRetryResponse,

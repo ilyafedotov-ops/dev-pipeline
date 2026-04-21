@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/empty-state";
-import type { AppLogEntry } from "@/lib/api/types";
 import { useLogStream } from "@/lib/api/hooks/use-logs";
+import type { AppLogEntry } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const levelColors: Record<string, string> = {

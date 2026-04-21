@@ -18,8 +18,8 @@ import {
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
-import { apiClient } from "@/lib/api/client";
 import { useProtocolArtifacts } from "@/lib/api";
+import { apiClient } from "@/lib/api/client";
 import type { ArtifactContent, ProtocolArtifact } from "@/lib/api/types";
 import { formatRelativeTime } from "@/lib/format";
 

@@ -141,7 +141,7 @@ class ApiClient {
     // In browser, use /api/v1 path so Next.js rewrites (basePath:false) proxy to backend
     // On server, use env var or default to localhost:8000/api/v1
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
-    let defaultBaseUrl = typeof window === "undefined" ? apiBaseUrl : "/api/v1";
+    const defaultBaseUrl = typeof window === "undefined" ? apiBaseUrl : "/api/v1";
     // If user has stored a custom API base, use that (for development)
     this.config = {
       baseUrl: stored?.apiBase || defaultBaseUrl,

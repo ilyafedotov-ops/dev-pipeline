@@ -23,16 +23,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CodeBlock } from "@/components/ui/code-block";
 import { DataTable } from "@/components/ui/data-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
+import { PolicyFindingsBanner } from "@/components/ui/policy-findings-banner";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { PolicyFindingsBanner } from "@/components/ui/policy-findings-banner";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useEscalateStep,
@@ -48,8 +48,8 @@ import {
   useSubmitStepFeedback,
   useTriggerRetry,
 } from "@/lib/api";
-import type { CodexRun, PolicyFinding, StepArtifact, StepQuality,StepRun } from "@/lib/api/types";
 import type { FeedbackEvent } from "@/lib/api/hooks/use-feedback";
+import type { CodexRun, PolicyFinding, StepArtifact, StepQuality,StepRun } from "@/lib/api/types";
 import { formatRelativeTime, truncateHash } from "@/lib/format";
 
 export default function StepDetailPage({ params }: { params: Promise<{ id: string }> }) {

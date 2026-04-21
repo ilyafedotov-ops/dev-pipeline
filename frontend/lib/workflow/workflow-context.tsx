@@ -3,13 +3,13 @@
 import * as React from "react";
 
 import {
-  WorkflowStep,
-  WorkflowStepStatus,
-  WORKFLOW_STEP_ORDER,
-  WORKFLOW_STEPS,
   getStepHref,
   inferCompletedSteps,
   inferStepStatus,
+  WORKFLOW_STEP_ORDER,
+  WORKFLOW_STEPS,
+  WorkflowStep,
+  WorkflowStepStatus,
 } from "./types";
 
 interface WorkflowState {

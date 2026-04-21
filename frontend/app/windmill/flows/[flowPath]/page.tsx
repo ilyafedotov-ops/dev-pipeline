@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
+import type { ColumnDef } from "@tanstack/react-table";
 import { ArrowLeft, GitBranch, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +13,6 @@ import { DataTable } from "@/components/ui/data-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useWindmillFlow, useWindmillFlowRuns } from "@/lib/api";
-import type { ColumnDef } from "@tanstack/react-table";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 
 interface FlowRun {

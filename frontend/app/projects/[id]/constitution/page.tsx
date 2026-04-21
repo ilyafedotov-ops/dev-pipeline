@@ -1,18 +1,19 @@
 "use client";
 
-import { use, useState, useCallback } from "react";
+import { use, useCallback,useState } from "react";
 import Link from "next/link";
 
 import {
   ArrowLeft,
+  Clock,
   FileText,
   Hash,
   RotateCcw,
-  Clock,
   Type,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ConstitutionEditor } from "@/components/features/constitution-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,10 +26,9 @@ import {
   useResetConstitution,
 } from "@/lib/api";
 import {
-  getConstitutionWordCount,
   estimateReadingTime,
+  getConstitutionWordCount,
 } from "@/lib/api/hooks/use-constitution";
-import { ConstitutionEditor } from "@/components/features/constitution-editor";
 
 export default function ConstitutionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);

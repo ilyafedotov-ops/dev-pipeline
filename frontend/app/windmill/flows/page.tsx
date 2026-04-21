@@ -4,8 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { GitBranch, RefreshCw } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
+import { GitBranch, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 import {
   AlertCircle,
@@ -15,7 +16,6 @@ import {
   Save,
   Trash2,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Badge } from "@/components/ui/badge";
@@ -128,7 +128,7 @@ export function serializeArticles(articles: ConstitutionArticle[]): string {
     .map((article) => {
       const prefix = "#".repeat(article.level);
       const body = article.content.trim();
-      return `${prefix} ${article.title}${body ? "\n\n" + body : ""}`;
+      return `${prefix} ${article.title}${body ? `\n\n${  body}` : ""}`;
     })
     .join("\n\n");
 }

@@ -46,8 +46,8 @@ import {
 import type { Event } from "@/lib/api/types";
 import { formatRelativeTime } from "@/lib/format";
 import { getSpecificationReviewPath } from "@/lib/project-routes";
-import { formatMetadataValue, formatKeyLabel } from "@/lib/utils/event-metadata";
 import { cn } from "@/lib/utils";
+import { formatKeyLabel,formatMetadataValue } from "@/lib/utils/event-metadata";
 
 const MAX_EVENTS = 200;
 

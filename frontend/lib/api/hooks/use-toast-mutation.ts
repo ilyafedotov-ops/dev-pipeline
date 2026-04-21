@@ -3,7 +3,7 @@
  * These wrap React Query mutations with consistent UI feedback.
  */
 
-import { useMutation, useQueryClient, type UseMutationOptions } from "@tanstack/react-query";
+import { useMutation, type UseMutationOptions,useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { ApiError } from "../client";

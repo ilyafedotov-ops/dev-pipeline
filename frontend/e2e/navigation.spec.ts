@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { APP_BASE, PAGE_HEADINGS, SIDEBAR_NAV_ITEMS, goto, mockHealthOk, mockAuth, mockEmptyState, selectors } from "./helpers";
+import { APP_BASE, goto, mockAuth, mockEmptyState, mockHealthOk, PAGE_HEADINGS, selectors,SIDEBAR_NAV_ITEMS } from "./helpers";
 
 test.describe("Navigation", () => {
   test.beforeEach(async ({ page }) => {

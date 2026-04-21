@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+
 import { AlertCircle, AlertTriangle, ChevronDown, Info } from "lucide-react";
 
 import type { PolicyFinding } from "@/lib/api/types";
@@ -69,7 +70,7 @@ export function PolicyFindingsBanner({ findings, scope }: PolicyFindingsBannerPr
               {f.code}
             </code>
             <span className="text-muted-foreground truncate" title={f.message}>
-              {f.message.length > 80 ? f.message.slice(0, 80) + "…" : f.message}
+              {f.message.length > 80 ? `${f.message.slice(0, 80)  }…` : f.message}
             </span>
           </div>
         ))}

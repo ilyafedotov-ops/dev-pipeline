@@ -40,7 +40,7 @@ export function useWindmillJobs(params?: WindmillJobsParams) {
       if (params?.page) searchParams.set("page", String(params.page));
       if (params?.job_kinds) searchParams.set("job_kinds", params.job_kinds);
       if (params?.script_path_exact)
-        searchParams.set("script_path_exact", params.script_path_exact);
+        {searchParams.set("script_path_exact", params.script_path_exact);}
       const qs = searchParams.toString();
       return apiClient.get<WindmillJob[]>(`/jobs${qs ? `?${qs}` : ""}`);
     },

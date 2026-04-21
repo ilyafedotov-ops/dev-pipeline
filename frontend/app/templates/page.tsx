@@ -4,10 +4,12 @@ import { useMemo, useState } from "react";
 
 import type { ColumnDef } from "@tanstack/react-table";
 import {
+  CheckSquare,
   Copy,
   Download,
   Eye,
   FileText,
+  ListTodo,
   Loader2,
   Pencil,
   Plus,
@@ -16,8 +18,6 @@ import {
   Trash2,
   Upload,
   Workflow,
-  CheckSquare,
-  ListTodo,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -50,25 +50,25 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  generateTemplateId,
+  getCategoryDisplayName,
+  type Template,
+  type TemplateCreate,
+  type TemplateUpdate,
   useCreateTemplate,
   useDeleteTemplate,
   useDuplicateTemplate,
+  useExportTemplate,
+  useImportTemplate,
   useRenderTemplate,
   useTemplate,
   useTemplateCategories,
   useTemplates,
   useUpdateTemplate,
-  useExportTemplate,
-  useImportTemplate,
-  type Template,
-  type TemplateCreate,
-  type TemplateUpdate,
-  getCategoryDisplayName,
   validateTemplateId,
-  generateTemplateId,
 } from "@/lib/api";
-import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 // ─── Category icon mapping ───────────────────────────────────────────────────
 
@@ -404,7 +404,7 @@ export default function TemplatesPage() {
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
-          <label>
+          <label aria-label="Import template">
             <Button variant="outline" size="sm" asChild>
               <span>
                 <Upload className="mr-2 h-4 w-4" />

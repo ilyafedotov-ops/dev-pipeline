@@ -1,15 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Activity, Clock, type LucideIcon, Save, Shield } from "lucide-react";
 
-import { useAuth } from "@/lib/auth/context";
-import {
-  useChangePassword,
-  useProfile,
-  useUpdateProfile,
-  useUserProfile,
-} from "@/lib/api";
+import { Activity, Clock, type LucideIcon, Save, Shield } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +18,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  useChangePassword,
+  useProfile,
+  useUpdateProfile,
+  useUserProfile,
+} from "@/lib/api";
+import { useAuth } from "@/lib/auth/context";
 
 export default function ProfilePage() {
   const { data: profileData, isLoading: profileLoading } = useProfile();

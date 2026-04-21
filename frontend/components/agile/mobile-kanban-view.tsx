@@ -331,12 +331,13 @@ function MobileTaskCard({
       </div>
 
       {/* Title */}
-      <p
-        className="hover:text-primary mb-3 cursor-pointer text-sm font-medium"
+      <button
+        type="button"
+        className="hover:text-primary mb-3 w-full text-left text-sm font-medium"
         onClick={() => onView?.(task)}
       >
         {task.title}
-      </p>
+      </button>
 
       {/* Labels */}
       {task.labels.length > 0 && (

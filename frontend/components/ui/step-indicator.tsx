@@ -128,7 +128,7 @@ export function StepIndicator({
         role="navigation"
         aria-label="Progress steps"
       >
-        <ol className="flex items-center gap-2" role="list">
+        <ol className="flex items-center gap-2">
           {steps.map((step, index) => {
             const status = getStepStatus(step.id);
             const Icon = step.icon;
@@ -181,7 +181,7 @@ export function StepIndicator({
         role="navigation"
         aria-label="Progress steps"
       >
-        <ol className="flex flex-col gap-4" role="list">
+        <ol className="flex flex-col gap-4">
           {steps.map((step, index) => {
             const status = getStepStatus(step.id);
             const Icon = step.icon;
@@ -249,7 +249,7 @@ export function StepIndicator({
       role="navigation"
       aria-label="Progress steps"
     >
-      <ol className="flex items-center justify-between text-sm" role="list">
+      <ol className="flex items-center justify-between text-sm">
         {steps.map((step, index) => {
           const status = getStepStatus(step.id);
           const Icon = step.icon;

@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LoadingState } from "@/components/ui/loading-state";
+import { PolicyFindingsBanner } from "@/components/ui/policy-findings-banner";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -41,11 +42,11 @@ import {
   useSyncProtocolToSprint,
 } from "@/lib/api";
 import { formatRelativeTime, truncateHash } from "@/lib/format";
+import { getSpecificationReviewPath } from "@/lib/project-routes";
 import {
   describeProtocolTemplateConfig,
   formatProtocolTemplateSource,
 } from "@/lib/protocol-template-display";
-import { getSpecificationReviewPath } from "@/lib/project-routes";
 import { useWebSocketEvent } from "@/lib/websocket/hooks";
 
 import { ArtifactsTab } from "./components/artifacts-tab";
@@ -58,7 +59,6 @@ import { QualityTab } from "./components/quality-tab";
 import { RunsTab } from "./components/runs-tab";
 import { SpecTab } from "./components/spec-tab";
 import { StepsTab } from "./components/steps-tab";
-import { PolicyFindingsBanner } from "@/components/ui/policy-findings-banner";
 
 const secondaryTabs = [
   { value: "events", label: "Events" },

@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ClarificationDialog, GenerateSpecsWizardSkeleton } from "@/components/shared";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StepIndicator, useStepNavigation } from "@/components/ui/step-indicator";
 import { Textarea } from "@/components/ui/textarea";
-import { ClarificationDialog, GenerateSpecsWizardSkeleton } from "@/components/shared";
 import {
   useAnalyzeSpec,
   useClarifySpec,

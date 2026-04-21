@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { SpecKitWorkflowPanel } from "./speckit-workflow-panel";
 
 import {
   AlertCircle,
@@ -36,7 +35,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { DisabledTooltip } from "@/components/ui/disabled-tooltip";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +42,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DisabledTooltip } from "@/components/ui/disabled-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -62,6 +61,8 @@ import {
 } from "@/lib/api";
 import { getProjectSpecWorkflowPath, getSpecificationReviewPath } from "@/lib/project-routes";
 import { getImplementSuccessOutcome } from "@/lib/workflow/implement-result";
+
+import { SpecKitWorkflowPanel } from "./speckit-workflow-panel";
 
 interface SpecTabProps {
   projectId: number;

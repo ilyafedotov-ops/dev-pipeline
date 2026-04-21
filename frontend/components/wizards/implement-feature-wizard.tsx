@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ClarificationDialog, ImplementFeatureWizardSkeleton } from "@/components/shared";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,8 +34,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { StepIndicator } from "@/components/ui/step-indicator";
-import { ClarificationDialog, ImplementFeatureWizardSkeleton } from "@/components/shared";
 import {
   Select,
   SelectContent,
@@ -43,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { StepIndicator } from "@/components/ui/step-indicator";
 import {
   useAnalyzeSpec,
   useClarifySpec,

@@ -68,11 +68,6 @@ import {
   useSpecKitStatus,
 } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/format";
-import { parseTemplateConfigInput } from "@/lib/protocol-create";
-import {
-  describeProtocolTemplateConfig,
-  formatProtocolTemplateSource,
-} from "@/lib/protocol-template-display";
 import {
   getProjectManualPlanWizardPath,
   getProjectManualTasksWizardPath,
@@ -80,6 +75,11 @@ import {
   getProjectSpecWorkspacePath,
   getSpecificationReviewPath,
 } from "@/lib/project-routes";
+import { parseTemplateConfigInput } from "@/lib/protocol-create";
+import {
+  describeProtocolTemplateConfig,
+  formatProtocolTemplateSource,
+} from "@/lib/protocol-template-display";
 
 interface OverviewTabProps {
   projectId: number;

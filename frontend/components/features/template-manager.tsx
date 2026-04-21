@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { LoadingState } from "@/components/ui/loading-state";
 import {
   Select,
@@ -276,7 +277,7 @@ export function TemplateEditor({ templateId, onSave, onCancel }: TemplateEditorP
     <div className="space-y-4">
       <div className="grid gap-4">
         <div className="grid gap-2">
-          <label className="text-sm font-medium">Name</label>
+          <Label className="text-sm font-medium">Name</Label>
           <Input
             value={formData.name}
             onChange={(e) => handleNameChange(e.target.value)}
@@ -286,7 +287,7 @@ export function TemplateEditor({ templateId, onSave, onCancel }: TemplateEditorP
 
         {!isEditing && (
           <div className="grid gap-2">
-            <label className="text-sm font-medium">ID</label>
+            <Label className="text-sm font-medium">ID</Label>
             <Input
               value={formData.id}
               onChange={(e) => handleIdChange(e.target.value)}
@@ -298,7 +299,7 @@ export function TemplateEditor({ templateId, onSave, onCancel }: TemplateEditorP
         )}
 
         <div className="grid gap-2">
-          <label className="text-sm font-medium">Category</label>
+          <Label className="text-sm font-medium">Category</Label>
           <Select
             value={formData.category}
             onValueChange={(value) =>
@@ -321,7 +322,7 @@ export function TemplateEditor({ templateId, onSave, onCancel }: TemplateEditorP
         </div>
 
         <div className="grid gap-2">
-          <label className="text-sm font-medium">Description</label>
+          <Label className="text-sm font-medium">Description</Label>
           <Input
             value={formData.description}
             onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
@@ -330,7 +331,7 @@ export function TemplateEditor({ templateId, onSave, onCancel }: TemplateEditorP
         </div>
 
         <div className="grid gap-2">
-          <label className="text-sm font-medium">Content</label>
+          <Label className="text-sm font-medium">Content</Label>
           <Textarea
             value={formData.content}
             onChange={(e) => setFormData((prev) => ({ ...prev, content: e.target.value }))}
@@ -580,7 +581,7 @@ export function TemplateManager({
                   <>
                     {/* Preview */}
                     <div>
-                      <label className="mb-2 block text-sm font-medium">Content Preview</label>
+                      <Label className="mb-2 block text-sm font-medium">Content Preview</Label>
                       <pre className="bg-muted/30 max-h-[300px] overflow-auto rounded-md p-3 font-mono text-xs whitespace-pre-wrap">
                         {selectedTemplate.content}
                       </pre>
@@ -589,7 +590,7 @@ export function TemplateManager({
                     {/* Variables */}
                     {Object.keys(selectedTemplate.variables).length > 0 && (
                       <div>
-                        <label className="mb-2 block text-sm font-medium">Variables</label>
+                        <Label className="mb-2 block text-sm font-medium">Variables</Label>
                         <div className="space-y-2">
                           {Object.entries(selectedTemplate.variables).map(([name, config]) => (
                             <div key={name} className="flex items-center justify-between text-sm">

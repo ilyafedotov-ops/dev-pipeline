@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTheme } from "next-themes";
 
 import {
   Bell,
@@ -15,7 +16,6 @@ import {
   User,
   XCircle,
 } from "lucide-react";
-import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -26,12 +26,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { apiClient, useHealth } from "@/lib/api";
 import {
   useChangePassword,
   useUpdateProfile,
   useUserProfile,
 } from "@/lib/api/hooks/use-profile";
-import { apiClient, useHealth } from "@/lib/api";
 
 export default function SettingsPage() {
   const [apiBase, setApiBase] = useState(() => apiClient.getConfig().baseUrl);

@@ -23,8 +23,8 @@ import type {
   ProtocolSpec,
   RunFilters,
   Sprint,
-  SyncResult,
   StepRun,
+  SyncResult,
 } from "../types";
 
 type RawProtocolFromSpecResponse = Omit<ProtocolFromSpecResponse, "protocol"> & {

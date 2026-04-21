@@ -16,12 +16,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { AgentConfigForm } from "@/components/features/agent-config-manager";
 import {
   AgentSelector,
   getAgentKindIcon,
   getAgentKindLabel,
 } from "@/components/features/agent-selector";
-import { AgentConfigForm } from "@/components/features/agent-config-manager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

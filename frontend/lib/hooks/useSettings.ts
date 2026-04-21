@@ -5,10 +5,10 @@
  * The primary implementations live in lib/api/hooks/use-profile.ts
  */
 export {
-  useUserProfile,
-  useUpdateProfile,
+  type ChangePasswordPayload,
+  type UpdateProfilePayload,
   useChangePassword,
   type UserAccount,
-  type UpdateProfilePayload,
-  type ChangePasswordPayload,
+  useUpdateProfile,
+  useUserProfile,
 } from "../api/hooks/use-profile";
