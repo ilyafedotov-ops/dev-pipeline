@@ -98,6 +98,8 @@ class Config(BaseModel):
 
     # Projects
     projects_root: Path = Field(default=Path("projects"))
+    host_projects_root: Optional[str] = Field(default=None)
+    container_projects_root: str = Field(default="/app/projects")
     task_cycle_max_iterations: int = Field(default=5)
     
     # Misc
@@ -184,6 +186,46 @@ class Config(BaseModel):
     def windmill_enabled(self) -> bool:
         """Check if Windmill integration is enabled."""
         return bool(self.windmill_url and self.windmill_token)
+
+
+def sanitize_project_path(path: Optional[str], config: Optional["Config"] = None) -> Optional[str]:
+    """
+    Sanitize a project local_path to use container paths instead of host paths.
+
+    Maps host paths like /home/ilya/dev-pipeline/projects/137/click
+    to container paths like /app/projects/137/click.
+
+    Rules:
+    1. If config is provided and host_projects_root is set, paths starting
+       with host_projects_root are remapped to container_projects_root.
+    2. If the path contains /projects/ and does not start with /app,
+       extract the relative part after /projects/ and prepend /app/projects/.
+    3. Otherwise return unchanged.
+    """
+    if not path:
+        return path
+
+    # Config-based remapping
+    if config and config.host_projects_root:
+        host_root = config.host_projects_root.rstrip("/")
+        if path.startswith(host_root + "/"):
+            container_root = config.container_projects_root.rstrip("/")
+            relative = path[len(host_root):].lstrip("/")
+            return f"{container_root}/{relative}"
+
+    # Generic heuristic: path contains /projects/ but doesn't start with /app
+    if "/projects/" in path:
+        # If path already starts with /app, it's already a container path
+        if path.startswith("/app/"):
+            return path
+        # Find the projects segment and remap
+        idx = path.find("/projects/")
+        if idx >= 0:
+            relative = path[idx + len("/projects"):]  # e.g. "/137/click"
+            container_root = (config.container_projects_root if config else "/app/projects").rstrip("/")
+            return f"{container_root}{relative}"
+
+    return path
 
 
 def _parse_bool(value: Optional[str], default: bool = False) -> bool:
@@ -382,6 +424,8 @@ def load_config() -> Config:
 
         # Projects
         projects_root=_normalize_path(os.environ.get("DEVGODZILLA_PROJECTS_ROOT", "projects")),
+        host_projects_root=os.environ.get("DEVGODZILLA_HOST_PROJECTS_ROOT"),
+        container_projects_root=os.environ.get("DEVGODZILLA_CONTAINER_PROJECTS_ROOT", "/app/projects"),
         task_cycle_max_iterations=int(os.environ.get("DEVGODZILLA_TASK_CYCLE_MAX_ITERATIONS", "5")),
         
         # Misc

@@ -23,6 +23,22 @@ from devgodzilla.logging import get_logger
 # Timeout for synchronous attempt before falling back to background (seconds)
 _SYNC_TIMEOUT = 30.0
 from devgodzilla.models.domain import SpecRunStatus
+
+
+def _save_bg_error(project_id: int, step_name: str, error: str) -> None:
+    """Persist background workflow error as a project event so UI can show it."""
+    try:
+        from devgodzilla.cli.main import get_db as _get_db
+        _db = _get_db()
+        _db.append_event(
+            protocol_run_id=None,
+            event_type=f"speckit_{step_name}_background_failed",
+            message=f"{step_name} failed in background: {error}",
+            metadata={"step": step_name, "error": error},
+            project_id=project_id,
+        )
+    except Exception:
+        pass  # best-effort; logger already captured the main error
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.specification import SpecificationService
 
@@ -383,6 +399,7 @@ def run_specify(
                 "speckit_specify_background_failed",
                 extra={"project_id": request.project_id, "error": str(bg_exc)},
             )
+            _save_bg_error(request.project_id, "specify", str(bg_exc))
 
     background_tasks.add_task(_run_in_background)
 
@@ -479,6 +496,7 @@ def run_plan(
                 "speckit_plan_background_failed",
                 extra={"project_id": request.project_id, "error": str(bg_exc)},
             )
+            _save_bg_error(request.project_id, "plan", str(bg_exc))
 
     background_tasks.add_task(_run_in_background)
 
@@ -574,6 +592,7 @@ def run_tasks(
                 "speckit_tasks_background_failed",
                 extra={"project_id": request.project_id, "error": str(bg_exc)},
             )
+            _save_bg_error(request.project_id, "tasks", str(bg_exc))
 
     background_tasks.add_task(_run_in_background)
 
@@ -716,6 +735,7 @@ def run_analyze(
                 "speckit_analyze_background_failed",
                 extra={"project_id": request.project_id, "error": str(bg_exc)},
             )
+            _save_bg_error(request.project_id, "analyze", str(bg_exc))
 
     background_tasks.add_task(_run_in_background)
 
@@ -1171,6 +1191,7 @@ def run_workflow(
                 "speckit_workflow_background_failed",
                 extra={"project_id": request.project_id, "error": str(bg_exc)},
             )
+            _save_bg_error(request.project_id, "workflow", str(bg_exc))
 
     background_tasks.add_task(_run_in_background)
 

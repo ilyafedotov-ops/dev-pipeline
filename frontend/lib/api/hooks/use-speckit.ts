@@ -37,6 +37,7 @@ export interface SpecListItem {
   base_branch?: string | null;
   spec_number?: number | null;
   feature_name?: string | null;
+  error_message?: string | null;
 }
 
 export interface SpecKitInitRequest {

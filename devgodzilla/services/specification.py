@@ -467,16 +467,31 @@ class SpecificationService(Service):
             spec_run_id = None
             if self.db and project_id:
                 try:
-                    spec_run = self.db.create_spec_run(
-                        project_id=project_id,
-                        spec_name=spec_name,
-                        status=SpecRunStatus.SPECIFYING,
-                        base_branch=base_branch_value,
-                        branch_name=spec_name,
-                        spec_number=spec_number,
-                        feature_name=resolved_feature_name,
-                    )
-                    spec_run_id = spec_run.id
+                    # Dedup: reuse existing active/failed spec_run for same feature
+                    existing = self.db.find_active_spec_run(project_id, resolved_feature_name)
+                    if existing:
+                        spec_run = self.db.update_spec_run(
+                            existing.id,
+                            status=SpecRunStatus.SPECIFYING,
+                            spec_name=spec_name,
+                            base_branch=base_branch_value,
+                            branch_name=spec_name,
+                            spec_number=spec_number,
+                            error_message=None,
+                        )
+                        spec_run_id = spec_run.id
+                        logger.info("spec_run_dedup_reusing", extra={"spec_run_id": spec_run_id, "feature_name": resolved_feature_name})
+                    else:
+                        spec_run = self.db.create_spec_run(
+                            project_id=project_id,
+                            spec_name=spec_name,
+                            status=SpecRunStatus.SPECIFYING,
+                            base_branch=base_branch_value,
+                            branch_name=spec_name,
+                            spec_number=spec_number,
+                            feature_name=resolved_feature_name,
+                        )
+                        spec_run_id = spec_run.id
                 except Exception:
                     spec_run_id = None
 
@@ -1591,6 +1606,7 @@ class SpecificationService(Service):
                             "base_branch": run.base_branch,
                             "spec_number": run.spec_number,
                             "feature_name": run.feature_name,
+                            "error_message": run.error_message,
                         }
                     )
                 return specs
