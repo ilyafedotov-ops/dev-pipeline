@@ -491,6 +491,21 @@ export interface DetectAmbiguitiesResponse {
 }
 
 /**
+ * Delete a specification (spec run + worktree files)
+ */
+export function useDeleteSpecRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ project_id, spec_run_id }: { project_id: number; spec_run_id: number }) =>
+      apiClient.delete<SpecRunCleanupResponse>(`/projects/${project_id}/speckit/specs/${spec_run_id}`),
+    onSuccess: (_data, { project_id }) => {
+      queryClient.invalidateQueries({ queryKey: ["speckit-status", project_id] });
+      queryClient.invalidateQueries({ queryKey: ["project-specs", project_id] });
+    },
+  });
+}
+
+/**
  * Detect ambiguities in a spec using AI-powered analysis
  */
 export function useDetectAmbiguities() {

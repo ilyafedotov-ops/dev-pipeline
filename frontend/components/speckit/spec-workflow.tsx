@@ -26,6 +26,7 @@ import {
   getProjectExecutionPath,
   getProjectSpecWorkflowPath,
   getProjectSpecWorkspacePath,
+  getProjectSpecWorkspaceStepPath,
 } from "@/lib/project-routes";
 import { cn } from "@/lib/utils";
 
@@ -118,21 +119,16 @@ function getStepHref(step: WorkflowStep, projectId: number): string {
     case "spec":
       return getProjectSpecWorkflowPath(projectId);
     case "clarify":
-      return getProjectSpecWorkspacePath(projectId);
     case "plan":
-      return getProjectSpecWorkspacePath(projectId);
     case "checklist":
-      return getProjectSpecWorkspacePath(projectId);
     case "tasks":
-      return getProjectSpecWorkspacePath(projectId);
     case "analyze":
-      return getProjectSpecWorkspacePath(projectId);
     case "implement":
-      return getProjectSpecWorkspacePath(projectId);
+      return getProjectSpecWorkspaceStepPath(projectId, step);
     case "sprint":
       return getProjectExecutionPath(projectId);
     default:
-      return `/projects/${projectId}`;
+      return getProjectSpecWorkspacePath(projectId);
   }
 }
 

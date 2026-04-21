@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 import {
   AlertCircle,
@@ -24,6 +25,7 @@ import {
   Sparkles,
   StopCircle,
   Target,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -69,9 +71,14 @@ import {
   useSpecifications,
   useSpecKitStatus,
   useStopSpecRun,
+  useDeleteSpecRun,
   ClarificationItem,
 } from "@/lib/api";
-import { getProjectSpecWorkflowPath, getSpecificationReviewPath } from "@/lib/project-routes";
+import {
+  getProjectSpecWorkflowPath,
+  getSpecificationReviewPath,
+  type SpecWorkspaceStep,
+} from "@/lib/project-routes";
 import { getImplementSuccessOutcome } from "@/lib/workflow/implement-result";
 
 import { SpecKitWorkflowPanel } from "./speckit-workflow-panel";
@@ -93,6 +100,19 @@ interface SpecTabProps {
 }
 
 const LAST_UPDATED_BASE = Date.now();
+
+// Maps a SpecKit workflow step (from the ?step= query param) to the DOM id of
+// the section the spec tab should scroll into view. See
+// `getProjectSpecWorkspaceStepPath` in lib/project-routes.ts for the producer side.
+const SPEC_STEP_ANCHOR: Record<SpecWorkspaceStep, string> = {
+  spec: "specifications-card",
+  clarify: "specifications-card",
+  checklist: "specifications-card",
+  analyze: "specifications-card",
+  implement: "specifications-card",
+  plan: "spec-workflow-panel",
+  tasks: "spec-workflow-panel",
+};
 
 function SpecPreviewContent({ specId }: { specId: number }) {
   const { data, isLoading, error } = useSpecificationContent(specId);
@@ -248,6 +268,7 @@ export function SpecTab({ projectId }: SpecTabProps) {
   const generateSpec = useGenerateSpec();
   const initSpecKit = useInitSpecKit();
   const stopSpecRun = useStopSpecRun();
+  const deleteSpecRun = useDeleteSpecRun();
 
   const [clarifyOpen, setClarifyOpen] = useState(false);
   const [clarifySpecPath, setClarifySpecPath] = useState<string | null>(null);
@@ -267,6 +288,21 @@ export function SpecTab({ projectId }: SpecTabProps) {
   const [expandedSpecId, setExpandedSpecId] = useState<number | null>(null);
 
   const isLoading = projectLoading || statusLoading || specsLoading;
+
+  const searchParams = useSearchParams();
+  const stepParam = searchParams.get("step") as SpecWorkspaceStep | null;
+
+  useEffect(() => {
+    if (!stepParam || isLoading) return;
+    const targetId = SPEC_STEP_ANCHOR[stepParam];
+    if (!targetId) return;
+    const element = document.getElementById(targetId);
+    if (!element) return;
+    const raf = requestAnimationFrame(() => {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [stepParam, isLoading]);
 
   if (isLoading) return <LoadingState message="Loading specification..." />;
 
@@ -702,9 +738,11 @@ export function SpecTab({ projectId }: SpecTabProps) {
         </Card>
       </div>
 
-      <SpecKitWorkflowPanel projectId={projectId} />
+      <div id="spec-workflow-panel" className="scroll-mt-6">
+        <SpecKitWorkflowPanel projectId={projectId} />
+      </div>
 
-      <Card>
+      <Card id="specifications-card" className="scroll-mt-6">
         <CardHeader>
           <CardTitle className="text-base">Specifications</CardTitle>
           <CardDescription>Feature specifications and implementation status</CardDescription>
@@ -1044,6 +1082,64 @@ export function SpecTab({ projectId }: SpecTabProps) {
                         </AlertDialogContent>
                       </AlertDialog>
                     )}
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          disabled={deleteSpecRun.isPending}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {deleteSpecRun.isPending ? (
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="mr-1 h-3.5 w-3.5" />
+                          )}
+                          Delete
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Specification</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will permanently delete this specification, its worktree, and all associated
+                            artifacts (plan, tasks, checklist, analysis). This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive hover:bg-destructive/90 text-white"
+                            disabled={deleteSpecRun.isPending}
+                            onClick={async () => {
+                              try {
+                                const result = await deleteSpecRun.mutateAsync({
+                                  project_id: projectId!,
+                                  spec_run_id: spec.spec_run_id!,
+                                });
+                                if (result.success) {
+                                  toast.success("Specification deleted");
+                                } else {
+                                  toast.error(result.error || "Failed to delete specification");
+                                }
+                              } catch {
+                                toast.error("Failed to delete specification");
+                              }
+                            }}
+                          >
+                            {deleteSpecRun.isPending ? (
+                              <>
+                                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                Deleting...
+                              </>
+                            ) : (
+                              "Yes, delete"
+                            )}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                   {/* Expanded artifact viewer */}
                   {isExpanded && spec.id && (

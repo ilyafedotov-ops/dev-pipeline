@@ -172,8 +172,7 @@ class DatabaseProtocol(Protocol):
     def get_spec_run(self, spec_run_id: int) -> SpecRun: ...
     def list_spec_runs(self, project_id: int) -> List[SpecRun]: ...
     def update_spec_run(self, spec_run_id: int, **updates) -> SpecRun: ...
-    
-    # Step runs
+    def delete_spec_run(self, spec_run_id: int, project_id: int | None = None) -> None: ...
     def create_step_run(
         self,
         protocol_run_id: int,
@@ -1280,6 +1279,18 @@ class SQLiteDatabase:
                 tuple(params),
             )
         return self.get_spec_run(spec_run_id)
+
+    def delete_spec_run(self, spec_run_id: int, project_id: int | None = None) -> None:
+        """Delete a spec run and associated data."""
+        with self._transaction() as conn:
+            if project_id is not None:
+                # Clarifications use step_run_id not spec_run_id; clean via subquery
+                conn.execute(
+                    "DELETE FROM clarifications WHERE project_id = ? AND step_run_id IN (SELECT sr.id FROM step_runs sr WHERE sr.protocol_run_id IN (SELECT pr.id FROM protocol_runs pr WHERE pr.spec_run_id = ?))",
+                    (project_id, spec_run_id),
+                )
+            # Delete the spec run itself
+            conn.execute("DELETE FROM spec_runs WHERE id = ?", (spec_run_id,))
 
     # Step run operations
     def create_step_run(
@@ -4431,6 +4442,18 @@ class PostgresDatabase:
                     tuple(params),
                 )
         return self.get_spec_run(spec_run_id)
+
+    def delete_spec_run(self, spec_run_id: int, project_id: int | None = None) -> None:
+        """Delete a spec run and associated data."""
+        with self._transaction() as conn:
+            with conn.cursor() as cur:
+                if project_id is not None:
+                    # Clarifications use step_run_id not spec_run_id; clean via subquery
+                    cur.execute(
+                        "DELETE FROM clarifications WHERE project_id = %s AND step_run_id IN (SELECT sr.id FROM step_runs sr WHERE sr.protocol_run_id IN (SELECT pr.id FROM protocol_runs pr WHERE pr.spec_run_id = %s))",
+                        (project_id, spec_run_id),
+                    )
+                cur.execute("DELETE FROM spec_runs WHERE id = %s", (spec_run_id,))
 
     # Step run operations
     def create_step_run(

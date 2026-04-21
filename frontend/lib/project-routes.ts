@@ -13,6 +13,23 @@ export function getProjectSpecWorkspacePath(projectId: number | string): string 
   return `/projects/${projectId}?tab=spec`;
 }
 
+export type SpecWorkspaceStep =
+  | "spec"
+  | "clarify"
+  | "plan"
+  | "checklist"
+  | "tasks"
+  | "analyze"
+  | "implement";
+
+export function getProjectSpecWorkspaceStepPath(
+  projectId: number | string,
+  step: SpecWorkspaceStep
+): string {
+  const params = new URLSearchParams({ tab: "spec", step });
+  return `/projects/${projectId}?${params.toString()}`;
+}
+
 export function getProjectSpecWorkflowPath(projectId: number | string): string {
   const params = new URLSearchParams({
     wizard: "generate-specs",

@@ -16,6 +16,8 @@ from devgodzilla.services.policy import PolicyService
 from devgodzilla.services.clarifier import ClarifierService
 from devgodzilla.api.schemas import ClarificationOut
 from pathlib import Path
+import shutil
+import os
 import traceback as _traceback
 from devgodzilla.logging import get_logger as _get_logger
 _log = _get_logger(__name__)
@@ -50,6 +52,7 @@ class SpecKitResponse(BaseModel):
     constitution_hash: Optional[str] = None
     error: Optional[str] = None
     warnings: List[str] = Field(default_factory=list)
+    message: Optional[str] = None
 
 
 class ConstitutionRequest(BaseModel):
@@ -701,3 +704,24 @@ def project_speckit_implement(
         worktree_path=result.worktree_path,
         error=result.error,
     )
+
+
+@router.delete("/projects/{project_id}/speckit/specs/{spec_run_id}", response_model=SpecKitResponse)
+def delete_spec_run(
+    project_id: int,
+    spec_run_id: int,
+    db: Database = Depends(get_db),
+):
+    try:
+        spec_run = db.get_spec_run(spec_run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Spec run not found")
+    if spec_run.project_id != project_id:
+        raise HTTPException(status_code=403, detail="Spec run does not belong to this project")
+
+    # Clean up worktree files if they exist
+    if spec_run.worktree_path and os.path.exists(spec_run.worktree_path):
+        shutil.rmtree(spec_run.worktree_path)
+
+    db.delete_spec_run(spec_run_id, project_id=project_id)
+    return SpecKitResponse(success=True, message="Specification deleted")
