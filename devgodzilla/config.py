@@ -35,7 +35,7 @@ class Config(BaseModel):
     - DEVGODZILLA_LOG_LEVEL (default: INFO)
     - DEVGODZILLA_WEBHOOK_TOKEN (optional shared secret)
     - DEVGODZILLA_DEFAULT_ENGINE_ID (default: opencode)
-    - DEVGODZILLA_DISCOVERY_ENGINE_ID / PLANNING_ENGINE_ID / EXEC_ENGINE_ID / QA_ENGINE_ID
+    - DEVGODZILLA_DISCOVERY_ENGINE_ID / PLANNING_ENGINE_ID / EXEC_ENGINE_ID / REVIEW_ENGINE_ID / QA_ENGINE_ID
     """
 
     # Database
@@ -71,6 +71,7 @@ class Config(BaseModel):
     planning_model: Optional[str] = Field(default=None)
     decompose_model: Optional[str] = Field(default=None)
     exec_model: Optional[str] = Field(default=None)
+    review_model: Optional[str] = Field(default=None)
     qa_model: Optional[str] = Field(default=None)
     
     # Engine defaults
@@ -78,6 +79,7 @@ class Config(BaseModel):
     discovery_engine_id: Optional[str] = Field(default=None)
     planning_engine_id: Optional[str] = Field(default=None)
     exec_engine_id: Optional[str] = Field(default=None)
+    review_engine_id: Optional[str] = Field(default=None)
     qa_engine_id: Optional[str] = Field(default=None)
     agent_config_path: Optional[Path] = Field(default=None)
 
@@ -101,6 +103,9 @@ class Config(BaseModel):
     host_projects_root: Optional[str] = Field(default=None)
     container_projects_root: str = Field(default="/app/projects")
     task_cycle_max_iterations: int = Field(default=5)
+    task_cycle_helper_parallelism: int = Field(default=2)
+    task_cycle_helper_timeout_seconds: int = Field(default=180)
+    task_cycle_enabled: bool = Field(default=True)
     
     # Misc
     spec_audit_interval_seconds: Optional[int] = Field(default=None)
@@ -152,6 +157,8 @@ class Config(BaseModel):
             models["decompose"] = self.decompose_model
         if self.exec_model:
             models["exec"] = self.exec_model
+        if self.review_model:
+            models["review"] = self.review_model
         if self.qa_model:
             models["qa"] = self.qa_model
         return models
@@ -164,6 +171,7 @@ class Config(BaseModel):
             "discovery": self.discovery_engine_id or base,
             "planning": self.planning_engine_id or base,
             "exec": self.exec_engine_id or base,
+            "review": self.review_engine_id or self.qa_engine_id or base,
             "qa": self.qa_engine_id or base,
         }
 
@@ -397,6 +405,7 @@ def load_config() -> Config:
         planning_model=os.environ.get("DEVGODZILLA_PLANNING_MODEL"),
         decompose_model=os.environ.get("DEVGODZILLA_DECOMPOSE_MODEL"),
         exec_model=os.environ.get("DEVGODZILLA_EXEC_MODEL"),
+        review_model=os.environ.get("DEVGODZILLA_REVIEW_MODEL"),
         qa_model=os.environ.get("DEVGODZILLA_QA_MODEL"),
         
         # Engines
@@ -404,6 +413,7 @@ def load_config() -> Config:
         discovery_engine_id=os.environ.get("DEVGODZILLA_DISCOVERY_ENGINE_ID") or None,
         planning_engine_id=os.environ.get("DEVGODZILLA_PLANNING_ENGINE_ID") or None,
         exec_engine_id=os.environ.get("DEVGODZILLA_EXEC_ENGINE_ID") or None,
+        review_engine_id=os.environ.get("DEVGODZILLA_REVIEW_ENGINE_ID") or None,
         qa_engine_id=os.environ.get("DEVGODZILLA_QA_ENGINE_ID") or None,
         agent_config_path=Path(os.environ.get("DEVGODZILLA_AGENT_CONFIG_PATH")) if os.environ.get("DEVGODZILLA_AGENT_CONFIG_PATH") else Path("config/agents.yaml"),
         
@@ -427,6 +437,9 @@ def load_config() -> Config:
         host_projects_root=os.environ.get("DEVGODZILLA_HOST_PROJECTS_ROOT"),
         container_projects_root=os.environ.get("DEVGODZILLA_CONTAINER_PROJECTS_ROOT", "/app/projects"),
         task_cycle_max_iterations=int(os.environ.get("DEVGODZILLA_TASK_CYCLE_MAX_ITERATIONS", "5")),
+        task_cycle_helper_parallelism=int(os.environ.get("DEVGODZILLA_TASK_CYCLE_HELPER_PARALLELISM", "2")),
+        task_cycle_helper_timeout_seconds=int(os.environ.get("DEVGODZILLA_TASK_CYCLE_HELPER_TIMEOUT_SECONDS", "180")),
+        task_cycle_enabled=_parse_bool(os.environ.get("DEVGODZILLA_TASK_CYCLE_ENABLED"), default=True),
         
         # Misc
         spec_audit_interval_seconds=int(v) if (v := os.environ.get("DEVGODZILLA_SPEC_AUDIT_INTERVAL_SECONDS")) else None,

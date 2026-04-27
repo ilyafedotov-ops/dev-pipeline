@@ -44,12 +44,13 @@ function getArtifactEndpoints(artifact: ProtocolArtifact): {
   content: string | null;
   download: string | null;
 } {
-  const artifactId = encodeURIComponent(artifact.id);
   if (artifact.step_run_id != null) {
+    const artifactId = encodeURIComponent(artifact.name);
     const base = `/steps/${artifact.step_run_id}/artifacts/${artifactId}`;
     return { content: `${base}/content`, download: `${base}/download` };
   }
   if (artifact.run_id) {
+    const artifactId = encodeURIComponent(artifact.id);
     const base = `/runs/${encodeURIComponent(artifact.run_id)}/artifacts/${artifactId}`;
     return { content: `${base}/content`, download: `${base}/download` };
   }
@@ -67,6 +68,19 @@ function languageForKind(kind: string, name: string): string {
   if (name.endsWith(".md")) return "markdown";
   if (name.endsWith(".yaml") || name.endsWith(".yml")) return "yaml";
   return "text";
+}
+
+function shouldWrapArtifactContent(kind: string, name: string): boolean {
+  if (kind === "diff" || kind === "code") return false;
+  return (
+    kind === "json" ||
+    name.endsWith(".json") ||
+    kind === "text" ||
+    kind === "report" ||
+    name.endsWith(".md") ||
+    name.endsWith(".txt") ||
+    name.endsWith(".log")
+  );
 }
 
 function ArtifactContentDialog({
@@ -141,6 +155,10 @@ function ArtifactContentDialog({
               code={data.content ?? ""}
               language={languageForKind(artifact?.kind ?? "", artifact?.name ?? "")}
               maxHeight="60vh"
+              wrapLongLines={shouldWrapArtifactContent(
+                artifact?.kind ?? "",
+                artifact?.name ?? ""
+              )}
             />
           </div>
         ) : null}

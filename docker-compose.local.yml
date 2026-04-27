@@ -68,7 +68,7 @@ services:
       - BASE_URL=http://localhost:8001
       - SUPERADMIN_SECRET=${WINDMILL_SUPERADMIN_SECRET:-devgodzilla-local-superadmin}
       - JOB_DEFAULT_TIMEOUT_SECS=${WINDMILL_JOB_TIMEOUT_SECONDS:-3600}
-      - DEVGODZILLA_API_URL=http://host.docker.internal:8000
+      - DEVGODZILLA_API_URL=http://devgodzilla-api:8000
     depends_on:
       db:
         condition: service_healthy
@@ -105,7 +105,7 @@ services:
       - WORKER_GROUP=default
       - TIMEOUT=${WINDMILL_JOB_TIMEOUT_SECONDS:-3600}
       - JOB_DEFAULT_TIMEOUT_SECS=${WINDMILL_JOB_TIMEOUT_SECONDS:-3600}
-      - DEVGODZILLA_API_URL=http://host.docker.internal:8000
+      - DEVGODZILLA_API_URL=http://devgodzilla-api:8000
       - WHITELIST_ENVS=DEVGODZILLA_API_URL  # Pass through to scripts
     depends_on:
       db:
@@ -137,7 +137,7 @@ services:
       - JOB_DEFAULT_TIMEOUT_SECS=${WINDMILL_JOB_TIMEOUT_SECONDS:-3600}
       - NUM_WORKERS=8
       - SLEEP_QUEUE=200
-      - DEVGODZILLA_API_URL=http://host.docker.internal:8000
+      - DEVGODZILLA_API_URL=http://devgodzilla-api:8000
     depends_on:
       db:
         condition: service_healthy
@@ -156,6 +156,9 @@ services:
       dockerfile: Dockerfile
       args:
         INSTALL_AGENT_CLIS: "${INSTALL_AGENT_CLIS:-1}"
+    env_file:
+      - path: .env
+        required: false
     restart: unless-stopped
     expose:
       - "8000"
@@ -169,6 +172,12 @@ services:
       - DEVGODZILLA_WINDMILL_ONBOARD_SCRIPT_PATH=u/devgodzilla/project_onboard_api
       - DEVGODZILLA_WINDMILL_IMPORT_ROOT=windmill
       - DEVGODZILLA_PROJECTS_ROOT=/app/projects
+      - DEVGODZILLA_AGENT_CONFIG_PATH=${DEVGODZILLA_AGENT_CONFIG_PATH:-/app/devgodzilla/config/agents.yaml}
+      - DEVGODZILLA_DEFAULT_ENGINE_ID=${DEVGODZILLA_DEFAULT_ENGINE_ID:-}
+      - DEVGODZILLA_DISCOVERY_ENGINE_ID=${DEVGODZILLA_DISCOVERY_ENGINE_ID:-}
+      - DEVGODZILLA_PLANNING_ENGINE_ID=${DEVGODZILLA_PLANNING_ENGINE_ID:-}
+      - DEVGODZILLA_EXEC_ENGINE_ID=${DEVGODZILLA_EXEC_ENGINE_ID:-}
+      - DEVGODZILLA_QA_ENGINE_ID=${DEVGODZILLA_QA_ENGINE_ID:-}
       # Agent CLIs (Codex / Claude Code / OpenCode) read provider keys from env.
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -185,6 +194,11 @@ services:
         condition: service_started
     volumes:
       - ./projects:/app/projects
+      - ${HOME}/PycharmProjects:${HOME}/PycharmProjects
+      - ${HOME}/DevGodzillaProjects:${HOME}/DevGodzillaProjects
+      - ${HOME}/.codex:/root/.codex:rw
+      - ${HOME}/.claude:/root/.claude:rw
+      - ${HOME}/.gemini:/root/.gemini:rw
       # Optional: reuse your host OpenCode login inside Docker (recommended for local dev).
       # Host paths (macOS/Linux): `opencode auth list` shows credentials in `~/.local/share/opencode/auth.json`.
       - ${HOME}/.local/share/opencode:/root/.local/share/opencode:rw

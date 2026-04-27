@@ -180,6 +180,7 @@ export function mockAllProjectApis(page: Page, projectId: number = 42, overrides
   protocols?: any[];
   taskCycle?: any;
   sprints?: any[];
+  features?: Record<string, any>;
 }) {
   const p = `/api/v1/projects/${projectId}`;
 
@@ -188,6 +189,8 @@ export function mockAllProjectApis(page: Page, projectId: number = 42, overrides
   const protocols = overrides?.protocols ?? MOCK_PROTOCOLS;
   const taskCycle = overrides?.taskCycle ?? MOCK_TASK_CYCLE;
   const sprints = overrides?.sprints ?? MOCK_SPRINTS;
+  const features = { task_cycle_enabled: false, ...(overrides?.features ?? {}) };
+  const projects = [project];
 
   // Helper for JSON responses
   const json = (data: any) => ({
@@ -195,6 +198,10 @@ export function mockAllProjectApis(page: Page, projectId: number = 42, overrides
     contentType: "application/json",
     body: JSON.stringify(data),
   });
+
+  // App-wide routes that project detail depends on
+  page.route(/\/api\/v1\/features(?:\?.*)?$/, (r) => r.fulfill(json(features)));
+  page.route(/\/api\/v1\/projects(?:\?.*)?$/, (r) => r.fulfill(json(projects)));
 
   // Sub-resource routes (specific first, then generic)
   page.route(new RegExp(`${p}/onboarding/?`), (r) => r.fulfill(json(onboarding)));
@@ -207,6 +214,7 @@ export function mockAllProjectApis(page: Page, projectId: number = 42, overrides
   page.route(new RegExp(`${p}/policy/findings/?`), (r) => r.fulfill(json([])));
   page.route(new RegExp(`${p}/clarifications/?`), (r) => r.fulfill(json([])));
   page.route(new RegExp(`${p}/branches/?`), (r) => r.fulfill(json([])));
+  page.route(new RegExp(`${p}/worktrees/?`), (r) => r.fulfill(json([])));
   page.route(new RegExp(`${p}/workflow/?`), (r) => r.fulfill(json({ nodes: [], edges: [] })));
   // GitHub integrations — these return 404 without mocks and crash React
   page.route(new RegExp(`${p}/commits/?`), (r) => r.fulfill(json([])));

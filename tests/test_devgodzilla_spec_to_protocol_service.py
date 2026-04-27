@@ -437,10 +437,36 @@ More description.
         assert result.success is True
 
         protocol_root = Path(result.protocol_root)
+        assert (protocol_root / "README.md").exists()
         assert (protocol_root / "plan.md").exists()
         assert (protocol_root / "context.md").exists()
         assert (protocol_root / "log.md").exists()
         assert (protocol_root / "runs").is_dir()
+
+    def test_existing_runtime_steps_still_get_missing_support_files(
+        self,
+        spec_service,
+        sample_project,
+        spec_dir,
+    ):
+        """Support files should be backfilled even when step scaffolding is preserved."""
+        tasks_path = spec_dir / "tasks.md"
+        tasks_path.write_text("## Phase\n- [ ] Task\n")
+        protocol_root = spec_dir / "_runtime"
+        protocol_root.mkdir(parents=True, exist_ok=True)
+        (protocol_root / "step-01-phase.md").write_text("# Step\n", encoding="utf-8")
+
+        result = spec_service.create_protocol_from_spec(
+            project_id=sample_project.id,
+            tasks_path=str(tasks_path),
+            overwrite=False,
+        )
+
+        assert result.success is True
+        assert "Existing runtime steps" in result.warnings[0]
+        assert (protocol_root / "README.md").exists()
+        assert (protocol_root / "context.md").exists()
+        assert (protocol_root / "log.md").exists()
 
     # ==================== SpecToProtocolResult Tests ====================
 

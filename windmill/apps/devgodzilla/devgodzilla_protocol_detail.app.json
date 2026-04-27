@@ -75,7 +75,10 @@
                                 "hidden": "{protocol_data.protocol.status !== 'pending'}",
                                 "onClick": {
                                     "type": "runnableByName",
-                                    "name": "u/devgodzilla/execute_step"
+                                    "name": "u/devgodzilla/protocol_plan_and_wait",
+                                    "args": {
+                                        "protocol_run_id": "{$state.protocol_id}"
+                                    }
                                 }
                             },
                             {

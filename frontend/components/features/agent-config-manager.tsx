@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { AlertCircle, Loader2, RotateCcw, Save, Settings2, TestTube2 } from "lucide-react";
 
@@ -25,6 +26,8 @@ import {
   type AgentUpdate,
   useAgent,
   useAgents,
+  useAgentModels,
+  useRefreshAgentModels,
   useTestAgentSetup,
   useUpdateAgentConfig,
 } from "@/lib/api";
@@ -46,6 +49,7 @@ export interface AgentConfigManagerProps {
 
 interface ConfigFormData {
   default_model: string;
+  reasoning_effort: string;
   timeout_seconds: string;
   max_retries: string;
   sandbox: string;
@@ -61,16 +65,12 @@ interface ConfigFormData {
 // Constants
 // =============================================================================
 
-const COMMON_MODELS = [
-  "zai-coding-plan/glm-4.6",
-  "zai-coding-plan/glm-5.1",
-  "gpt-4o",
-  "gpt-4.1",
-  "claude-sonnet-4-20250514",
-  "claude-opus-4-20250514",
-  "o3",
-  "o4-mini",
-];
+const FALLBACK_MODELS_BY_AGENT: Record<string, string[]> = {
+  codex: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2", "codex-auto-review"],
+  opencode: ["openai/gpt-5", "openai/gpt-4.1", "anthropic/claude-sonnet-4", "google/gemini-2.5-pro"],
+  "claude-code": ["claude-sonnet-4-20250514", "claude-opus-4-20250514"],
+  "gemini-cli": ["gemini-2.5-pro", "gemini-2.5-flash"],
+};
 
 const SANDBOX_OPTIONS = [
   { value: "none", label: "No Sandbox" },
@@ -102,9 +102,12 @@ interface AgentConfigFormProps {
 export function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormProps) {
   const updateConfig = useUpdateAgentConfig();
   const testSetup = useTestAgentSetup();
+  const modelList = useAgentModels(agent.id, projectId);
+  const refreshModels = useRefreshAgentModels();
 
   const [form, setForm] = useState<ConfigFormData>({
     default_model: agent.default_model ?? "",
+    reasoning_effort: agent.reasoning_effort ?? "",
     timeout_seconds: String(agent.timeout_seconds ?? DEFAULT_TIMEOUT),
     max_retries: String(agent.max_retries ?? DEFAULT_MAX_RETRIES),
     sandbox: agent.sandbox ?? "none",
@@ -117,11 +120,13 @@ export function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormPr
   });
 
   const [hasChanges, setHasChanges] = useState(false);
+  const [lastModelsRefreshAt, setLastModelsRefreshAt] = useState<string | null>(null);
 
   // Sync form when agent data changes
   useEffect(() => {
     setForm({
       default_model: agent.default_model ?? "",
+      reasoning_effort: agent.reasoning_effort ?? "",
       timeout_seconds: String(agent.timeout_seconds ?? DEFAULT_TIMEOUT),
       max_retries: String(agent.max_retries ?? DEFAULT_MAX_RETRIES),
       sandbox: agent.sandbox ?? "none",
@@ -136,13 +141,20 @@ export function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormPr
   }, [agent]);
 
   const updateField = useCallback(<K extends keyof ConfigFormData>(key: K, value: ConfigFormData[K]) => {
+    if (updateConfig.error) {
+      updateConfig.reset();
+    }
+    if (testSetup.error) {
+      testSetup.reset();
+    }
     setForm((prev) => ({ ...prev, [key]: value }));
     setHasChanges(true);
-  }, []);
+  }, [updateConfig, testSetup]);
 
   const buildUpdatePayload = useCallback((): AgentUpdate => {
     return {
       default_model: form.default_model || null,
+      reasoning_effort: form.reasoning_effort || null,
       timeout_seconds: parseInt(form.timeout_seconds, 10) || DEFAULT_TIMEOUT,
       max_retries: parseInt(form.max_retries, 10) || DEFAULT_MAX_RETRIES,
       sandbox: form.sandbox === "none" ? null : form.sandbox,
@@ -160,6 +172,8 @@ export function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormPr
 
   const handleSave = useCallback(async () => {
     try {
+      updateConfig.reset();
+      testSetup.reset();
       await updateConfig.mutateAsync({
         agentId: agent.id,
         data: buildUpdatePayload(),
@@ -170,11 +184,14 @@ export function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormPr
     } catch {
       // Error is handled by mutation state
     }
-  }, [updateConfig, agent.id, buildUpdatePayload, projectId, onSaved]);
+  }, [updateConfig, testSetup, agent.id, buildUpdatePayload, projectId, onSaved]);
 
   const handleReset = useCallback(() => {
+    updateConfig.reset();
+    testSetup.reset();
     setForm({
       default_model: agent.default_model ?? "",
+      reasoning_effort: agent.reasoning_effort ?? "",
       timeout_seconds: String(agent.timeout_seconds ?? DEFAULT_TIMEOUT),
       max_retries: String(agent.max_retries ?? DEFAULT_MAX_RETRIES),
       sandbox: agent.sandbox ?? "none",
@@ -186,17 +203,41 @@ export function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormPr
       capabilities: agent.capabilities?.join(", ") ?? "",
     });
     setHasChanges(false);
-  }, [agent]);
+  }, [agent, updateConfig, testSetup]);
 
   const handleTest = useCallback(async () => {
+    updateConfig.reset();
+    testSetup.reset();
     await testSetup.mutateAsync({
       agentId: agent.id,
       projectId,
+      overrides: buildUpdatePayload(),
     });
-  }, [testSetup, agent.id, projectId]);
+  }, [updateConfig, testSetup, agent.id, projectId, buildUpdatePayload]);
 
   const isSaving = updateConfig.isPending;
   const isTesting = testSetup.isPending;
+  const modelSource = modelList.data?.source;
+  const fallbackModels = agent.id === "codex" || ["cli", "cache", "bundle", "provider_api"].includes(modelSource ?? "")
+    ? []
+    : (FALLBACK_MODELS_BY_AGENT[agent.id] ?? []);
+  const availableModels = Array.from(new Set([...(modelList.data?.models ?? []), ...fallbackModels]));
+  const hasInvalidCurrentModel = !!form.default_model && !availableModels.includes(form.default_model);
+  const selectedModelDetails = (form.default_model && modelList.data?.model_details?.[form.default_model]) || null;
+  const reasoningOptions = selectedModelDetails?.supported_reasoning_efforts ?? [];
+  const effectiveReasoningValue = form.reasoning_effort || selectedModelDetails?.default_reasoning_effort || "";
+
+  const handleRefreshModels = useCallback(async () => {
+    toast.loading("Refreshing models...", { id: "agent-model-refresh" });
+    try {
+      const refreshed = await refreshModels.mutateAsync({ agentId: agent.id, projectId });
+      setLastModelsRefreshAt(new Date().toLocaleTimeString());
+      toast.success(`Models refreshed (${refreshed.models.length})`, { id: "agent-model-refresh" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to refresh models";
+      toast.error(message, { id: "agent-model-refresh" });
+    }
+  }, [refreshModels, agent.id, projectId]);
 
   return (
     <div className="space-y-6">
@@ -265,25 +306,48 @@ export function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormPr
 
       {/* Model Configuration */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold">Model Configuration</h3>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold">Model Configuration</h3>
+          <Button type="button" variant="outline" size="sm" onClick={handleRefreshModels} disabled={refreshModels.isPending}>
+            {refreshModels.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Refresh Models
+          </Button>
+        </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="model" className="text-xs">Default Model</Label>
-            <Select value={form.default_model} onValueChange={(v) => updateField("default_model", v)}>
+            <Select
+              value={hasInvalidCurrentModel ? undefined : form.default_model}
+              onValueChange={(v) => updateField("default_model", v)}
+            >
               <SelectTrigger id="model" className="text-sm">
                 <SelectValue placeholder="Select model..." />
               </SelectTrigger>
               <SelectContent>
-                {COMMON_MODELS.map((model) => (
+                {availableModels.map((model) => (
                   <SelectItem key={model} value={model}>
                     {model}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {hasInvalidCurrentModel && (
+              <p className="text-destructive text-[10px]">
+                Current model is not valid for this agent and is not included in the available model list.
+              </p>
+            )}
             <p className="text-muted-foreground text-[10px]">
-              Or type a custom model name below
+              Source: {modelList.data?.source ?? "unknown"}.
+              {modelList.data?.warning ? ` ${modelList.data.warning}` : ""}
+            </p>
+            {lastModelsRefreshAt && (
+              <p className="text-muted-foreground text-[10px]">
+                Refreshed at {lastModelsRefreshAt}
+              </p>
+            )}
+            <p className="text-muted-foreground text-[10px]">
+              You can still type a custom model below, but save/test will validate it against the agent source when supported.
             </p>
             <Input
               value={form.default_model}
@@ -294,19 +358,37 @@ export function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormPr
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="format" className="text-xs">Output Format</Label>
-            <Select value={form.format} onValueChange={(v) => updateField("format", v)}>
-              <SelectTrigger id="format" className="text-sm">
-                <SelectValue />
+            <Label htmlFor="reasoning_effort" className="text-xs">Reasoning Effort</Label>
+            <Select
+              value={effectiveReasoningValue || undefined}
+              onValueChange={(v) => updateField("reasoning_effort", v)}
+              disabled={reasoningOptions.length === 0}
+            >
+              <SelectTrigger id="reasoning_effort" className="text-sm">
+                <SelectValue placeholder={reasoningOptions.length === 0 ? "Not available for this model" : "Use model default"} />
               </SelectTrigger>
               <SelectContent>
-                {FORMAT_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                {reasoningOptions.map((opt) => (
+                  <SelectItem key={opt.effort} value={opt.effort}>
+                    {opt.effort}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {selectedModelDetails?.default_reasoning_effort && (
+              <p className="text-muted-foreground text-[10px]">
+                Model default: {selectedModelDetails.default_reasoning_effort}
+              </p>
+            )}
+            {reasoningOptions.length > 0 ? (
+              <p className="text-muted-foreground text-[10px]">
+                {reasoningOptions.find((opt) => opt.effort === effectiveReasoningValue)?.description ?? "Adjust how much the model reasons before responding."}
+              </p>
+            ) : (
+              <p className="text-muted-foreground text-[10px]">
+                Reasoning controls are only exposed when the agent source reports supported values.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -315,7 +397,7 @@ export function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormPr
       <div className="space-y-4">
         <h3 className="text-sm font-semibold">Execution Settings</h3>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-4">
           <div className="space-y-2">
             <Label htmlFor="timeout" className="text-xs">Timeout (seconds)</Label>
             <Input
@@ -350,6 +432,22 @@ export function AgentConfigForm({ agent, projectId, onSaved }: AgentConfigFormPr
               </SelectTrigger>
               <SelectContent>
                 {SANDBOX_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="format" className="text-xs">Output Format</Label>
+            <Select value={form.format} onValueChange={(v) => updateField("format", v)}>
+              <SelectTrigger id="format" className="text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FORMAT_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>

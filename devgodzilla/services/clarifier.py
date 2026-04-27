@@ -512,6 +512,15 @@ Respond ONLY with the JSON array, no other text.
             sandbox=SandboxMode.READ_ONLY,
             extra={"job_id": "ambiguity_detection", "engine_id": resolved_engine_id},
         )
+        try:
+            from devgodzilla.services.agent_config import AgentConfigService
+
+            cfg = AgentConfigService(self.context)
+            agent_cfg = cfg.get_agent(resolved_engine_id, project_id=project_id)
+            if agent_cfg and isinstance(agent_cfg.reasoning_effort, str) and agent_cfg.reasoning_effort.strip():
+                request.extra["reasoning_effort"] = agent_cfg.reasoning_effort.strip()
+        except Exception:
+            pass
 
         # Call the LLM
         try:

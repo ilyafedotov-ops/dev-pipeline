@@ -9,6 +9,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: pushMock,
   }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -66,8 +67,18 @@ vi.mock("@/lib/api", () => ({
     isLoading: false,
     refetch: vi.fn(),
   }),
+  useSpecificationContent: () => ({
+    data: null,
+    isLoading: false,
+    error: null,
+  }),
   useInitSpecKit: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useClarifySpec: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDetectAmbiguities: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+    data: null,
+  }),
   useGenerateChecklist: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAnalyzeSpec: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRunImplement: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -76,6 +87,7 @@ vi.mock("@/lib/api", () => ({
   useGenerateTasks: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRunWorkflow: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useStopSpecRun: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteSpecRun: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 describe("SpecTab review surface", () => {

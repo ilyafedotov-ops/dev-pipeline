@@ -18,7 +18,9 @@ test.describe("Projects", () => {
   });
 
   test("Shows empty state when no projects exist", async ({ page }) => {
-    await expect(page.getByText("No projects yet")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "No projects yet" })).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test("Click 'New Project' opens the project wizard dialog", async ({ page }) => {

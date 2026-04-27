@@ -5,10 +5,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from devgodzilla.logging import get_logger
 from devgodzilla.models.domain import Clarification
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.clarifier import ClarifierService
 from devgodzilla.services.policy import EffectivePolicy, PolicyService
+
+logger = get_logger(__name__)
 
 
 @dataclass

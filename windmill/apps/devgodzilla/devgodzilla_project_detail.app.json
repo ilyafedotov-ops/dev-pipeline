@@ -76,6 +76,7 @@
                     "Overview",
                     "SpecKit",
                     "Protocols",
+                    "Task Cycle",
                     "Settings"
                 ],
                 "default": "Overview"
@@ -438,6 +439,339 @@
                         ]
                     }
                 ]
+            },
+            {
+                "id": "task_cycle_tab",
+                "type": "container",
+                "style": {
+                    "class": "tab-content"
+                },
+                "hidden": "{tabs.selected !== 'Task Cycle'}",
+                "children": [
+                    {
+                        "id": "task_cycle_intro",
+                        "type": "container",
+                        "style": {
+                            "class": "card",
+                            "marginBottom": "1.5rem"
+                        },
+                        "children": [
+                            {
+                                "id": "task_cycle_title",
+                                "type": "text",
+                                "value": "## Task Cycle"
+                            },
+                            {
+                                "id": "task_cycle_description",
+                                "type": "text",
+                                "value": "First-class brownfield delivery view for context, implementation, review, QA, and PR readiness."
+                            },
+                            {
+                                "id": "task_cycle_counts",
+                                "type": "container",
+                                "style": {
+                                    "display": "grid",
+                                    "gridTemplateColumns": "repeat(4, 1fr)",
+                                    "gap": "0.75rem",
+                                    "marginTop": "1rem"
+                                },
+                                "children": [
+                                    {
+                                        "id": "task_cycle_count_total",
+                                        "type": "container",
+                                        "style": {
+                                            "padding": "12px",
+                                            "background": "var(--surface-secondary)",
+                                            "borderRadius": "8px"
+                                        },
+                                        "children": [
+                                            {
+                                                "id": "task_cycle_count_total_value",
+                                                "type": "text",
+                                                "value": "### {task_cycle_data.count || 0}"
+                                            },
+                                            {
+                                                "id": "task_cycle_count_total_label",
+                                                "type": "text",
+                                                "value": "Work Items"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "id": "task_cycle_count_context",
+                                        "type": "container",
+                                        "style": {
+                                            "padding": "12px",
+                                            "background": "var(--surface-secondary)",
+                                            "borderRadius": "8px"
+                                        },
+                                        "children": [
+                                            {
+                                                "id": "task_cycle_count_context_value",
+                                                "type": "text",
+                                                "value": "### {task_cycle_data.work_items.filter(i => i.context_status !== 'ready').length}"
+                                            },
+                                            {
+                                                "id": "task_cycle_count_context_label",
+                                                "type": "text",
+                                                "value": "Ready for Context"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "id": "task_cycle_count_review",
+                                        "type": "container",
+                                        "style": {
+                                            "padding": "12px",
+                                            "background": "var(--surface-secondary)",
+                                            "borderRadius": "8px"
+                                        },
+                                        "children": [
+                                            {
+                                                "id": "task_cycle_count_review_value",
+                                                "type": "text",
+                                                "value": "### {task_cycle_data.work_items.filter(i => i.status === 'awaiting_review').length}"
+                                            },
+                                            {
+                                                "id": "task_cycle_count_review_label",
+                                                "type": "text",
+                                                "value": "Awaiting Review"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "id": "task_cycle_count_pr_ready",
+                                        "type": "container",
+                                        "style": {
+                                            "padding": "12px",
+                                            "background": "var(--surface-secondary)",
+                                            "borderRadius": "8px"
+                                        },
+                                        "children": [
+                                            {
+                                                "id": "task_cycle_count_pr_ready_value",
+                                                "type": "text",
+                                                "value": "### {task_cycle_data.work_items.filter(i => i.pr_ready).length}"
+                                            },
+                                            {
+                                                "id": "task_cycle_count_pr_ready_label",
+                                                "type": "text",
+                                                "value": "PR Ready"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "id": "task_cycle_next_card",
+                        "type": "container",
+                        "style": {
+                            "class": "card",
+                            "marginBottom": "1.5rem"
+                        },
+                        "children": [
+                            {
+                                "id": "task_cycle_next_title",
+                                "type": "text",
+                                "value": "## Next Work Item"
+                            },
+                            {
+                                "id": "task_cycle_next_empty",
+                                "type": "text",
+                                "hidden": "{!!next_work_item_data.work_item}",
+                                "value": "No active task-cycle work item found. Start a brownfield run or refresh the project state."
+                            },
+                            {
+                                "id": "task_cycle_next_details",
+                                "type": "container",
+                                "hidden": "{!next_work_item_data.work_item}",
+                                "children": [
+                                    {
+                                        "id": "task_cycle_next_name",
+                                        "type": "text",
+                                        "value": "**{next_work_item_data.work_item.title || 'Work Item'}**"
+                                    },
+                                    {
+                                        "id": "task_cycle_next_meta",
+                                        "type": "text",
+                                        "value": "Status: **{next_work_item_data.work_item.status || '—'}** · Context: **{next_work_item_data.work_item.context_status || '—'}** · Review: **{next_work_item_data.work_item.review_status || '—'}** · QA: **{next_work_item_data.work_item.qa_status || '—'}** · PR Ready: **{next_work_item_data.work_item.pr_ready ? 'yes' : 'no'}**"
+                                    },
+                                    {
+                                        "id": "task_cycle_next_owner",
+                                        "type": "text",
+                                        "value": "Owner: **{next_work_item_data.work_item.owner_agent || '—'}** · Helpers: **{next_work_item_data.work_item.helper_agents && next_work_item_data.work_item.helper_agents.length ? next_work_item_data.work_item.helper_agents.join(', ') : 'none'}**"
+                                    },
+                                    {
+                                        "id": "task_cycle_next_helper_summary",
+                                        "type": "text",
+                                        "value": "Helper activity: {next_work_item_data.work_item.helper_agent_summary || 'No helper subtasks configured under the owner'}"
+                                    },
+                                    {
+                                        "id": "task_cycle_next_task_dir",
+                                        "type": "text",
+                                        "value": "Task folder: `{next_work_item_data.work_item.task_dir || '—'}`"
+                                    },
+                                    {
+                                        "id": "task_cycle_next_summary",
+                                        "type": "text",
+                                        "value": "{next_work_item_data.work_item.summary || 'Use the actions below to advance the current work item.'}",
+                                        "style": {
+                                            "marginTop": "0.5rem",
+                                            "color": "var(--text-secondary)"
+                                        }
+                                    },
+                                    {
+                                        "id": "task_cycle_next_actions",
+                                        "type": "container",
+                                        "style": {
+                                            "display": "flex",
+                                            "gap": "0.5rem",
+                                            "flexWrap": "wrap",
+                                            "marginTop": "1rem"
+                                        },
+                                        "children": [
+                                            {
+                                                "id": "task_cycle_btn_build_context",
+                                                "type": "button",
+                                                "label": "Build Context",
+                                                "color": "light",
+                                                "onClick": {
+                                                    "type": "runnableByName",
+                                                    "name": "u/devgodzilla/build_context_work_item_api",
+                                                    "args": {
+                                                        "work_item_id": "{next_work_item_data.work_item.id}",
+                                                        "refresh": true
+                                                    }
+                                                }
+                                            },
+                                            {
+                                                "id": "task_cycle_btn_implement",
+                                                "type": "button",
+                                                "label": "Implement",
+                                                "color": "blue",
+                                                "onClick": {
+                                                    "type": "runnableByName",
+                                                    "name": "u/devgodzilla/implement_work_item_api",
+                                                    "args": {
+                                                        "work_item_id": "{next_work_item_data.work_item.id}"
+                                                    }
+                                                }
+                                            },
+                                            {
+                                                "id": "task_cycle_btn_review",
+                                                "type": "button",
+                                                "label": "Review",
+                                                "color": "dark",
+                                                "onClick": {
+                                                    "type": "runnableByName",
+                                                    "name": "u/devgodzilla/review_work_item_api",
+                                                    "args": {
+                                                        "work_item_id": "{next_work_item_data.work_item.id}"
+                                                    }
+                                                }
+                                            },
+                                            {
+                                                "id": "task_cycle_btn_qa",
+                                                "type": "button",
+                                                "label": "QA",
+                                                "color": "dark",
+                                                "onClick": {
+                                                    "type": "runnableByName",
+                                                    "name": "u/devgodzilla/qa_work_item_api",
+                                                    "args": {
+                                                        "work_item_id": "{next_work_item_data.work_item.id}"
+                                                    }
+                                                }
+                                            },
+                                            {
+                                                "id": "task_cycle_btn_mark_pr_ready",
+                                                "type": "button",
+                                                "label": "Mark PR Ready",
+                                                "color": "blue",
+                                                "onClick": {
+                                                    "type": "runnableByName",
+                                                    "name": "u/devgodzilla/mark_pr_ready_work_item_api",
+                                                    "args": {
+                                                        "work_item_id": "{next_work_item_data.work_item.id}"
+                                                    }
+                                                }
+                                            },
+                                            {
+                                                "id": "task_cycle_btn_refresh",
+                                                "type": "button",
+                                                "label": "Refresh",
+                                                "color": "light",
+                                                "onClick": {
+                                                    "type": "refresh"
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "id": "task_cycle_table",
+                        "type": "table",
+                        "label": "Task Cycle Work Items",
+                        "configuration": {
+                            "search": "Enabled",
+                            "pagination": {
+                                "pageSize": 20
+                            }
+                        },
+                        "data": {
+                            "columns": [
+                                {
+                                    "field": "title",
+                                    "headerName": "Work Item",
+                                    "type": "text",
+                                    "flex": 2
+                                },
+                                {
+                                    "field": "status",
+                                    "headerName": "Status",
+                                    "type": "badge",
+                                    "flex": 1
+                                },
+                                {
+                                    "field": "context_status",
+                                    "headerName": "Context",
+                                    "type": "badge",
+                                    "flex": 1
+                                },
+                                {
+                                    "field": "review_status",
+                                    "headerName": "Review",
+                                    "type": "badge",
+                                    "flex": 1
+                                },
+                                {
+                                    "field": "qa_status",
+                                    "headerName": "QA",
+                                    "type": "badge",
+                                    "flex": 1
+                                },
+                                {
+                                    "field": "owner_agent",
+                                    "headerName": "Owner",
+                                    "type": "text",
+                                    "flex": 1
+                                },
+                                {
+                                    "field": "pr_ready",
+                                    "headerName": "PR Ready",
+                                    "type": "text",
+                                    "flex": 0.8
+                                }
+                            ],
+                            "rows": "{task_cycle_data.work_items.map(i => ({ title: i.title, status: i.status, context_status: i.context_status, review_status: i.review_status, qa_status: i.qa_status, owner_agent: i.owner_agent || '—', pr_ready: i.pr_ready ? 'yes' : 'no' }))}"
+                        }
+                    }
+                ]
             }
         ],
         "hiddenInlineScripts": [
@@ -457,6 +791,24 @@
                 "type": "runnableByName",
                 "args": {
                     "project_id": "{$state.project_id}"
+                }
+            },
+            {
+                "name": "task_cycle_data",
+                "script": "u/devgodzilla/get_task_cycle_api",
+                "inlineScript": null,
+                "type": "runnableByName",
+                "args": {
+                    "project_id": "{$state.project_id}"
+                }
+            },
+            {
+                "name": "next_work_item_data",
+                "script": "u/devgodzilla/get_work_item_api",
+                "inlineScript": null,
+                "type": "runnableByName",
+                "args": {
+                    "work_item_id": "{task_cycle_data.next_work_item_id}"
                 }
             }
         ],
@@ -496,6 +848,12 @@
                 "y": 4,
                 "w": 12,
                 "h": 8
+            },
+            "task_cycle_tab": {
+                "x": 0,
+                "y": 4,
+                "w": 12,
+                "h": 16
             },
             "settings_tab": {
                 "x": 0,

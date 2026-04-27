@@ -12,6 +12,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: pushMock,
   }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -29,16 +30,29 @@ vi.mock("@/lib/api", () => ({
     isLoading: false,
     refetch: refetchSpecsMock,
   }),
+  useSpecificationContent: () => ({
+    data: null,
+    isLoading: false,
+    error: null,
+  }),
   useInitSpecKit: () => ({
     mutateAsync: initMutateAsyncMock,
     isPending: false,
   }),
   useClarifySpec: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDetectAmbiguities: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+    data: null,
+  }),
   useGenerateChecklist: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAnalyzeSpec: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useGeneratePlan: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useGenerateTasks: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRunImplement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useGenerateSpec: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useStopSpecRun: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteSpecRun: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 describe("SpecTab uninitialized state", () => {

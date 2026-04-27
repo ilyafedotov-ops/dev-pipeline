@@ -8,6 +8,7 @@ import type {
   Agent,
   AgentAssignments,
   AgentDefaults,
+  AgentModelList,
   AgentOverrides,
   AgentPromptTemplate,
   AgentPromptUpdate,
@@ -31,6 +32,29 @@ export function useAgent(id: string | undefined) {
     queryKey: queryKeys.agents.detail(id as string),
     queryFn: () => apiClient.get<Agent>(`/agents/${id}`),
     enabled: !!id,
+  });
+}
+
+export function useAgentModels(id: string | undefined, projectId?: number) {
+  const suffix = projectId ? `?project_id=${projectId}` : "";
+  return useQuery({
+    queryKey: ["agents", "models", id, projectId ?? null],
+    queryFn: () => apiClient.get<AgentModelList>(`/agents/${id}/models${suffix}`),
+    enabled: !!id,
+    staleTime: 60_000,
+  });
+}
+
+export function useRefreshAgentModels() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentId, projectId }: { agentId: string; projectId?: number }) => {
+      const suffix = projectId ? `?project_id=${projectId}` : "";
+      return apiClient.post<AgentModelList>(`/agents/${agentId}/models/refresh${suffix}`, {});
+    },
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(["agents", "models", variables.agentId, variables.projectId ?? null], data);
+    },
   });
 }
 

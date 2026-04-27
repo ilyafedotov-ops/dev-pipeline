@@ -5,6 +5,7 @@ Validates the CLIEngine-based GeminiEngine adapter using the real
 devgodzilla.engines.interface types (EngineRequest, EngineResult, etc.).
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -116,6 +117,17 @@ class TestGeminiEngineAvailability:
                 engine = GeminiEngine()
                 assert engine.check_availability() is True
 
+    @patch("pathlib.Path.home")
+    @patch("pathlib.Path.exists")
+    @patch("shutil.which")
+    def test_available_with_cached_oauth_creds(self, mock_which, mock_exists, mock_home):
+        mock_which.return_value = "/usr/local/bin/gemini"
+        mock_home.return_value = Path("/fake-home")
+        mock_exists.return_value = True
+        with patch.dict("os.environ", {}, clear=True):
+            engine = GeminiEngine()
+            assert engine.check_availability() is True
+
     @patch("os.path.isfile")
     @patch("shutil.which")
     def test_unavailable_when_not_installed(self, mock_which, mock_isfile):
@@ -124,9 +136,12 @@ class TestGeminiEngineAvailability:
         engine = GeminiEngine()
         assert engine.check_availability() is False
 
+    @patch("pathlib.Path.home")
+    @patch("pathlib.Path.exists", return_value=False)
     @patch("shutil.which")
-    def test_unavailable_when_no_api_key(self, mock_which):
+    def test_unavailable_when_no_api_key(self, mock_which, mock_exists, mock_home):
         mock_which.return_value = "/usr/local/bin/gemini"
+        mock_home.return_value = Path("/fake-home")
         # Clear all relevant env vars
         with patch.dict("os.environ", {}, clear=True):
             engine = GeminiEngine()

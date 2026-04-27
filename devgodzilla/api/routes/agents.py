@@ -32,6 +32,7 @@ def list_agents(
             capabilities=a.capabilities,
             status="configured" if a.enabled else "disabled",
             default_model=a.default_model,
+            reasoning_effort=getattr(a, "reasoning_effort", None),
             command_dir=a.command_dir,
             enabled=a.enabled,
             command=a.command,
@@ -171,6 +172,7 @@ def update_agent_config(
             agent_id=agent_id,
             enabled=config.enabled,
             default_model=config.default_model,
+            reasoning_effort=config.reasoning_effort,
             capabilities=config.capabilities,
             command_dir=config.command_dir,
             name=config.name,
@@ -190,6 +192,7 @@ def update_agent_config(
             capabilities=updated_agent.capabilities,
             status="configured" if updated_agent.enabled else "disabled",
             default_model=updated_agent.default_model,
+            reasoning_effort=updated_agent.reasoning_effort,
             command_dir=updated_agent.command_dir,
             enabled=updated_agent.enabled,
             command=updated_agent.command,
@@ -215,7 +218,8 @@ def update_agent_config(
             "agent_config_update_not_found",
             extra=log_extra(request_id=ctx.request_id, project_id=project_id, agent_id=agent_id, error=str(e)),
         )
-        raise HTTPException(status_code=404, detail=str(e))
+        status_code = 404 if "not found" in str(e).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(e))
     except Exception as e:
         logger.error(
             "agent_config_update_failed",
@@ -524,6 +528,7 @@ def get_agent(
             capabilities=agent.capabilities,
             status="available" if agent.enabled else "unavailable",
             default_model=agent.default_model,
+            reasoning_effort=agent.reasoning_effort,
             command_dir=agent.command_dir,
             enabled=agent.enabled,
             command=agent.command,
@@ -587,6 +592,7 @@ def update_agent(
             agent_id=agent_id,
             enabled=config.enabled,
             default_model=config.default_model,
+            reasoning_effort=config.reasoning_effort,
             capabilities=config.capabilities,
             command_dir=config.command_dir,
             name=config.name,
@@ -606,6 +612,7 @@ def update_agent(
             capabilities=updated_agent.capabilities,
             status="configured" if updated_agent.enabled else "disabled",
             default_model=updated_agent.default_model,
+            reasoning_effort=updated_agent.reasoning_effort,
             command_dir=updated_agent.command_dir,
             enabled=updated_agent.enabled,
             command=updated_agent.command,
@@ -616,7 +623,8 @@ def update_agent(
             max_retries=updated_agent.max_retries,
         )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        status_code = 404 if "not found" in str(e).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update agent: {str(e)}")
 
@@ -714,4 +722,72 @@ def test_agent_setup(
             )
             for c in (res.checks or [])
         ],
+    )
+
+
+@router.get("/agents/{agent_id}/models", response_model=schemas.AgentModelListOut)
+def list_agent_models(
+    agent_id: str,
+    project_id: Optional[int] = Query(default=None),
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
+    """Return a best-effort list of available models for an agent."""
+    cfg = AgentConfigService(ctx, db=db)
+    try:
+        models, source, warning, model_details = cfg.list_models(agent_id, project_id=project_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    logger.info(
+        "agent_models_listed",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            agent_id=agent_id,
+            project_id=project_id,
+            source=source,
+            model_count=len(models),
+            warning=warning,
+        ),
+    )
+    return schemas.AgentModelListOut(
+        agent_id=agent_id,
+        models=models,
+        source=source,
+        warning=warning,
+        model_details=model_details,
+    )
+
+
+@router.post("/agents/{agent_id}/models/refresh", response_model=schemas.AgentModelListOut)
+def refresh_agent_models(
+    agent_id: str,
+    project_id: Optional[int] = Query(default=None),
+    ctx: ServiceContext = Depends(get_service_context),
+    db: Database = Depends(get_db),
+):
+    """Refresh the model list for an agent from its best available local/provider source."""
+    cfg = AgentConfigService(ctx, db=db)
+    try:
+        models, source, warning, model_details = cfg.refresh_models(agent_id, project_id=project_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    logger.info(
+        "agent_models_refreshed",
+        extra=log_extra(
+            request_id=ctx.request_id,
+            agent_id=agent_id,
+            project_id=project_id,
+            source=source,
+            model_count=len(models),
+            warning=warning,
+        ),
+    )
+    return schemas.AgentModelListOut(
+        agent_id=agent_id,
+        models=models,
+        source=source,
+        warning=warning,
+        model_details=model_details,
     )

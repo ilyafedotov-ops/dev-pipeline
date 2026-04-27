@@ -18,6 +18,10 @@ def main(
     protocol_name: Optional[str] = None,
     spec_run_id: Optional[int] = None,
     overwrite: bool = False,
+    task_cycle: bool = False,
+    owner_agent: Optional[str] = None,
+    helper_agents: Optional[list[str]] = None,
+    allow_helper_agents: bool = False,
 ) -> Dict[str, Any]:
     payload = {
         "project_id": project_id,
@@ -26,5 +30,9 @@ def main(
         "protocol_name": protocol_name,
         "spec_run_id": spec_run_id,
         "overwrite": overwrite,
+        "task_cycle": task_cycle,
+        "owner_agent": owner_agent,
+        "helper_agents": helper_agents or [],
+        "allow_helper_agents": allow_helper_agents,
     }
     return api_json("POST", "/protocols/from-spec", body=payload)

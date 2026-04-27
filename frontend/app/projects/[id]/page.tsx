@@ -32,7 +32,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { DesignSolutionWizardModal } from "@/components/wizards/design-solution-wizard";
 import { GenerateSpecsWizardModal } from "@/components/wizards/generate-specs-wizard";
 import { ImplementFeatureWizardModal } from "@/components/wizards/implement-feature-wizard";
-import { useOnboarding, useProject, useProjectProtocols, useStartOnboarding } from "@/lib/api";
+import { useFeatures, useOnboarding, useProject, useProjectProtocols, useStartOnboarding } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +53,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const projectId = Number.parseInt(id, 10);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: features } = useFeatures();
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const {
     data: onboarding,
@@ -102,6 +103,16 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     {
       title: "Development",
       items: [
+        ...(features?.task_cycle_enabled
+          ? [
+              {
+                id: "task_cycle",
+                label: "Task Cycle",
+                icon: Kanban,
+                description: "Primary brownfield delivery path",
+              },
+            ]
+          : []),
         {
           id: "overview",
           label: "Overview",
@@ -144,12 +155,16 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           icon: Workflow,
           description: "Visual pipeline with agent assignment",
         },
-        {
-          id: "task_cycle",
-          label: "Task Cycle",
-          icon: Kanban,
-          description: "Brownfield work items and review loop",
-        },
+        ...(features?.task_cycle_enabled
+          ? []
+          : [
+              {
+                id: "task_cycle",
+                label: "Task Cycle",
+                icon: Kanban,
+                description: "Brownfield work items and review loop",
+              },
+            ]),
       ],
     },
     {
@@ -195,7 +210,9 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const activeTab =
     normalizedTab && navItems.some((item) => item.id === normalizedTab)
       ? normalizedTab
-      : "overview";
+      : features?.task_cycle_enabled
+        ? "task_cycle"
+        : "overview";
   const wizardParam = searchParams.get("wizard");
 
   const updateQuery = (updates: Record<string, string | null>, replace = false) => {

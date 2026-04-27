@@ -70,3 +70,43 @@ def test_windmill_api_adapter_scripts_do_not_import_devgodzilla() -> None:
 
     assert not offenders, "API adapter scripts must not import devgodzilla:\n" + "\n".join(sorted(offenders))
 
+
+def test_windmill_api_adapter_scripts_use_shared_api_helper() -> None:
+    scripts_dir = Path("windmill/scripts/devgodzilla")
+    adapter_files = sorted([p for p in scripts_dir.glob("*_api.py") if p.is_file() and p.name != "_api.py"])
+    assert adapter_files, "no *_api.py windmill scripts found"
+
+    direct_http_offenders: Set[str] = set()
+    hardcoded_url_offenders: Set[str] = set()
+
+    for file_path in adapter_files:
+        source = file_path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in {"requests", "urllib.request", "httpx"}:
+                        direct_http_offenders.add(str(file_path))
+            elif isinstance(node, ast.ImportFrom):
+                if node.module == "requests" or node.module == "urllib.request" or node.module == "httpx":
+                    direct_http_offenders.add(str(file_path))
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+                    if func.value.id in {"requests", "urllib", "httpx"}:
+                        direct_http_offenders.add(str(file_path))
+
+        if "http://devgodzilla-api:8000" in source:
+            hardcoded_url_offenders.add(str(file_path))
+        if "api_json(" not in source and file_path.name != "_api.py":
+            direct_http_offenders.add(str(file_path))
+
+    assert not direct_http_offenders, (
+        "API adapter scripts must stay thin and use the shared _api helper:\n"
+        + "\n".join(sorted(direct_http_offenders))
+    )
+    assert not hardcoded_url_offenders, (
+        "API adapter scripts must not hardcode backend URLs:\n"
+        + "\n".join(sorted(hardcoded_url_offenders))
+    )

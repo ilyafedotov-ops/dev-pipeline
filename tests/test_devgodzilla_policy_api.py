@@ -1037,3 +1037,111 @@ def test_protocol_policy_findings_with_missing_files(monkeypatch: pytest.MonkeyP
                 assert finding["severity"] == "warning"
                 assert finding["scope"] == "protocol"
                 assert "suggested_fix" in finding
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_protocol_policy_resolves_relative_protocol_root_against_worktree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Relative protocol_root should be checked inside the run worktree, not cwd."""
+    from devgodzilla.db.database import SQLiteDatabase
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        repo = tmp / "repo"
+        protocol_dir = repo / "specs" / "demo-feature" / "_runtime"
+        protocol_dir.mkdir(parents=True, exist_ok=True)
+        (protocol_dir / "README.md").write_text("# Runtime\n", encoding="utf-8")
+        step_body = "# Step\n\n## Goal\nDemo\n\n## Tasks\n- [ ] Do it\n\n## Notes\nNone\n"
+        (protocol_dir / "step-01-demo.md").write_text(step_body, encoding="utf-8")
+        (protocol_dir / "step-02-demo.md").write_text(step_body, encoding="utf-8")
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+        project = db.create_project(
+            name="demo",
+            git_url=str(repo),
+            base_branch="main",
+            local_path=str(repo),
+            policy_pack_key="default",
+            policy_pack_version="1.0",
+        )
+        protocol = db.create_protocol_run(
+            project_id=project.id,
+            protocol_name="demo-feature",
+            status="pending",
+            base_branch="main",
+            worktree_path=str(repo),
+            protocol_root="specs/demo-feature/_runtime",
+        )
+        step = db.create_step_run(
+            protocol_run_id=protocol.id,
+            step_index=0,
+            step_name="step-01-demo",
+            step_type="execute",
+            status="pending",
+        )
+        db.create_step_run(
+            protocol_run_id=protocol.id,
+            step_index=1,
+            step_name="step-02-demo",
+            step_type="execute",
+            status="pending",
+        )
+
+        monkeypatch.setenv("DEVGODZILLA_DB_PATH", str(db_path))
+        monkeypatch.delenv("DEVGODZILLA_API_TOKEN", raising=False)
+
+        with TestClient(app) as client:  # type: ignore[arg-type]
+            protocol_resp = client.get(f"/protocols/{protocol.id}/policy/findings")
+            assert protocol_resp.status_code == 200
+            protocol_codes = {finding["code"] for finding in protocol_resp.json()}
+            assert "policy.protocol.missing_file" not in protocol_codes
+
+            step_resp = client.get(f"/steps/{step.id}/policy/findings")
+            assert step_resp.status_code == 200
+            step_codes = {finding["code"] for finding in step_resp.json()}
+            assert "policy.step.file_missing" not in step_codes
+
+
+def test_protocol_policy_prefers_existing_worktree_protocol_root_over_repo_root() -> None:
+    """When the caller passes the repo root, policy should still resolve a relative protocol_root inside worktree_path."""
+    from devgodzilla.config import load_config
+    from devgodzilla.db.database import SQLiteDatabase
+    from devgodzilla.services.base import ServiceContext
+    from devgodzilla.services.policy import PolicyService
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+        repo = tmp / "repo"
+        worktree = repo / "worktrees" / "specs" / "040-feature"
+        protocol_dir = worktree / "specs" / "040-feature" / "_runtime"
+        protocol_dir.mkdir(parents=True, exist_ok=True)
+        (protocol_dir / "README.md").write_text("# Runtime\n", encoding="utf-8")
+        (protocol_dir / "step-01-demo.md").write_text("# step\n", encoding="utf-8")
+        (protocol_dir / "step-02-demo.md").write_text("# step\n", encoding="utf-8")
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+        project = db.create_project(
+            name="demo",
+            git_url=str(repo),
+            base_branch="main",
+            local_path=str(repo),
+            policy_pack_key="default",
+            policy_pack_version="1.0",
+        )
+        protocol = db.create_protocol_run(
+            project_id=project.id,
+            protocol_name="040-feature",
+            status="planned",
+            base_branch="main",
+            worktree_path=str(worktree),
+            protocol_root="specs/040-feature/_runtime",
+        )
+
+        service = PolicyService(ServiceContext(config=load_config()), db)
+        findings = service.evaluate_protocol(protocol.id, repo_root=repo)
+        assert findings == []

@@ -240,9 +240,12 @@ class ReportGenerator:
         """Format the recommendation section."""
         passed = getattr(verdict, "passed", True)
         score = getattr(verdict, "score", 1.0 if passed else 0.0)
+        has_skipped_gates = getattr(verdict, "has_skipped_gates", False)
         
         if passed:
-            if score >= 0.9:
+            if has_skipped_gates:
+                recommendation = "⚠️ QA passed without blocking failures, but some gates were skipped. Treat this as partial validation, not high confidence."
+            elif score >= 0.9:
                 recommendation = "✅ Excellent! The code passes all quality checks with high confidence."
             elif score >= 0.7:
                 recommendation = "✅ Good. The code passes quality checks. Consider addressing any warnings."

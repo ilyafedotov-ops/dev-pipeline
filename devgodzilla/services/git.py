@@ -10,7 +10,7 @@ import re
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TypeVar
 
@@ -18,8 +18,7 @@ import httpx
 
 from devgodzilla.config import get_config
 from devgodzilla.errors import GitCommandError, GitLockError
-from devgodzilla.logging import get_logger, log_extra
-from devgodzilla.models.domain import ProtocolRun, ProtocolStatus
+from devgodzilla.logging import get_logger
 from devgodzilla.services.base import Service, ServiceContext
 
 logger = get_logger(__name__)
@@ -664,7 +663,7 @@ class GitService(Service):
         branch_name = self.get_branch_name(protocol_name)
 
         def _git_add_and_commit() -> bool:
-            run_process(["git", "add", "."], cwd=worktree)
+            self._stage_protocol_changes(worktree)
             try:
                 run_process(
                     ["git", "commit", "-m", f"chore: sync protocol {protocol_name}"],
@@ -727,6 +726,34 @@ class GitService(Service):
             github_token=github_token,
         )
         return pushed or branch_exists
+
+    @staticmethod
+    def _protocol_commit_excludes() -> list[str]:
+        """Generated artifacts/specs should never be staged into feature PRs by default."""
+        return [
+            ":(glob).specify/**",
+            ":(glob)specs/*/spec.md",
+            ":(glob)specs/*/plan.md",
+            ":(glob)specs/*/tasks.md",
+            ":(glob)specs/*/checklist.md",
+            ":(glob)specs/*/_runtime/**",
+            ":(glob).devgodzilla/**",
+            ":(glob)**/.devgodzilla/**",
+        ]
+
+    def _stage_protocol_changes(self, worktree: Path) -> None:
+        """Stage product code/tests/docs changes while excluding generated protocol artifacts."""
+        run_process(["git", "add", "--all", "--", "."], cwd=worktree)
+        excluded = self._protocol_commit_excludes()
+        if not excluded:
+            return
+        result = run_process(
+            ["git", "reset", "--quiet", "--", *excluded],
+            cwd=worktree,
+            check=False,
+        )
+        if result.returncode not in (0, 1):
+            raise GitCommandError("Failed to unstage generated protocol artifacts before commit")
 
     def remote_branch_exists(
         self,

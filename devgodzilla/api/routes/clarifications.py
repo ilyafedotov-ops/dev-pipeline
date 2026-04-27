@@ -1,9 +1,12 @@
 from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.params import Depends as DependsParam
 
 from devgodzilla.api import schemas
 from devgodzilla.api.dependencies import get_db
 from devgodzilla.db.database import Database
+from devgodzilla.config import load_config
 from devgodzilla.logging import get_logger, log_extra
 from devgodzilla.services.base import ServiceContext
 from devgodzilla.services.clarifier import ClarifierService
@@ -11,6 +14,14 @@ from devgodzilla.api.dependencies import get_service_context
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+def _resolve_service_context(ctx: ServiceContext | object) -> ServiceContext:
+    if isinstance(ctx, ServiceContext):
+        return ctx
+    if isinstance(ctx, DependsParam):
+        return ServiceContext(config=load_config())
+    return ServiceContext(config=load_config())
 
 @router.get("/clarifications", response_model=List[schemas.ClarificationOut])
 def list_clarifications(
@@ -47,6 +58,7 @@ def answer_clarification(
     ctx: ServiceContext = Depends(get_service_context),
 ):
     """Answer a clarification."""
+    resolved_ctx = _resolve_service_context(ctx)
     try:
         clarification = db.get_clarification_by_id(clarification_id)
     except KeyError:
@@ -56,16 +68,28 @@ def answer_clarification(
     # Store answer as structured JSON (so UI can render rich answers later)
     payload = {"text": answer.answer}
 
-    clarifier = ClarifierService(ctx, db)
+    clarifier = ClarifierService(resolved_ctx, db)
+    project_id = getattr(clarification, "project_id", None)
+    protocol_run_id = getattr(clarification, "protocol_run_id", None)
+    step_run_id = getattr(clarification, "step_run_id", None)
     try:
-        updated = clarifier.answer(
-            project_id=clarification.project_id,
-            key=clarification.key,
-            answer=payload,
-            protocol_run_id=clarification.protocol_run_id,
-            step_run_id=clarification.step_run_id,
-            answered_by=answer.answered_by,
-        )
+        if project_id is None:
+            updated = db.answer_clarification(
+                scope=clarification.scope,
+                key=clarification.key,
+                answer=payload,
+                answered_by=answer.answered_by,
+                status="answered",
+            )
+        else:
+            updated = clarifier.answer(
+                project_id=project_id,
+                key=clarification.key,
+                answer=payload,
+                protocol_run_id=protocol_run_id,
+                step_run_id=step_run_id,
+                answered_by=answer.answered_by,
+            )
     except KeyError:
         logger.warning(
             "clarification_answer_not_found",

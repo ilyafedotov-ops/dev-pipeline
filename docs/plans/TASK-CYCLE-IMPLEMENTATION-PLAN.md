@@ -21,6 +21,24 @@ The core product rule is:
 - Windmill should run the workflow.
 - DevGodzilla backend should own state, contracts, and artifacts.
 
+## Current Status
+
+As of 2026-04-23, the following v1 items are implemented in repo code:
+
+- Task Cycle is the default brownfield project entry in the Next.js project view when the feature is enabled.
+- `ContextPack` is generated before implementation and is consumed by execution and QA/test handoffs.
+- Work-item state exposes owner, helper-agent summary, review/QA state, `PR-ready`, `task_dir`, and artifact refs.
+- The Task Cycle UI follows the v1 loop more closely by surfacing the next useful action and disabling invalid transitions.
+- Task-cycle artifacts and routes are present in runtime OpenAPI and covered by tests.
+- Rollout can be gated with `DEVGODZILLA_TASK_CYCLE_ENABLED`.
+
+Still intentionally open in this plan:
+
+- dedicated review-agent execution instead of local review logic
+- real bounded helper-agent subtask execution
+- full manual brownfield intake-to-PR-ready validation
+- Windmill app parity beyond the protocol detail semantic action fix
+
 ## Proposed Agent Set
 
 Use a small fixed set of agents first:

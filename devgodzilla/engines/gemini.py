@@ -102,10 +102,19 @@ class GeminiEngine(CLIEngine):
         ):
             return True
 
-        # Gemini CLI typically requires GOOGLE_API_KEY or similar auth
+        home = Path.home()
+        oauth_creds = home / ".gemini" / "oauth_creds.json"
+        google_accounts = home / ".gemini" / "google_accounts.json"
+        adc_default = home / ".config" / "gcloud" / "application_default_credentials.json"
+        explicit_adc = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+
         return bool(
             os.environ.get("GOOGLE_API_KEY")
             or os.environ.get("GEMINI_API_KEY")
+            or oauth_creds.exists()
+            or google_accounts.exists()
+            or adc_default.exists()
+            or (explicit_adc and Path(explicit_adc).expanduser().exists())
         )
 
 

@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from devgodzilla.api import schemas
+from devgodzilla.engines import EngineNotFoundError, get_registry
+from devgodzilla.engines.interface import EngineRequest, SandboxMode
 from devgodzilla.logging import get_logger
 from devgodzilla.models.domain import StepRun, StepStatus
 from devgodzilla.qa.gates.interface import GateResult, GateVerdict
@@ -21,6 +23,7 @@ from devgodzilla.services.spec_to_protocol import SpecToProtocolService
 from devgodzilla.services.specification import SpecificationService
 from devgodzilla.services.sprint_integration import SprintIntegrationService
 from devgodzilla.services.task_sync import TaskSyncService
+from devgodzilla.services.task_cycle_helpers import TaskCycleHelperRunner
 from devgodzilla.services.workspace_paths import (
     WorkspacePathError,
     resolve_protocol_root,
@@ -48,6 +51,7 @@ class TaskCycleService(Service):
     def __init__(self, context: ServiceContext, db) -> None:
         super().__init__(context)
         self.db = db
+        self.helper_runner = TaskCycleHelperRunner(context, db)
 
     def list_work_items(
         self,
@@ -83,16 +87,24 @@ class TaskCycleService(Service):
             review_status=str(state["review_status"]),
             qa_status=str(state["qa_status"]),
             owner_agent=self._string_or_none(state.get("owner_agent")) or step.assigned_agent,
+            review_agent=self._string_or_none(state.get("review_agent")),
             helper_agents=self._string_list(state.get("helper_agents")),
+            helper_agent_summary=self._helper_agent_summary(
+                self._string_list(state.get("helper_agents")),
+                state.get("helper_runs"),
+            ),
             task_dir=self._string_or_none(state.get("task_dir")),
             artifact_refs=schemas.WorkItemArtifactRefsOut(**self._artifact_refs(project, step)),
+            artifact_availability=schemas.WorkItemArtifactAvailabilityOut(
+                **self._artifact_availability(project, step)
+            ),
             depends_on=list(step.depends_on or []),
             pr_ready=bool(state.get("pr_ready", False)),
             blocking_clarifications=blocking_clarifications,
             blocking_policy_findings=int(state.get("blocking_policy_findings", 0) or 0),
             iteration_count=int(state.get("iteration_count", 0) or 0),
             max_iterations=int(state.get("max_iterations", self.config.task_cycle_max_iterations) or self.config.task_cycle_max_iterations),
-            summary=step.summary,
+            summary=self._work_item_summary(step, state),
         )
 
     def start_brownfield_run(
@@ -176,7 +188,7 @@ class TaskCycleService(Service):
             )
             protocol_out = schemas.ProtocolOut.model_validate(protocol_run)
             if request.output_mode == "task_cycle":
-                self._seed_task_cycle_metadata(
+                self.seed_task_cycle_metadata(
                     protocol_run_id,
                     owner_agent=resolved_owner_agent,
                     helper_agents=request.helper_agents if (request.allow_helper_agents or request.helper_agents) else [],
@@ -335,6 +347,9 @@ class TaskCycleService(Service):
             path_refs,
             code_refs,
         )
+        contracts = self._discover_contract_files(workspace_root, path_refs, required_files)
+        types = self._discover_type_files(workspace_root, path_refs, required_files)
+        schemas = self._discover_schema_files(workspace_root, path_refs, required_files)
         entry_points = self._entry_points(workspace_root, protocol_root, step_prompt_path, plan_path, required_files)
         acceptance_criteria = self._extract_acceptance_criteria(step_text)
         review_focus = acceptance_criteria[:3] if acceptance_criteria else [f"Validate implementation for {step.step_name}"]
@@ -366,9 +381,9 @@ class TaskCycleService(Service):
             "required_files": required_files,
             "candidate_files": required_files,
             "code_context_files": code_refs,
-            "contracts": [],
-            "types": [],
-            "schemas": [],
+            "contracts": contracts,
+            "types": types,
+            "schemas": schemas,
             "manifest_files": manifests,
             "style_guides": style_guides,
             "test_commands": test_commands,
@@ -397,6 +412,12 @@ class TaskCycleService(Service):
     def implement(self, step_run_id: int, *, owner_agent: Optional[str] = None) -> schemas.WorkItemOut:
         step, run, project = self._load_work_item(step_run_id)
         state = self._task_cycle_state(step, project)
+        refs = self._artifact_refs(project, step)
+        if str(state.get("context_status")) != "ready":
+            raise TaskCycleError("Build and resolve the ContextPack before implementation")
+        blocking_clarifications = self._blocking_clarifications(project.id, run.id, step.id)
+        if blocking_clarifications:
+            raise TaskCycleError("Blocking clarifications must be resolved before implementation")
         resolved_owner_agent = self._resolve_owner_agent(
             project.id,
             owner_agent or self._string_or_none(state.get("owner_agent")) or step.assigned_agent,
@@ -420,6 +441,17 @@ class TaskCycleService(Service):
         state["review_status"] = "pending"
         state["qa_status"] = "pending"
         state["pr_ready"] = False
+        context_pack = self._read_json(Path(refs["context_pack_json"]))
+        helper_agents = self._string_list(state.get("helper_agents"))
+        if helper_agents:
+            state["helper_runs"] = self._run_helper_subtasks(
+                project=project,
+                run=run,
+                step=step,
+                owner_agent=self._string_or_none(state.get("owner_agent")) or step.assigned_agent,
+                helper_agents=helper_agents,
+                context_pack=context_pack,
+            )
         self._persist_task_cycle_state(step, state)
 
         execution = ExecutionService(self.context, self.db)
@@ -451,6 +483,12 @@ class TaskCycleService(Service):
         refs = self._artifact_refs(project, step)
         task_dir = Path(refs["task_dir"])
         context_pack = self._read_json(Path(refs["context_pack_json"]))
+        review_input = self._build_review_input(project=project, run=run, step=step, context_pack=context_pack)
+        task_dir.mkdir(parents=True, exist_ok=True)
+        Path(refs["review_input_json"]).write_text(json.dumps(review_input, indent=2), encoding="utf-8")
+        Path(refs["review_input_md"]).write_text(self._render_review_input_markdown(review_input), encoding="utf-8")
+
+        review_agent = self._string_or_none(self._task_cycle_state(step, project).get("review_agent"))
         blocking_findings: List[str] = []
         warnings: List[str] = []
 
@@ -479,6 +517,13 @@ class TaskCycleService(Service):
         if blocking_policy_findings:
             blocking_findings.append(f"Policy findings require attention ({blocking_policy_findings})")
 
+        agent_report = None
+        if not blocking_findings:
+            agent_report = self._run_review_agent(project_id=project.id, run_id=run.id, step=step, review_input=review_input)
+            review_agent = agent_report["review_agent"]
+            blocking_findings.extend(self._string_list(agent_report.get("blocking_findings")))
+            warnings.extend(self._string_list(agent_report.get("warnings")))
+
         verdict = "passed"
         summary = "Review passed"
         if blocking_findings:
@@ -487,23 +532,28 @@ class TaskCycleService(Service):
         elif warnings:
             verdict = "warning"
             summary = f"Review produced {len(warnings)} warnings"
+        if agent_report and self._string_or_none(agent_report.get("summary")):
+            summary = str(agent_report["summary"]).strip()
 
         report = {
             "work_item_id": step.id,
             "protocol_run_id": run.id,
             "project_id": project.id,
+            "review_agent": review_agent,
             "verdict": verdict,
             "summary": summary,
             "blocking_findings": blocking_findings,
             "warnings": warnings,
             "checked_at": self._now_iso(),
+            "review_input_json": refs["review_input_json"],
             "context_pack_json": refs["context_pack_json"],
+            "agent_report": agent_report,
         }
-        task_dir.mkdir(parents=True, exist_ok=True)
         Path(refs["review_report_json"]).write_text(json.dumps(report, indent=2), encoding="utf-8")
         Path(refs["review_report_md"]).write_text(self._render_review_markdown(report), encoding="utf-8")
 
         state = self._task_cycle_state(step, project)
+        state["review_agent"] = review_agent
         state["review_status"] = verdict
         state["blocking_policy_findings"] = blocking_policy_findings
         if verdict == "passed":
@@ -527,6 +577,7 @@ class TaskCycleService(Service):
         return self.get_work_item(step.id), schemas.WorkItemReviewOut(
             verdict=verdict,
             summary=summary,
+            review_agent=review_agent,
             blocking_findings=blocking_findings,
             warnings=warnings,
         )
@@ -726,7 +777,9 @@ class TaskCycleService(Service):
             "qa_status": current.get("qa_status", "pending"),
             "pr_ready": bool(current.get("pr_ready", False)),
             "owner_agent": current.get("owner_agent") or step.assigned_agent,
+            "review_agent": current.get("review_agent"),
             "helper_agents": self._string_list(current.get("helper_agents")),
+            "helper_runs": self._helper_runs_map(current.get("helper_runs")),
             "iteration_count": int(current.get("iteration_count", 0) or 0),
             "max_iterations": int(current.get("max_iterations", self.config.task_cycle_max_iterations) or self.config.task_cycle_max_iterations),
             "task_dir": refs["task_dir"],
@@ -735,6 +788,46 @@ class TaskCycleService(Service):
             "last_failure_source": current.get("last_failure_source"),
         }
         return state
+
+    def _helper_agent_summary(self, helper_agents: List[str], helper_runs: Any = None) -> str:
+        summary = self.helper_runner.build_summary(helper_agents, helper_runs)
+        if summary:
+            return summary
+        if helper_agents:
+            return f"{len(helper_agents)} helpers configured under the owner; no helper activity recorded yet"
+        return "No helper subtasks configured under the owner"
+
+    def _work_item_summary(self, step: StepRun, state: Dict[str, Any]) -> Optional[str]:
+        step_status = str(step.status).lower()
+        last_failure = self._string_or_none(state.get("last_failure_source"))
+        if step_status in {
+            str(StepStatus.FAILED).lower(),
+            str(StepStatus.TIMEOUT).lower(),
+            str(StepStatus.BLOCKED).lower(),
+            "failed",
+            "timeout",
+            "blocked",
+        }:
+            return f"Step is {step_status}"
+        if last_failure == "qa" and state.get("qa_status") != "passed":
+            return "QA findings require rework"
+        if last_failure == "review" and state.get("review_status") != "passed":
+            return "Review findings require rework"
+        if state.get("pr_ready"):
+            return "Ready to open a pull request"
+        if state.get("qa_status") == "passed" and state.get("review_status") == "passed":
+            return "Review and QA passed; mark PR ready"
+        if state.get("qa_status") == "passed":
+            return "QA passed"
+        if state.get("review_status") == "passed":
+            return "Review passed"
+        if state.get("context_status") != "ready":
+            return "Context needs clarification before implementation can proceed"
+        if state.get("status") == self.STATUS_IN_PROGRESS:
+            return step.summary or "Implementation in progress"
+        if state.get("status") == self.STATUS_AWAITING_REVIEW:
+            return "Implementation complete; review is next"
+        return step.summary
 
     def _is_task_cycle_run(self, run) -> bool:
         metadata = dict(run.speckit_metadata or {})
@@ -757,6 +850,8 @@ class TaskCycleService(Service):
             "task_dir": str(task_dir),
             "context_pack_json": str(task_dir / "context_pack.json"),
             "context_pack_md": str(task_dir / "context_pack.md"),
+            "review_input_json": str(task_dir / "review_input.json"),
+            "review_input_md": str(task_dir / "review_input.md"),
             "review_report_json": str(task_dir / "review_report.json"),
             "review_report_md": str(task_dir / "review_report.md"),
             "test_report_json": str(task_dir / "test_report.json"),
@@ -766,13 +861,68 @@ class TaskCycleService(Service):
         }
         return refs
 
+    def _artifact_availability(self, project, step: StepRun) -> Dict[str, bool]:
+        return {
+            "context_pack_md": self._resolve_artifact_path(project, step, "context_pack_md") is not None,
+            "review_report_md": self._resolve_artifact_path(project, step, "review_report_md") is not None,
+            "test_report_md": self._resolve_artifact_path(project, step, "test_report_md") is not None,
+            "rework_pack_json": self._resolve_artifact_path(project, step, "rework_pack_json") is not None,
+        }
+
+    def _resolve_artifact_path(self, project, step: StepRun, artifact_key: str) -> Optional[Path]:
+        refs = self._artifact_refs(project, step)
+        artifact_path = Path(refs[artifact_key])
+        if artifact_path.exists() and artifact_path.is_file():
+            return artifact_path
+
+        if artifact_key == "test_report_md":
+            step_artifacts_dir = Path(refs["step_artifacts_dir"])
+            for fallback_name in ("quality-report.md", "qa_report.md"):
+                fallback_path = step_artifacts_dir / fallback_name
+                if fallback_path.exists() and fallback_path.is_file():
+                    return fallback_path
+
+        if artifact_key == "test_report_json":
+            step_artifacts_dir = Path(refs["step_artifacts_dir"])
+            fallback_path = step_artifacts_dir / "execution.json"
+            if fallback_path.exists() and fallback_path.is_file():
+                return fallback_path
+
+        return None
+
+    def _run_helper_subtasks(
+        self,
+        *,
+        project,
+        run,
+        step: StepRun,
+        owner_agent: Optional[str],
+        helper_agents: List[str],
+        context_pack: Dict[str, Any],
+    ) -> Dict[str, Dict[str, Any]]:
+        return self.helper_runner.run_subtasks(
+            project_id=project.id,
+            protocol_run_id=run.id,
+            step_run_id=step.id,
+            step_name=step.step_name,
+            owner_agent=owner_agent,
+            helper_agents=helper_agents,
+            context_pack=context_pack,
+            task_dir=self._task_dir(project, step),
+            working_dir=self._workspace_root(run, project),
+            default_engine_id=self._default_exec_engine_id(project.id),
+        )
+
+    def _helper_runs_map(self, value: Any) -> Dict[str, Dict[str, Any]]:
+        return self.helper_runner.normalize_runs(value)
+
     def read_artifact_content(self, step_run_id: int, artifact_key: str, *, max_bytes: int = 200_000) -> schemas.ArtifactContentOut:
         step, _run, project = self._load_work_item(step_run_id)
         refs = self._artifact_refs(project, step)
         if artifact_key not in refs:
             raise TaskCycleError(f"Unknown task-cycle artifact: {artifact_key}")
-        path = Path(refs[artifact_key])
-        if not path.exists() or not path.is_file():
+        path = self._resolve_artifact_path(project, step, artifact_key)
+        if path is None:
             raise TaskCycleError(f"Artifact not found: {artifact_key}")
 
         max_bytes = max(1, min(int(max_bytes), 2_000_000))
@@ -841,6 +991,90 @@ class TaskCycleService(Service):
             if path.exists():
                 items.append({"path": name, "reason": "Project-specific guidance or coding policy"})
         return items
+
+    def _discover_contract_files(
+        self,
+        workspace_root: Path,
+        path_refs: Iterable[str],
+        required_files: List[Dict[str, str]],
+    ) -> List[Dict[str, str]]:
+        return self._discover_context_category(
+            workspace_root,
+            path_refs,
+            required_files,
+            matchers=("contract", "agreement", "interface", "api"),
+            allowed_suffixes={".json", ".yaml", ".yml", ".md", ".proto"},
+            reason="Contract or API definition referenced by the task",
+        )
+
+    def _discover_type_files(
+        self,
+        workspace_root: Path,
+        path_refs: Iterable[str],
+        required_files: List[Dict[str, str]],
+    ) -> List[Dict[str, str]]:
+        return self._discover_context_category(
+            workspace_root,
+            path_refs,
+            required_files,
+            matchers=("type", "types", "typing", "dto", "model"),
+            allowed_suffixes={".py", ".ts", ".tsx", ".js", ".jsx"},
+            reason="Type or model definition likely needed for implementation",
+        )
+
+    def _discover_schema_files(
+        self,
+        workspace_root: Path,
+        path_refs: Iterable[str],
+        required_files: List[Dict[str, str]],
+    ) -> List[Dict[str, str]]:
+        return self._discover_context_category(
+            workspace_root,
+            path_refs,
+            required_files,
+            matchers=("schema", "openapi", "swagger"),
+            allowed_suffixes={".json", ".yaml", ".yml", ".py", ".ts"},
+            reason="Schema or validation contract relevant to the task",
+        )
+
+    def _discover_context_category(
+        self,
+        workspace_root: Path,
+        path_refs: Iterable[str],
+        required_files: List[Dict[str, str]],
+        *,
+        matchers: Tuple[str, ...],
+        allowed_suffixes: set[str],
+        reason: str,
+    ) -> List[Dict[str, str]]:
+        candidates: List[Path] = []
+        seen: set[Path] = set()
+
+        def add(path: Optional[Path]) -> None:
+            if path is None or not path.exists() or not path.is_file():
+                return
+            if path in seen:
+                return
+            if allowed_suffixes and path.suffix.lower() not in allowed_suffixes:
+                return
+            lowered = str(path.relative_to(workspace_root)).lower()
+            if not any(token in lowered for token in matchers):
+                return
+            seen.add(path)
+            candidates.append(path)
+
+        for raw in path_refs:
+            add(self._resolve_workspace_path(workspace_root, raw))
+        for item in required_files:
+            add(self._resolve_workspace_path(workspace_root, item.get("path")))
+        for path in self._iter_workspace_files(workspace_root):
+            add(path)
+
+        candidates.sort(key=lambda path: str(path))
+        return [
+            {"path": str(path.relative_to(workspace_root)), "reason": reason}
+            for path in candidates[:8]
+        ]
 
     def _discover_code_files(self, workspace_root: Path, step: StepRun, path_refs: Iterable[str]) -> List[Dict[str, str]]:
         ranked: List[Tuple[Path, str, int]] = []
@@ -1128,6 +1362,7 @@ class TaskCycleService(Service):
         lines = [
             f"# Review Report: {report['work_item_id']}",
             "",
+            f"- Review Agent: `{report.get('review_agent') or 'unassigned'}`",
             f"- Verdict: `{report['verdict']}`",
             f"- Summary: {report['summary']}",
             f"- Checked: {report['checked_at']}",
@@ -1139,6 +1374,26 @@ class TaskCycleService(Service):
         lines.extend(["", "## Warnings"])
         for item in report.get("warnings") or ["None"]:
             lines.append(f"- {item}")
+        return "\n".join(lines) + "\n"
+
+    def _render_review_input_markdown(self, payload: Dict[str, Any]) -> str:
+        lines = [
+            f"# Review Input: {payload['work_item_id']}",
+            "",
+            f"- Work item: `{payload['work_item_id']}`",
+            f"- Owner agent: `{payload.get('owner_agent') or 'unassigned'}`",
+            f"- Generated: {payload['generated_at']}",
+            "",
+            "## Review Focus",
+        ]
+        for item in payload.get("review_focus", []) or ["None"]:
+            lines.append(f"- {item}")
+        lines.extend(["", "## Exact Test Commands"])
+        for item in payload.get("test_commands", []) or ["None"]:
+            lines.append(f"- `{item}`")
+        lines.extend(["", "## Diff Artifacts"])
+        for item in payload.get("diff_paths", []) or ["None"]:
+            lines.append(f"- `{item}`")
         return "\n".join(lines) + "\n"
 
     def _serialize_qa_report(self, qa_result: QAResult) -> Dict[str, Any]:
@@ -1245,7 +1500,7 @@ class TaskCycleService(Service):
                 recommended={"value": "Add likely files, modules, or exact test commands."},
                 options=None,
                 applies_to="execution",
-                blocking=False,
+                blocking=True,
             )
             refs.append(
                 {
@@ -1257,7 +1512,7 @@ class TaskCycleService(Service):
             )
         return refs
 
-    def _seed_task_cycle_metadata(
+    def seed_task_cycle_metadata(
         self,
         protocol_run_id: int,
         *,
@@ -1325,12 +1580,248 @@ class TaskCycleService(Service):
             "required_actions": [item for item in findings if item],
             "warnings": [item for item in (warnings or []) if item],
             "supersedes_artifact_refs": {
+                "review_input_json": refs["review_input_json"],
                 "review_report_json": refs["review_report_json"],
                 "test_report_json": refs["test_report_json"],
             },
             "generated_at": self._now_iso(),
         }
         Path(refs["rework_pack_json"]).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _build_review_input(self, *, project, run, step: StepRun, context_pack: Dict[str, Any]) -> Dict[str, Any]:
+        refs = self._artifact_refs(project, step)
+        state = self._task_cycle_state(step, project)
+        step_artifacts_dir = Path(refs["step_artifacts_dir"])
+        artifact_inventory: List[Dict[str, Any]] = []
+        if step_artifacts_dir.exists():
+            for path in sorted(step_artifacts_dir.iterdir()):
+                artifact_inventory.append(
+                    {
+                        "name": path.name,
+                        "path": str(path),
+                        "type": self._artifact_type_from_name(path.name),
+                    }
+                )
+        diff_paths = [
+            str(path)
+            for path in (
+                step_artifacts_dir / "changes.diff",
+                step_artifacts_dir / "changes_cached.diff",
+            )
+            if path.exists()
+        ]
+        return {
+            "work_item_id": step.id,
+            "protocol_run_id": run.id,
+            "project_id": project.id,
+            "title": step.step_name,
+            "generated_at": self._now_iso(),
+            "owner_agent": self._string_or_none(state.get("owner_agent")) or step.assigned_agent,
+            "context_pack": context_pack,
+            "context_pack_json": refs["context_pack_json"],
+            "review_focus": self._string_list(context_pack.get("review_focus")),
+            "test_commands": self._string_list(context_pack.get("test_commands")),
+            "manifest_files": context_pack.get("manifest_files") or [],
+            "style_guides": context_pack.get("style_guides") or [],
+            "policy_findings": self._policy_findings_payload(step.id, run, project),
+            "diff_paths": diff_paths,
+            "artifact_inventory": artifact_inventory,
+            "rework_pack_json": refs["rework_pack_json"],
+        }
+
+    def _review_prompt_path(self) -> Path:
+        return Path(__file__).resolve().parents[2] / "prompts" / "task-cycle-review.prompt.md"
+
+    def _resolve_review_engine(self, *, project_id: int):
+        registry = get_registry()
+        if not registry.list_ids():
+            try:
+                from devgodzilla.engines.bootstrap import bootstrap_default_engines
+
+                bootstrap_default_engines(replace=False)
+            except Exception:
+                pass
+        engine_id = None
+        model = None
+        cfg: Optional[AgentConfigService] = None
+        try:
+            cfg = AgentConfigService(self.context, db=self.db)
+            engine_id = self.context.config.engine_defaults.get("review")  # type: ignore[union-attr]
+            if not engine_id:
+                engine_id = cfg.get_default_engine_id("review", project_id=project_id)
+            if not engine_id:
+                engine_id = cfg.get_default_engine_id(
+                    "qa",
+                    project_id=project_id,
+                    fallback=self.context.config.engine_defaults.get("qa"),
+                )
+            model = self.context.config.review_model or self.context.config.qa_model  # type: ignore[union-attr]
+        except Exception:
+            cfg = None
+        if not engine_id:
+            engine_id = (
+                self.context.config.engine_defaults.get("review")  # type: ignore[union-attr]
+                or self.context.config.engine_defaults.get("qa")  # type: ignore[union-attr]
+                or self.context.config.default_engine_id  # type: ignore[union-attr]
+                or "opencode"
+            )
+        try:
+            engine = registry.get(engine_id)
+        except EngineNotFoundError:
+            if registry.has("dummy"):
+                engine = registry.get("dummy")
+            else:
+                raise TaskCycleError(f"Review engine not registered: {engine_id}")
+        try:
+            available = engine.check_availability()
+        except Exception as exc:
+            available = False
+            availability_error = str(exc)
+        else:
+            availability_error = None
+        if not available:
+            if engine.metadata.id != "dummy" and registry.has("dummy"):
+                engine = registry.get("dummy")
+            else:
+                message = f"Review engine unavailable: {engine.metadata.id}"
+                if availability_error:
+                    message = f"{message} ({availability_error})"
+                raise TaskCycleError(message)
+        if not model:
+            try:
+                if cfg is not None:
+                    agent_cfg = cfg.get_agent(engine.metadata.id, project_id=project_id)
+                    if agent_cfg and isinstance(agent_cfg.default_model, str) and agent_cfg.default_model.strip():
+                        model = agent_cfg.default_model.strip()
+            except Exception:
+                model = None
+            if not model:
+                model = engine.metadata.default_model
+        return engine, model
+
+    def _run_review_agent(self, *, project_id: int, run_id: int, step: StepRun, review_input: Dict[str, Any]) -> Dict[str, Any]:
+        engine, model = self._resolve_review_engine(project_id=project_id)
+        workspace_root = Path(review_input.get("context_pack", {}).get("repo_root") or review_input.get("context_pack", {}).get("workspace_root") or review_input.get("context_pack_json", ".")).resolve()
+        prompt_text = self._build_review_prompt(review_input)
+        result = engine.qa(
+            EngineRequest(
+                project_id=project_id,
+                protocol_run_id=run_id,
+                step_run_id=step.id,
+                model=model,
+                prompt_text=prompt_text,
+                working_dir=str(workspace_root),
+                sandbox=SandboxMode.READ_ONLY,
+                extra={"task_cycle_stage": "review"},
+            )
+        )
+        return self._parse_review_agent_result(result=result, review_agent=engine.metadata.id)
+
+    def _build_review_prompt(self, review_input: Dict[str, Any]) -> str:
+        prompt_path = self._review_prompt_path()
+        prompt_header = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else ""
+        return (
+            prompt_header.strip()
+            + "\n\n## Review Input\n\n```json\n"
+            + json.dumps(review_input, indent=2)
+            + "\n```"
+        ).strip()
+
+    def _parse_review_agent_result(self, *, result, review_agent: str) -> Dict[str, Any]:
+        stdout = (result.stdout or "").strip()
+        payload = self._extract_review_json(stdout)
+        if not result.success:
+            return {
+                "review_agent": review_agent,
+                "verdict": "failed",
+                "summary": result.error or "Review agent failed",
+                "blocking_findings": [result.error or result.stderr or "Review agent execution failed"],
+                "warnings": [],
+                "raw_output": stdout,
+            }
+        if payload is None:
+            fallback_verdict = self._extract_review_verdict(stdout)
+            return {
+                "review_agent": review_agent,
+                "verdict": fallback_verdict or "warning",
+                "summary": "Review agent returned unstructured output",
+                "blocking_findings": [] if fallback_verdict != "failed" else ["Review agent reported failure"],
+                "warnings": [] if fallback_verdict in {"passed", "failed"} else ["Review agent returned unstructured output"],
+                "raw_output": stdout,
+            }
+        verdict = str(payload.get("verdict") or "warning").strip().lower()
+        if verdict not in {"passed", "warning", "failed"}:
+            verdict = "warning"
+        findings = payload.get("findings")
+        if not isinstance(findings, list):
+            findings = []
+        blocking = self._string_list(payload.get("required_rework"))
+        warnings = self._string_list(payload.get("warnings"))
+        for finding in findings:
+            if not isinstance(finding, dict):
+                continue
+            message = self._string_or_none(finding.get("message"))
+            if not message:
+                continue
+            severity = str(finding.get("severity") or "").strip().lower()
+            if severity == "error":
+                blocking.append(message)
+            else:
+                warnings.append(message)
+        if verdict == "failed" and not blocking:
+            blocking.append(self._string_or_none(payload.get("summary")) or "Review agent reported failure")
+        return {
+            "review_agent": review_agent,
+            "verdict": verdict,
+            "summary": self._string_or_none(payload.get("summary")) or "Review completed",
+            "blocking_findings": blocking,
+            "warnings": warnings,
+            "confidence": self._string_or_none(payload.get("confidence")),
+            "raw_output": stdout,
+        }
+
+    def _extract_review_json(self, text: str) -> Optional[Dict[str, Any]]:
+        if not text:
+            return None
+        candidates = [text]
+        fenced = re.findall(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text, flags=re.IGNORECASE)
+        candidates.extend(fenced)
+        brace_match = re.search(r"(\{[\s\S]*\})", text)
+        if brace_match:
+            candidates.append(brace_match.group(1))
+        for candidate in candidates:
+            try:
+                payload = json.loads(candidate)
+            except Exception:
+                continue
+            if isinstance(payload, dict):
+                return payload
+        return None
+
+    def _extract_review_verdict(self, text: str) -> Optional[str]:
+        match = re.search(r"\bVerdict\s*:\s*(PASS|FAIL|WARN|WARNING)\b", text or "", flags=re.IGNORECASE)
+        if not match:
+            return None
+        token = match.group(1).upper()
+        if token == "PASS":
+            return "passed"
+        if token == "FAIL":
+            return "failed"
+        return "warning"
+
+    def _policy_findings_payload(self, step_run_id: int, run, project) -> List[Dict[str, Any]]:
+        payload: List[Dict[str, Any]] = []
+        for finding in PolicyService(self.context, self.db).evaluate_step(step_run_id, repo_root=self._workspace_root(run, project)):
+            payload.append(
+                {
+                    "code": getattr(finding, "code", None),
+                    "message": getattr(finding, "message", None),
+                    "severity": getattr(finding, "severity", None),
+                    "blocking": bool(getattr(finding, "blocking", False)),
+                    "scope": getattr(finding, "scope", None),
+                }
+            )
+        return payload
 
     def _resolve_workspace_path(self, workspace_root: Path, raw: Optional[str]) -> Optional[Path]:
         if not raw:

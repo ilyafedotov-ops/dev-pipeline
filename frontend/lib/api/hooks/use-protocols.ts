@@ -3,7 +3,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { adaptProtocol, adaptProtocols, type RawProtocolRun } from "../adapters/protocol";
+import {
+  adaptProtocol,
+  adaptProtocolArtifacts,
+  adaptProtocols,
+  type RawProtocolArtifact,
+  type RawProtocolRun,
+} from "../adapters/protocol";
 import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
 import type {
@@ -287,7 +293,11 @@ export function useProtocolAction() {
 export function useProtocolArtifacts(protocolId: number | undefined) {
   return useQuery({
     queryKey: queryKeys.protocols.artifacts(protocolId as number),
-    queryFn: () => apiClient.get<ProtocolArtifact[]>(`/protocols/${protocolId}/artifacts`),
+    queryFn: async () =>
+      adaptProtocolArtifacts(
+        await apiClient.get<RawProtocolArtifact[]>(`/protocols/${protocolId}/artifacts`),
+        protocolId as number
+      ),
     enabled: !!protocolId,
   });
 }

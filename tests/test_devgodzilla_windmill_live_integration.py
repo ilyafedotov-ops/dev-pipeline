@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import time
@@ -869,6 +870,144 @@ def test_live_task_cycle_work_item_lifecycle() -> None:
             current = next(item for item in listed if int(item["id"]) == work_item_id)
             assert current["status"] == expected_status
             assert current["pr_ready"] is expected_pr_ready
+    finally:
+        try:
+            if project_id is not None:
+                httpx.delete(f"{host_api_base_url}/projects/{project_id}", timeout=60)
+        finally:
+            windmill.close()
+
+
+def test_live_windmill_task_cycle_helper_sidecars() -> None:
+    if not _flag("DEVGODZILLA_RUN_LIVE_WINDMILL_TESTS"):
+        pytest.skip("set DEVGODZILLA_RUN_LIVE_WINDMILL_TESTS=1 to enable live integration test")
+
+    public_base_url = os.environ.get("DEVGODZILLA_LIVE_BASE_URL", "http://localhost:8080").rstrip("/")
+    host_api_base_url = os.environ.get("DEVGODZILLA_LIVE_HOST_API_URL", "http://localhost:8000").rstrip("/")
+    repo_url = os.environ.get(
+        "DEVGODZILLA_LIVE_WINDMILL_REPO_URL",
+        "https://github.com/ilyafedotov-ops/test-glm5-demo.git",
+    ).strip()
+    base_branch = (os.environ.get("DEVGODZILLA_LIVE_WINDMILL_REPO_BRANCH") or "main").strip()
+    owner_agent = (os.environ.get("DEVGODZILLA_LIVE_TASK_CYCLE_OWNER_AGENT") or "").strip() or None
+    helper_agents = [
+        item.strip()
+        for item in (os.environ.get("DEVGODZILLA_LIVE_TASK_CYCLE_HELPER_AGENTS") or "trace,tests").split(",")
+        if item.strip()
+    ]
+    config = load_config()
+
+    assert config.windmill_url, "DEVGODZILLA_WINDMILL_URL must be set"
+    assert config.windmill_token, "DEVGODZILLA_WINDMILL_TOKEN must be set"
+    assert config.windmill_workspace, "DEVGODZILLA_WINDMILL_WORKSPACE must be set"
+
+    _ensure_host_backend_ready()
+    _run_local_windmill_import()
+
+    ready = httpx.get(f"{public_base_url}/health/ready", timeout=10)
+    assert ready.status_code == 200, f"stack not ready at {public_base_url}/health/ready: {ready.text}"
+
+    windmill = WindmillClient(
+        WindmillConfig(
+            base_url=config.windmill_url,
+            token=config.windmill_token,
+            workspace=config.windmill_workspace,
+            timeout=30,
+        )
+    )
+    project_id: int | None = None
+    try:
+        with httpx.Client(timeout=180) as api:
+            project_id = _create_live_project(
+                api,
+                host_api_base_url=host_api_base_url,
+                repo_url=repo_url,
+                base_branch=base_branch,
+                name_prefix="windmill-task-cycle-helpers",
+            )
+
+            job_id = windmill.run_flow_by_path(
+                "f/devgodzilla/brownfield_feature",
+                {
+                    "project_id": project_id,
+                    "feature_name": "helper-sidecar-audit",
+                    "feature_request": (
+                        "Add a small brownfield task-cycle change and keep helper-sidecar execution enabled "
+                        "so the owner can consume helper findings."
+                    ),
+                    "output_mode": "task_cycle",
+                    "branch": base_branch,
+                    "protocol_timeout_seconds": 300,
+                    "owner_agent": owner_agent or "",
+                    "helper_agents": helper_agents,
+                    "allow_helper_agents": True,
+                },
+            )
+            job = windmill.wait_for_job(job_id, timeout=1200, poll_interval=2.0)
+            parent = _job_payload(windmill, job_id)
+
+            assert job.status == JobStatus.COMPLETED, f"flow job did not complete: {windmill.get_job_logs(job_id)}"
+            assert parent.get("success") is True, f"flow job failed: {parent}"
+
+            module_jobs = _collect_module_jobs(windmill, parent["flow_status"]["modules"])
+            get_task_cycle = _assert_module_job_succeeded(windmill, module_jobs["get_task_cycle"], module_id="get_task_cycle")
+            work_items = get_task_cycle.get("work_items")
+            assert isinstance(work_items, list) and work_items, f"task_cycle did not produce work items: {get_task_cycle}"
+
+            selected_item = work_items[0]
+            work_item_id = int(selected_item["id"])
+            protocol_id = int(selected_item["protocol_run_id"])
+            assert selected_item["helper_agents"] == helper_agents
+            assert "helpers configured under the owner" in str(selected_item.get("helper_agent_summary") or "")
+
+            steps_before = api.get(f"{host_api_base_url}/protocols/{protocol_id}/steps", timeout=300)
+            assert steps_before.status_code == 200, f"protocol step listing failed: {steps_before.text}"
+            before_payload = steps_before.json()
+            before_count = len(before_payload)
+
+            context_resp = api.post(
+                f"{host_api_base_url}/work-items/{work_item_id}/build-context",
+                json={"refresh": False},
+                timeout=300,
+            )
+            assert context_resp.status_code == 200, f"build-context failed: {context_resp.text}"
+
+            implement_body: dict[str, Any] = {}
+            if owner_agent:
+                implement_body["owner_agent"] = owner_agent
+            implement_resp = api.post(
+                f"{host_api_base_url}/work-items/{work_item_id}/actions/implement",
+                json=implement_body,
+                timeout=2700,
+            )
+            assert implement_resp.status_code == 200, f"implement failed: {implement_resp.text}"
+            implement_item = implement_resp.json()
+            assert implement_item["id"] == work_item_id
+            assert implement_item["helper_agents"] == helper_agents
+            assert "helpers under the owner" in str(implement_item.get("helper_agent_summary") or "")
+
+            task_dir = Path(str(implement_item["task_dir"]))
+            helper_summary = task_dir / "helpers" / "helper_summary.json"
+            assert helper_summary.exists(), f"missing helper summary artifact: {helper_summary}"
+            helper_payload = json.loads(helper_summary.read_text(encoding="utf-8"))
+            helpers = helper_payload.get("helpers")
+            assert isinstance(helpers, list) and len(helpers) == len(helper_agents)
+            assert {item["helper_agent"] for item in helpers} == set(helper_agents)
+
+            steps_after = api.get(f"{host_api_base_url}/protocols/{protocol_id}/steps", timeout=300)
+            assert steps_after.status_code == 200, f"protocol step listing failed after implement: {steps_after.text}"
+            after_payload = steps_after.json()
+            assert len(after_payload) == before_count, "helper sidecars must not create first-class workflow lanes"
+
+            list_resp = api.get(
+                f"{host_api_base_url}/projects/{project_id}/task-cycle",
+                params={"protocol_run_id": protocol_id},
+                timeout=300,
+            )
+            assert list_resp.status_code == 200, f"task-cycle listing failed: {list_resp.text}"
+            current = next(item for item in list_resp.json() if int(item["id"]) == work_item_id)
+            assert current["helper_agents"] == helper_agents
+            assert "helpers under the owner" in str(current.get("helper_agent_summary") or "")
     finally:
         try:
             if project_id is not None:

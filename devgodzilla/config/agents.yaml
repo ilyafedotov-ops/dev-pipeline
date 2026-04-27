@@ -12,7 +12,7 @@ agents:
     name: OpenCode
     kind: cli
     command: opencode
-    default_model: zai-coding-plan/glm-5
+    default_model: openai/gpt-4.1
     sandbox: workspace-write
     capabilities: [code_gen, code_review, reasoning]
     enabled: true
@@ -52,10 +52,10 @@ agents:
     enabled: false
 
 defaults:
-  code_gen: opencode
-  planning: opencode
-  qa: opencode
-  discovery: opencode
+  code_gen: codex
+  planning: codex
+  qa: codex
+  discovery: codex
 
 health_check:
   timeout_seconds: 30

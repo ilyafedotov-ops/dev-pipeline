@@ -13,6 +13,7 @@ interface CodeBlockProps {
   title?: string;
   className?: string;
   maxHeight?: string;
+  wrapLongLines?: boolean;
 }
 
 export function CodeBlock({
@@ -21,6 +22,7 @@ export function CodeBlock({
   title,
   className,
   maxHeight = "400px",
+  wrapLongLines = false,
 }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const codeString = typeof code === "string" ? code : JSON.stringify(code, null, 2);
@@ -41,13 +43,24 @@ export function CodeBlock({
           </Button>
         </div>
       )}
-      <pre className={cn("overflow-auto p-4 text-sm", !title && "relative")} style={{ maxHeight }}>
+      <pre
+        className={cn(
+          "overflow-auto p-4 text-sm",
+          !title && "relative",
+          wrapLongLines && "whitespace-pre-wrap break-words"
+        )}
+        style={{ maxHeight }}
+      >
         {!title && (
           <Button variant="ghost" size="sm" className="absolute top-2 right-2" onClick={handleCopy}>
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           </Button>
         )}
-        <code className={`language-${language} text-foreground`}>{codeString}</code>
+        <code
+          className={cn(`language-${language} text-foreground`, wrapLongLines && "break-words")}
+        >
+          {codeString}
+        </code>
       </pre>
     </div>
   );

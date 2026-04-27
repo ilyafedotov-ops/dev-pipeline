@@ -220,6 +220,71 @@ def test_create_sprint_from_protocol_persists_explicit_protocol_link_without_aut
 
 
 @pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
+def test_get_step_quality_surfaces_skipped_gates_as_skipped_and_not_full_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from devgodzilla.api.dependencies import get_db
+    from devgodzilla.config import _reset_config_for_tests
+    from devgodzilla.db.database import SQLiteDatabase
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "devgodzilla.sqlite"
+
+        monkeypatch.setenv("DEVGODZILLA_DB_PATH", str(db_path))
+        monkeypatch.delenv("DEVGODZILLA_API_TOKEN", raising=False)
+        _reset_config_for_tests()
+
+        db = SQLiteDatabase(db_path)
+        db.init_schema()
+
+        project = db.create_project(name="demo", git_url="git@example.com:demo/repo.git", base_branch="main")
+        run = db.create_protocol_run(
+            project_id=project.id,
+            protocol_name="demo-protocol",
+            status="running",
+            base_branch="main",
+        )
+        step = db.create_step_run(
+            protocol_run_id=run.id,
+            step_index=1,
+            step_name="step-01-demo",
+            step_type="execute",
+            status="completed",
+            assigned_agent="opencode",
+        )
+        db.create_qa_result(
+            project_id=project.id,
+            protocol_run_id=run.id,
+            step_run_id=step.id,
+            verdict="pass",
+            summary="PASS: partial QA",
+            gate_results=[
+                {"gate_id": "prompt_qa", "gate_name": "Prompt QA", "verdict": "skip", "findings": []},
+                {"gate_id": "lint", "gate_name": "Lint Gate", "verdict": "skip", "findings": []},
+                {"gate_id": "test", "gate_name": "Test Gate", "verdict": "pass", "findings": []},
+            ],
+            findings=[],
+        )
+
+        app.dependency_overrides[get_db] = lambda: db
+        try:
+            with TestClient(app) as client:  # type: ignore[arg-type]
+                response = client.get(f"/steps/{step.id}/quality")
+                assert response.status_code == 200
+                payload = response.json()
+                assert payload["overall_status"] == "warning"
+                assert payload["score"] == pytest.approx(1 / 3)
+                statuses = {gate["article"]: gate["status"] for gate in payload["gates"]}
+                assert statuses["prompt_qa"] == "skipped"
+                assert statuses["lint"] == "skipped"
+                assert statuses["test"] == "passed"
+        finally:
+            app.dependency_overrides.clear()
+            _reset_config_for_tests()
+
+
+@pytest.mark.skipif(TestClient is None, reason="fastapi not installed")
 def test_protocol_sync_to_sprint_requires_body_sprint_id_and_persists_link(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

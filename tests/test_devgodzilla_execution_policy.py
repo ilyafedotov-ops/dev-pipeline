@@ -8,8 +8,11 @@ from unittest.mock import Mock
 import pytest
 
 from devgodzilla.models.domain import ProtocolStatus, StepStatus
+from types import SimpleNamespace
+
+from devgodzilla.engines.interface import EngineResult
 from devgodzilla.services.base import ServiceContext
-from devgodzilla.services.execution import ExecutionService
+from devgodzilla.services.execution import ExecutionService, StepResolution
 from devgodzilla.services.policy import EffectivePolicy, Finding
 from devgodzilla.services.workflow_context import WorkflowPromptContext
 
@@ -145,3 +148,131 @@ def test_execute_step_blocks_on_policy_findings(service_context, monkeypatch, tm
     assert db.append_event.called
     event_calls = [call.kwargs for call in db.append_event.call_args_list]
     assert any(call.get("event_type") == "policy_finding" for call in event_calls)
+
+
+def test_handle_result_fails_on_fatal_opencode_stderr(service_context, monkeypatch, tmp_path):
+    db, step, run, project = _build_execution_db()
+    project.local_path = str(tmp_path)
+    run.worktree_path = str(tmp_path)
+    run.protocol_root = "_runtime"
+    (tmp_path / "_runtime").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        "devgodzilla.services.execution.get_event_bus",
+        lambda: Mock(publish=Mock()),
+    )
+
+    service = ExecutionService(context=service_context, db=db)
+    engine = SimpleNamespace(metadata=SimpleNamespace(id="opencode"))
+    resolution = StepResolution(
+        engine_id="opencode",
+        model="zai-coding-plan/glm-5",
+        prompt_text="",
+        prompt_path=None,
+        prompt_version=None,
+        workdir=tmp_path,
+        protocol_root=tmp_path / "_runtime",
+        workspace_root=tmp_path,
+    )
+    result = service._handle_result(
+        step,
+        run,
+        engine,
+        EngineResult(
+            success=True,
+            stdout="",
+            stderr="ProviderModelNotFoundError\\nModel not found: zai-coding-plan/glm-5.",
+            exit_code=0,
+            duration_seconds=0.1,
+        ),
+        resolution,
+    )
+
+    assert result.success is False
+    assert result.error == "opencode execution failed: ProviderModelNotFoundError"
+    db.update_step_status.assert_any_call(
+        step.id,
+        StepStatus.FAILED,
+        summary="opencode execution failed: ProviderModelNotFoundError",
+    )
+    assert db.update_protocol_status.call_args_list[-1].args == (run.id, ProtocolStatus.BLOCKED)
+
+
+def test_build_prompt_includes_task_cycle_context_pack(service_context, tmp_path):
+    db, step, run, project = _build_execution_db()
+    project.local_path = str(tmp_path)
+    run.worktree_path = str(tmp_path)
+    protocol_root = tmp_path / "specs" / "demo" / "_runtime"
+    protocol_root.mkdir(parents=True, exist_ok=True)
+    (protocol_root / "plan.md").write_text("# Plan\nDo the thing\n", encoding="utf-8")
+    (protocol_root / "step-1.md").write_text("# Task\nImplement feature\n", encoding="utf-8")
+    context_dir = tmp_path / ".devgodzilla" / "task-cycle" / "protocols" / str(run.id) / "work-items" / str(step.id)
+    context_dir.mkdir(parents=True, exist_ok=True)
+    (context_dir / "context_pack.json").write_text(
+        """
+        {
+          "goal": "Implement feature",
+          "test_commands": ["pytest -q", "pnpm test"]
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    service = ExecutionService(context=service_context, db=db)
+    prompt = service._build_prompt(
+        step,
+        protocol_root,
+        tmp_path,
+        step_prompt_path=protocol_root / "step-1.md",
+        workflow_context="",
+    )
+
+    assert "# ContextPack (machine-readable handoff)" in prompt
+    assert '"goal": "Implement feature"' in prompt
+    assert "# Exact Test Commands" in prompt
+    assert "`pytest -q`" in prompt
+
+
+def test_build_prompt_includes_task_cycle_helper_summary(service_context, tmp_path):
+    db, step, run, project = _build_execution_db()
+    project.local_path = str(tmp_path)
+    run.worktree_path = str(tmp_path)
+    protocol_root = tmp_path / "specs" / "demo" / "_runtime"
+    protocol_root.mkdir(parents=True, exist_ok=True)
+    (protocol_root / "step-1.md").write_text("# Task\nImplement feature\n", encoding="utf-8")
+    helpers_dir = (
+        tmp_path
+        / ".devgodzilla"
+        / "task-cycle"
+        / "protocols"
+        / str(run.id)
+        / "work-items"
+        / str(step.id)
+        / "helpers"
+    )
+    helpers_dir.mkdir(parents=True, exist_ok=True)
+    (helpers_dir / "helper_summary.json").write_text(
+        """
+        {
+          "helpers": [
+            {
+              "helper_agent": "trace",
+              "status": "completed",
+              "summary": "trace findings for owner"
+            }
+          ]
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    service = ExecutionService(context=service_context, db=db)
+    prompt = service._build_prompt(
+        step,
+        protocol_root,
+        tmp_path,
+        step_prompt_path=protocol_root / "step-1.md",
+        workflow_context="",
+    )
+
+    assert "# Helper Subtask Findings" in prompt
+    assert '"helper_agent": "trace"' in prompt

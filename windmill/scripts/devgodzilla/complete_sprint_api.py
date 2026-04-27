@@ -1,11 +1,16 @@
+"""
+Complete Sprint (DevGodzilla API)
 
-import requests
+Thin adapter that delegates to the DevGodzilla sprint-complete endpoint.
+"""
 
-def main(sprint_id: int):
+from __future__ import annotations
+
+from typing import Any, Dict
+
+from ._api import api_json
+
+
+def main(sprint_id: int) -> Dict[str, Any]:
     """Complete a sprint and finalize metrics."""
-    api_base = "http://devgodzilla-api:8000"
-    
-    response = requests.post(f"{api_base}/sprints/{sprint_id}/actions/complete")
-    response.raise_for_status()
-    
-    return response.json()
+    return api_json("POST", f"/sprints/{sprint_id}/actions/complete", body={})

@@ -254,7 +254,9 @@ class TestQAPipelineScaffoldDetection:
         )
 
         prompt = gate._build_prompt(ctx)
-        assert "MISSING" not in prompt
+        assert "(not yet available" in prompt
+        assert "## plan.md" in prompt
+        assert "## context.md" in prompt
         assert "not yet available" in prompt
 
     def test_partial_artifacts_show_content(self, tmp_path, mock_engine):

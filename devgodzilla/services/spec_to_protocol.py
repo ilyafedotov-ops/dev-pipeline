@@ -96,7 +96,7 @@ class SpecToProtocolService(Service):
                 phase_titles=[title for title, _ in phases],
                 overwrite=overwrite,
             )
-            self._ensure_runtime_support_files(protocol_root, protocol_name)
+        self._ensure_runtime_support_files(protocol_root, protocol_name)
 
         run = self.db.create_protocol_run(
             project_id=project_id,
@@ -305,8 +305,29 @@ class SpecToProtocolService(Service):
 
     @staticmethod
     def _ensure_runtime_support_files(protocol_root: Path, feature_name: str) -> None:
+        readme_path = protocol_root / "README.md"
         context_path = protocol_root / "context.md"
         log_path = protocol_root / "log.md"
+        if not readme_path.exists():
+            readme_path.write_text(
+                "\n".join(
+                    [
+                        f"# Protocol Runtime: {feature_name}",
+                        "",
+                        "This directory contains the generated execution plan and runtime artifacts",
+                        "for this DevGodzilla protocol.",
+                        "",
+                        "## Expected Files",
+                        "- `plan.md`: protocol-level execution plan",
+                        "- `step-*.md`: executable phase prompts for each step",
+                        "- `context.md`: shared execution context",
+                        "- `log.md`: running notes for the protocol",
+                        "- `.devgodzilla/steps/<id>/artifacts/*`: step execution artifacts",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
         if not context_path.exists():
             context_path.write_text(f"# Execution Context: {feature_name}\n\n", encoding="utf-8")
         if not log_path.exists():

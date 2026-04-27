@@ -6,6 +6,7 @@ Runs the quality-validator prompt through the configured QA engine.
 
 from __future__ import annotations
 
+import json
 import hashlib
 import re
 import subprocess
@@ -87,6 +88,13 @@ class PromptQAGate(Gate):
         step_text = ""
         if protocol_root and step_name:
             step_text = self._read_file(protocol_root / f"{step_name}.md")
+        metadata = context.metadata if isinstance(context.metadata, dict) else {}
+        context_pack_payload = metadata.get("context_pack")
+        context_pack_text = ""
+        if isinstance(context_pack_payload, dict) and context_pack_payload:
+            context_pack_text = self._truncate_json(context_pack_payload)
+        diff_text = self._read_first_existing(metadata.get("diff_paths"))
+        test_commands = metadata.get("test_commands") if isinstance(metadata.get("test_commands"), list) else []
 
         git_status = self._git_cmd(["git", "status", "--porcelain"], context.workspace_root)
         last_commit = self._git_cmd(["git", "log", "-1", "--pretty=%B"], context.workspace_root)
@@ -119,6 +127,15 @@ class PromptQAGate(Gate):
             "",
             f"## {step_name or 'step'}.md",
             _label(f"{step_name or 'step'}.md", step_text),
+            "",
+            "## ContextPack",
+            context_pack_text or "MISSING",
+            "",
+            "## Exact test commands",
+            "\n".join(f"- {cmd}" for cmd in test_commands) if test_commands else "MISSING",
+            "",
+            "## changes.diff",
+            diff_text or "(diff artifact unavailable)",
             "",
             "## git status",
             git_status or "(clean working tree)",
@@ -157,6 +174,29 @@ class PromptQAGate(Gate):
             return (proc.stdout or proc.stderr or "").strip()
         except Exception:
             return ""
+
+    @staticmethod
+    def _read_first_existing(raw_paths: object) -> str:
+        if not isinstance(raw_paths, list):
+            return ""
+        for raw in raw_paths:
+            path = Path(str(raw))
+            if not path.exists():
+                continue
+            try:
+                return path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+        return ""
+
+    @staticmethod
+    def _truncate_json(payload: dict) -> str:
+        rendered = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        # Preserve machine-readable content while keeping prompt size bounded.
+        text = json.dumps(payload, indent=2)
+        if len(text) <= 8000:
+            return text
+        return text[:8000] + f"\n... truncated ...\ncontext_pack_sha256={rendered}"
 
     def _parse_result(self, result: EngineResult, *, duration_seconds: float) -> GateResult:
         output = (result.stdout or "").strip()

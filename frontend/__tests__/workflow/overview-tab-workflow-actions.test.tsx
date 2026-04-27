@@ -78,20 +78,23 @@ vi.mock("@/lib/api", () => ({
 }));
 
 describe("OverviewTab workflow actions", () => {
-  it("promotes the canonical workflow and labels manual step-by-step tools as secondary", () => {
+  it("promotes the canonical workflow and routes workflow steps through the spec workspace", () => {
     render(<OverviewTab projectId={12} />);
 
-    expect(
-      screen.getByRole("link", { name: /review active implementation/i }).getAttribute("href")
-    ).toBe("/specifications/77?tab=analysis");
-    expect(screen.getByRole("link", { name: /run spec workflow/i }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: /open execution/i }).getAttribute("href")).toBe(
+      "/projects/12?tab=execution"
+    );
+    expect(screen.getByRole("link", { name: /specification/i }).getAttribute("href")).toBe(
       "/projects/12?wizard=generate-specs&tab=spec"
     );
-    expect(screen.getByRole("link", { name: /manual plan wizard/i }).getAttribute("href")).toBe(
-      "/projects/12?wizard=design-solution"
+    expect(screen.getByRole("link", { name: /implementation plan/i }).getAttribute("href")).toBe(
+      "/projects/12?tab=spec&step=plan"
     );
-    expect(screen.getByRole("link", { name: /manual tasks wizard/i }).getAttribute("href")).toBe(
-      "/projects/12?wizard=implement-feature"
+    expect(screen.getByRole("link", { name: /task list/i }).getAttribute("href")).toBe(
+      "/projects/12?tab=spec&step=tasks"
+    );
+    expect(screen.getByRole("link", { name: /analyze/i }).getAttribute("href")).toBe(
+      "/projects/12?tab=spec&step=analyze"
     );
   });
 });

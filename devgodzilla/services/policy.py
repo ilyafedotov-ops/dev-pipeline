@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from devgodzilla.logging import get_logger
 from devgodzilla.services.base import Service, ServiceContext
+from devgodzilla.services.workspace_paths import resolve_protocol_root
 
 logger = get_logger(__name__)
 
@@ -148,6 +149,47 @@ def _policy_block_codes(policy: Dict[str, Any]) -> set:
     if isinstance(block_codes, list):
         return set(block_codes)
     return _DEFAULT_BLOCK_CODES
+
+
+def _resolve_protocol_path(run, repo_root: Optional[Path]) -> Optional[Path]:
+    """Resolve a run's protocol directory using the concrete workspace root when available."""
+    protocol_root = getattr(run, "protocol_root", None)
+    if not protocol_root:
+        return None
+
+    candidate = Path(protocol_root).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+
+    roots_to_try: list[Path] = []
+    worktree_path = getattr(run, "worktree_path", None)
+    if worktree_path:
+        try:
+            roots_to_try.append(Path(worktree_path).expanduser().resolve())
+        except Exception:
+            pass
+    if repo_root is not None:
+        try:
+            resolved_repo_root = Path(repo_root).expanduser().resolve()
+            if resolved_repo_root not in roots_to_try:
+                roots_to_try.append(resolved_repo_root)
+        except Exception:
+            pass
+
+    for root in roots_to_try:
+        try:
+            resolved = resolve_protocol_root(run, root)
+        except Exception:
+            continue
+        if resolved.exists():
+            return resolved
+
+    if roots_to_try:
+        try:
+            return resolve_protocol_root(run, roots_to_try[0])
+        except Exception:
+            pass
+    return candidate
 
 
 class PolicyService(Service):
@@ -354,8 +396,8 @@ class PolicyService(Service):
         requirements = policy.get("requirements", {})
         required_files = requirements.get("protocol_files", [])
         
-        if run.protocol_root and required_files:
-            protocol_path = Path(run.protocol_root)
+        protocol_path = _resolve_protocol_path(run, repo_root)
+        if protocol_path and required_files:
             for file_name in required_files:
                 if not (protocol_path / file_name).exists():
                     findings.append(Finding(
@@ -368,8 +410,7 @@ class PolicyService(Service):
                     ))
         
         # Check step structure
-        if run.protocol_root:
-            protocol_path = Path(run.protocol_root)
+        if protocol_path:
             if protocol_path.exists():
                 step_files = sorted(protocol_path.glob("step-*.md"))
                 
@@ -450,8 +491,9 @@ class PolicyService(Service):
         
         # Determine step file path
         step_file: Optional[Path] = None
-        if run.protocol_root:
-            step_file = Path(run.protocol_root) / f"{step.step_name}.md"
+        protocol_path = _resolve_protocol_path(run, repo_root)
+        if protocol_path:
+            step_file = protocol_path / f"{step.step_name}.md"
         
         # a) Check step markdown file exists
         if step_file is None or not step_file.exists():
@@ -485,8 +527,7 @@ class PolicyService(Service):
         
         # c) CI checks validation
         required_checks = _policy_required_checks(policy)
-        if required_checks and run.protocol_root:
-            protocol_path = Path(run.protocol_root)
+        if required_checks and protocol_path:
             if protocol_path.exists():
                 # Gather all step names and file contents for reference checks
                 all_step_names: List[str] = []

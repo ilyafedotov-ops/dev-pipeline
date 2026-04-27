@@ -291,7 +291,11 @@ class PlanningService(Service):
                     except Exception:
                         engine_id = None
                     if not isinstance(engine_id, str) or not engine_id.strip():
-                        engine_id = "opencode"
+                        engine_id = (
+                            self.context.config.engine_defaults.get("planning")  # type: ignore[union-attr]
+                            or self.context.config.default_engine_id  # type: ignore[union-attr]
+                            or "opencode"
+                        )
 
                     model = None
                     try:

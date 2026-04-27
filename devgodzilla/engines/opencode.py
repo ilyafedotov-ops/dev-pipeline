@@ -44,7 +44,7 @@ class OpenCodeEngine(CLIEngine):
         prefer_cli: bool = True,
     ) -> None:
         env_model = os.environ.get("DEVGODZILLA_OPENCODE_MODEL")
-        resolved_default_model = default_model or (env_model.strip() if env_model else "") or "zai-coding-plan/glm-5"
+        resolved_default_model = default_model or (env_model.strip() if env_model else "") or "openai/gpt-4.1"
         super().__init__(
             default_timeout=default_timeout,
             default_model=resolved_default_model,
@@ -93,6 +93,10 @@ class OpenCodeEngine(CLIEngine):
 
         # Add optional parameters from extra
         extra = req.extra or {}
+
+        reasoning_effort = str(extra.get("reasoning_effort") or "").strip()
+        if reasoning_effort:
+            cmd.extend(["--variant", reasoning_effort])
 
         # Output/log format
         output_format = extra.get("output_format")

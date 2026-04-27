@@ -73,7 +73,9 @@ def test_spec_to_protocol_flow_reuses_implement_bootstrap_protocol() -> None:
     assert "create_protocol" not in module_by_id
 
     protocol_start = module_by_id["protocol_start"]
-    protocol_expr = protocol_start["input_transforms"]["protocol_run_id"]["expr"]
+    protocol_expr = (
+        protocol_start["value"]["branches"][1]["modules"][0]["input_transforms"]["protocol_run_id"]["expr"]
+    )
     assert protocol_expr == "results.speckit_implement.protocol_id"
 
 
@@ -114,3 +116,15 @@ def test_brownfield_feature_task_cycle_uses_created_protocol_for_work_items() ->
         module_by_id["get_task_cycle"]["value"]["input_transforms"]["protocol_run_id"]["expr"]
         == "results.create_protocol.protocol.id"
     )
+
+
+def test_brownfield_feature_task_cycle_passes_helper_sidecar_inputs() -> None:
+    flow_path = FLOWS_DIR / "brownfield_feature.flow.json"
+    data = json.loads(flow_path.read_text(encoding="utf-8"))
+    module_by_id = {module["id"]: module for module in data["value"]["modules"]}
+
+    create_protocol = module_by_id["create_protocol"]["value"]["input_transforms"]
+    assert create_protocol["task_cycle"]["expr"] == "flow_input.output_mode === 'task_cycle'"
+    assert create_protocol["owner_agent"]["expr"] == "flow_input.owner_agent || null"
+    assert create_protocol["helper_agents"]["expr"] == "flow_input.helper_agents || []"
+    assert create_protocol["allow_helper_agents"]["expr"] == "flow_input.allow_helper_agents || false"

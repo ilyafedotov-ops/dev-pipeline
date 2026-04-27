@@ -167,6 +167,14 @@ class ProtocolGenerationService(Service):
             timeout=timeout_seconds,
             extra={"job_id": "protocol_generate"},
         )
+        if project_id is not None:
+            try:
+                cfg = AgentConfigService(self.context)
+                agent_cfg = cfg.get_agent(engine_id, project_id=project_id)
+                if agent_cfg and isinstance(agent_cfg.reasoning_effort, str) and agent_cfg.reasoning_effort.strip():
+                    req.extra["reasoning_effort"] = agent_cfg.reasoning_effort.strip()
+            except Exception:
+                pass
         engine_result = engine.execute(req)
 
         created_files = sorted(protocol_root.glob("*.md")) if protocol_root.exists() else []

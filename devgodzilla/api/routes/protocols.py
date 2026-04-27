@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
@@ -120,6 +121,10 @@ class ProtocolFromSpecRequest(BaseModel):
     protocol_name: Optional[str] = None
     spec_run_id: Optional[int] = None
     overwrite: bool = False
+    task_cycle: bool = False
+    owner_agent: Optional[str] = None
+    helper_agents: List[str] = Field(default_factory=list)
+    allow_helper_agents: bool = False
 
 
 class ProtocolFromSpecResponse(BaseModel):
@@ -235,6 +240,15 @@ def create_protocol_from_spec(
             success=False,
             error=result.error or "Protocol creation failed",
             warnings=result.warnings,
+        )
+
+    if result.protocol_run_id and request.task_cycle:
+        from devgodzilla.services.task_cycle import TaskCycleService
+
+        TaskCycleService(ctx, db).seed_task_cycle_metadata(
+            result.protocol_run_id,
+            owner_agent=request.owner_agent,
+            helper_agents=request.helper_agents if (request.allow_helper_agents or request.helper_agents) else [],
         )
 
     protocol = db.get_protocol_run(result.protocol_run_id) if result.protocol_run_id else None
@@ -753,7 +767,7 @@ def list_protocol_artifacts(
                     type=_artifact_type_from_name(p.name),
                     name=p.name,
                     size=stat.st_size,
-                    created_at=None,
+                    created_at=datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
                     step_run_id=step.id,
                     step_name=step.step_name,
                 )
@@ -991,15 +1005,17 @@ def get_protocol_policy_findings(
     except KeyError:
         raise HTTPException(status_code=404, detail="Protocol not found")
     
-    # Determine repo root for policy evaluation
     project = db.get_project(run.project_id)
     repo_root = None
-    if project.local_path:
-        try:
-            repo_root = Path(project.local_path).expanduser()
-        except Exception:
-            pass
-    
+    try:
+        repo_root = resolve_workspace_root(run, project)
+    except Exception:
+        if project.local_path:
+            try:
+                repo_root = Path(project.local_path).expanduser()
+            except Exception:
+                repo_root = None
+
     findings = policy_service.evaluate_protocol(protocol_id, repo_root=repo_root)
     
     return [

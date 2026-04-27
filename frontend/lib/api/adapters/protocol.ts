@@ -36,7 +36,7 @@ export interface RawProtocolRun {
   updated_at: string;
 }
 
-interface RawProtocolArtifact {
+export interface RawProtocolArtifact {
   id: string;
   step_run_id: number;
   step_name: string | null;

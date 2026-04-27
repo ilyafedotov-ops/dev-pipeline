@@ -16,6 +16,7 @@ from devgodzilla.services.quality import (
     QAResult,
     QAVerdict,
 )
+from devgodzilla.qa.report_generator import ReportGenerator
 from devgodzilla.qa.gates.interface import (
     Gate,
     GateContext,
@@ -214,6 +215,31 @@ class TestQualityServiceInstantiation:
             default_gates=custom_gates,
         )
         assert service is not None
+
+
+def test_quality_report_marks_skipped_gates_as_partial_validation(service_context, mock_db):
+    service = QualityService(context=service_context, db=mock_db)
+    qa_result = QAResult(
+        step_run_id=89,
+        verdict=QAVerdict.PASS,
+        gate_results=[
+            GateResult(gate_id="prompt_qa", gate_name="Prompt QA", verdict=GateVerdict.SKIP),
+            GateResult(gate_id="lint", gate_name="Lint Gate", verdict=GateVerdict.SKIP),
+            GateResult(gate_id="test", gate_name="Test Gate", verdict=GateVerdict.PASS),
+        ],
+    )
+
+    report_path = service.generate_quality_report(
+        qa_result,
+        Path("/tmp/devgodzilla-quality-report-test"),
+        step_name="step-01-phase-1-setup",
+    )
+    content = report_path.read_text(encoding="utf-8")
+
+    assert "**Quality Score**: 33%" in content
+    assert "some gates were skipped" in content
+    assert "partial validation" in content
+    assert "Excellent! The code passes all quality checks" not in content
 
 
 # =============================================================================
@@ -574,10 +600,16 @@ class TestRunQA:
         mock_db.get_project.return_value.local_path = str(workspace)
         context_pack_dir = workspace / ".devgodzilla" / "task-cycle" / "protocols" / "100" / "work-items" / "1000"
         context_pack_dir.mkdir(parents=True, exist_ok=True)
+        step_artifacts_dir = workspace / ".protocols" / "test" / ".devgodzilla" / "steps" / "1000" / "artifacts"
+        step_artifacts_dir.mkdir(parents=True, exist_ok=True)
+        (step_artifacts_dir / "changes.diff").write_text("diff --git a/demo b/demo\n", encoding="utf-8")
         (context_pack_dir / "context_pack.json").write_text(
             """
             {
               "test_commands": ["cd packages/web && npm test"],
+              "artifact_refs": {
+                "step_artifacts_dir": ".protocols/test/.devgodzilla/steps/1000/artifacts"
+              },
               "test_command_specs": [
                 {
                   "cwd": "packages/web",
@@ -629,6 +661,9 @@ class TestRunQA:
                 "display": "cd packages/web && npm test",
             }
         ]
+        assert observed["metadata"]["artifact_refs"]["step_artifacts_dir"] == ".protocols/test/.devgodzilla/steps/1000/artifacts"
+        assert observed["metadata"]["diff_paths"] == [str(step_artifacts_dir / "changes.diff")]
+        assert observed["metadata"]["context_pack"]["test_commands"] == ["cd packages/web && npm test"]
 
     def test_run_qa_blocks_protocol_on_failures(self, service_context, mock_db, workspace, monkeypatch):
         """Test run_qa marks protocol blocked when gates fail."""

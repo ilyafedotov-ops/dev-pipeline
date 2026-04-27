@@ -10,7 +10,7 @@
     "test": "vitest",
     "test:run": "vitest --run",
     "test:e2e": "playwright test",
-    "test:e2e:smoke": "playwright test e2e/spec-driven-smoke.spec.ts",
+    "test:e2e:smoke": "PLAYWRIGHT_START_SERVER=1 playwright test e2e/spec-driven-smoke.spec.ts",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "lint:strict": "eslint . --ext .ts,.tsx --max-warnings 0",
     "format": "prettier --write .",

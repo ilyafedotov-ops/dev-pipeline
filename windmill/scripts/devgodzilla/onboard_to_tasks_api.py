@@ -1,8 +1,7 @@
 """
 Onboard GitHub Repo → Spec → Plan → Tasks (DevGodzilla API)
 
-Single-script alternative to the flow-based pipeline. This avoids Windmill JavaScript
-`input_transforms` (which require `deno_core`) by performing the orchestration in Python.
+Thin adapter that delegates orchestration to the backend.
 """
 
 from __future__ import annotations
@@ -10,12 +9,6 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from ._api import api_json
-
-
-def _require_ok(step: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    if payload.get("error"):
-        raise RuntimeError(f"{step} failed: {payload.get('error')}")
-    return payload
 
 
 def main(
@@ -26,52 +19,31 @@ def main(
     constitution_content: str = "",
     feature_request: str = "",
     feature_name: str = "",
+    clarification_entries: list[dict[str, str]] | None = None,
+    clarification_notes: str = "",
+    run_discovery_agent: bool = False,
+    discovery_pipeline: bool = True,
+    discovery_engine_id: str = "",
+    discovery_model: str = "",
+    clone_if_missing: bool = True,
 ) -> Dict[str, Any]:
-    created = _require_ok(
-        "create_project",
-        api_json(
-            "POST",
-            "/projects",
-            body={
-                "name": project_name,
-                "git_url": git_url,
-                "base_branch": branch or "main",
-                "description": description or "",
-                "auto_onboard": False,
-                "auto_discovery": False,
-            },
-        ),
+    return api_json(
+        "POST",
+        "/projects/actions/onboard-to-tasks",
+        body={
+            "git_url": git_url,
+            "project_name": project_name,
+            "branch": branch or "main",
+            "description": description or "",
+            "constitution_content": constitution_content or "",
+            "feature_request": feature_request or "",
+            "feature_name": feature_name or "",
+            "clarification_entries": clarification_entries or [],
+            "clarification_notes": clarification_notes or "",
+            "run_discovery_agent": bool(run_discovery_agent),
+            "discovery_pipeline": bool(discovery_pipeline),
+            "discovery_engine_id": discovery_engine_id or "",
+            "discovery_model": discovery_model or "",
+            "clone_if_missing": bool(clone_if_missing),
+        },
     )
-    project_id = created.get("id")
-    if not isinstance(project_id, int):
-        raise RuntimeError("create_project failed: missing project id")
-
-    onboard_body: Dict[str, Any] = {"branch": branch or None, "clone_if_missing": True}
-    if constitution_content:
-        onboard_body["constitution_content"] = constitution_content
-    onboarded = _require_ok("onboard_project", api_json("POST", f"/projects/{project_id}/actions/onboard", body=onboard_body))
-
-    if feature_request:
-        spec = _require_ok(
-            "speckit_specify",
-            api_json(
-                "POST",
-                f"/projects/{project_id}/speckit/specify",
-                body={k: v for k, v in {"description": feature_request, "feature_name": feature_name or None}.items() if v},
-            ),
-        )
-        plan = _require_ok("speckit_plan", api_json("POST", f"/projects/{project_id}/speckit/plan", body={"spec_path": spec.get("spec_path")}))
-        tasks = _require_ok("speckit_tasks", api_json("POST", f"/projects/{project_id}/speckit/tasks", body={"plan_path": plan.get("plan_path")}))
-    else:
-        spec = {}
-        plan = {}
-        tasks = {}
-
-    return {
-        "project_id": project_id,
-        "create_project": created,
-        "onboard_project": onboarded,
-        "speckit_specify": spec,
-        "speckit_plan": plan,
-        "speckit_tasks": tasks,
-    }

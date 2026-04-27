@@ -174,7 +174,11 @@
             "tasks_path": { "type": "javascript", "expr": "results.speckit_tasks.tasks_path" },
             "spec_run_id": { "type": "javascript", "expr": "results.speckit_specify.spec_run_id" },
             "protocol_name": { "type": "javascript", "expr": "flow_input.protocol_name || ''" },
-            "overwrite": { "type": "javascript", "expr": "flow_input.overwrite_protocol || false" }
+            "overwrite": { "type": "javascript", "expr": "flow_input.overwrite_protocol || false" },
+            "task_cycle": { "type": "javascript", "expr": "flow_input.output_mode === 'task_cycle'" },
+            "owner_agent": { "type": "javascript", "expr": "flow_input.owner_agent || null" },
+            "helper_agents": { "type": "javascript", "expr": "flow_input.helper_agents || []" },
+            "allow_helper_agents": { "type": "javascript", "expr": "flow_input.allow_helper_agents || false" }
           }
         }
       },
@@ -375,6 +379,24 @@
         "description": "How long to wait for protocol planning to settle.",
         "default": 300,
         "minimum": 30
+      },
+      "owner_agent": {
+        "type": "string",
+        "description": "Optional owner agent override for task-cycle work items.",
+        "default": ""
+      },
+      "helper_agents": {
+        "type": "array",
+        "description": "Optional bounded helper sidecars for task-cycle work items.",
+        "default": [],
+        "items": {
+          "type": "string"
+        }
+      },
+      "allow_helper_agents": {
+        "type": "boolean",
+        "description": "Allow helper agents to run bounded internal subtasks under the owner in task-cycle mode.",
+        "default": false
       }
     },
     "required": ["feature_request"],

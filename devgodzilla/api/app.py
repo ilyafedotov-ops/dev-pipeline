@@ -363,6 +363,7 @@ def get_features():
     """Return available features based on configuration."""
     return {
         "windmill_enabled": getattr(config, "windmill_enabled", False),
+        "task_cycle_enabled": getattr(config, "task_cycle_enabled", True),
     }
 
 if __name__ == "__main__":

@@ -123,10 +123,23 @@ export INSTALL_AGENT_CLIS=0
 docker compose -f docker-compose.local.yml up -d --build devgodzilla-api
 ```
 
+For Docker-backed runs, put agent keys and engine defaults in repo-root `.env`, then rebuild the API container. The compose files now pass those variables through directly and mount common host auth directories for `codex`, `claude`, and `opencode`.
+
 If you use `opencode`, authenticate on the host first so the mounted auth state is available in Docker:
 
 ```bash
 opencode auth login
+```
+
+If you use `codex`, either export `OPENAI_API_KEY` in `.env` or make sure host login state exists under `~/.codex`.
+
+To force Docker-backed brownfield/protocol runs to use a specific engine, set for example:
+
+```bash
+echo 'DEVGODZILLA_DEFAULT_ENGINE_ID=codex' >> .env
+echo 'DEVGODZILLA_EXEC_ENGINE_ID=codex' >> .env
+echo 'DEVGODZILLA_PLANNING_ENGINE_ID=codex' >> .env
+docker compose -f docker-compose.local.yml up -d --build devgodzilla-api
 ```
 
 Check agent runtime health with:

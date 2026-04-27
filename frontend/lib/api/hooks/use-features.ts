@@ -5,6 +5,7 @@ import { queryKeys } from "../query-keys";
 
 export interface Features {
   windmill_enabled: boolean;
+  task_cycle_enabled: boolean;
 }
 
 export function useFeatures() {

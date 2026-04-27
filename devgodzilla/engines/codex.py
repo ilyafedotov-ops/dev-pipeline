@@ -5,6 +5,7 @@ OpenAI Codex CLI engine adapter.
 """
 
 import os
+import subprocess
 from pathlib import Path
 from typing import List, Optional
 
@@ -99,7 +100,11 @@ class CodexEngine(CLIEngine):
         
         if extra.get("output_last_message"):
             cmd.extend(["--output-last-message", str(extra["output_last_message"])])
-        
+
+        reasoning_effort = str(extra.get("reasoning_effort") or "").strip()
+        if reasoning_effort:
+            cmd.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
+
         # Read from stdin
         cmd.append("-")
         
@@ -119,7 +124,22 @@ class CodexEngine(CLIEngine):
         if os.environ.get("DEVGODZILLA_ASSUME_AGENT_AUTH", "").lower() in ("1", "true", "yes", "on"):
             return True
 
-        return bool(os.environ.get("OPENAI_API_KEY"))
+        if os.environ.get("OPENAI_API_KEY"):
+            return True
+
+        try:
+            result = subprocess.run(
+                ["codex", "login", "status"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except Exception:
+            return False
+
+        status_text = ((result.stdout or "") + "\n" + (result.stderr or "")).strip().lower()
+        return result.returncode == 0 and "not logged in" not in status_text
 
 
 def register_codex_engine(*, default: bool = True) -> CodexEngine:

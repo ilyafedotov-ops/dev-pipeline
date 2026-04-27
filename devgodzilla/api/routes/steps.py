@@ -224,8 +224,10 @@ def get_step_quality(
     verdict = qa_record.verdict
 
     def to_status(v: str | None) -> str:
-        if v in ("pass", "skip"):
+        if v == "pass":
             return "passed"
+        if v == "skip":
+            return "skipped"
         if v == "warn":
             return "warning"
         if v in ("fail", "error"):
@@ -254,9 +256,12 @@ def get_step_quality(
             )
         )
 
+    verdicts = [str((g.get("verdict") or "")).lower() for g in (qa_record.gate_results or [])]
+    pass_count = sum(1 for v in verdicts if v == "pass")
+    skip_count = sum(1 for v in verdicts if v == "skip")
     blocking = 1 if verdict in ("fail", "error") else 0
-    warnings = 1 if verdict == "warn" else 0
-    score = 1.0 if verdict in ("pass", "skip") else 0.7 if verdict == "warn" else 0.0 if verdict in ("fail", "error") else 0.0
+    warnings = 1 if verdict == "warn" or skip_count > 0 else 0
+    score = pass_count / len(verdicts) if verdicts else (0.0 if verdict in ("fail", "error") else 1.0)
     overall_status = "failed" if blocking else "warning" if warnings else "passed"
 
     checklist_items = [

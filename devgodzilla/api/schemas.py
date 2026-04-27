@@ -245,6 +245,7 @@ class AgentInfo(BaseModel):
     capabilities: List[str]
     status: str = "configured"
     default_model: Optional[str] = None
+    reasoning_effort: Optional[str] = None
     command_dir: Optional[str] = None
     enabled: Optional[bool] = None
     command: Optional[str] = None
@@ -259,6 +260,7 @@ class AgentConfigUpdate(BaseModel):
     kind: Optional[str] = None
     enabled: Optional[bool] = None
     default_model: Optional[str] = None
+    reasoning_effort: Optional[str] = None
     temperature: Optional[float] = None
     capabilities: Optional[List[str]] = None
     command_dir: Optional[str] = None
@@ -348,6 +350,14 @@ class AgentTestOut(BaseModel):
     ok: bool
     checks: List[AgentTestCheckOut] = Field(default_factory=list)
     duration_ms: Optional[float] = None
+
+
+class AgentModelListOut(BaseModel):
+    agent_id: str
+    models: List[str] = Field(default_factory=list)
+    source: str = "static"
+    warning: Optional[str] = None
+    model_details: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
 
 class AgentMetricsOut(BaseModel):
     agent_id: str
@@ -468,12 +478,21 @@ class WorkItemArtifactRefsOut(BaseModel):
     task_dir: str
     context_pack_json: str
     context_pack_md: str
+    review_input_json: str
+    review_input_md: str
     review_report_json: str
     review_report_md: str
     test_report_json: str
     test_report_md: str
     rework_pack_json: str
     step_artifacts_dir: str
+
+
+class WorkItemArtifactAvailabilityOut(BaseModel):
+    context_pack_md: bool = False
+    review_report_md: bool = False
+    test_report_md: bool = False
+    rework_pack_json: bool = False
 
 
 class WorkItemOut(BaseModel):
@@ -486,9 +505,12 @@ class WorkItemOut(BaseModel):
     review_status: str
     qa_status: str
     owner_agent: Optional[str] = None
+    review_agent: Optional[str] = None
     helper_agents: List[str] = Field(default_factory=list)
+    helper_agent_summary: Optional[str] = None
     task_dir: Optional[str] = None
     artifact_refs: WorkItemArtifactRefsOut
+    artifact_availability: WorkItemArtifactAvailabilityOut = Field(default_factory=WorkItemArtifactAvailabilityOut)
     depends_on: List[int] = Field(default_factory=list)
     pr_ready: bool = False
     blocking_clarifications: int = 0
@@ -509,6 +531,7 @@ class WorkItemImplementRequest(BaseModel):
 class WorkItemReviewOut(BaseModel):
     verdict: str
     summary: str
+    review_agent: Optional[str] = None
     blocking_findings: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 

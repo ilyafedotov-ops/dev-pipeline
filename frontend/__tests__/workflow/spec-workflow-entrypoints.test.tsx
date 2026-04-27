@@ -11,10 +11,10 @@ describe("SpecWorkflow entry points", () => {
       "/projects/12?wizard=generate-specs&tab=spec"
     );
     expect(screen.getByRole("link", { name: /implementation plan/i }).getAttribute("href")).toBe(
-      "/projects/12?tab=spec"
+      "/projects/12?tab=spec&step=plan"
     );
     expect(screen.getByRole("link", { name: /task list/i }).getAttribute("href")).toBe(
-      "/projects/12?tab=spec"
+      "/projects/12?tab=spec&step=tasks"
     );
   });
 });

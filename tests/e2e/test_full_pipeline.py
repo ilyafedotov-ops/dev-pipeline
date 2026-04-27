@@ -15,10 +15,6 @@ Covers the full lifecycle of every major API flow:
 Requires a running backend on localhost:8000 with /api/v1 prefix.
 """
 
-import asyncio
-import pytest
-
-pytestmark = pytest.mark.integration
 import os
 import time
 import uuid
@@ -27,6 +23,9 @@ from typing import AsyncGenerator
 
 import httpx
 import pytest
+import pytest_asyncio  # noqa: E402
+
+pytestmark = pytest.mark.integration
 
 # ---------------------------------------------------------------------------
 # Environment bootstrap – must run before any devgodzilla imports that may
@@ -43,7 +42,13 @@ HEALTH_URL = "http://localhost:8000/health"
 TIMEOUT = 15.0
 
 
-import pytest_asyncio  # noqa: E402
+def _flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _require_live_backend() -> None:
+    if not _flag("DEVGODZILLA_RUN_LIVE_INTEGRATION_TESTS"):
+        pytest.skip("set DEVGODZILLA_RUN_LIVE_INTEGRATION_TESTS=1 to enable live backend E2E tests")
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +63,7 @@ def anyio_backend():
 
 @pytest_asyncio.fixture()
 async def client() -> AsyncGenerator[httpx.AsyncClient, None]:
+    _require_live_backend()
     async with httpx.AsyncClient(
         base_url=BASE_URL, timeout=httpx.Timeout(TIMEOUT)
     ) as c:
@@ -120,6 +126,7 @@ async def _create_project(client: httpx.AsyncClient, **overrides) -> dict:
 
 @pytest.mark.asyncio
 async def test_health_check():
+    _require_live_backend()
     async with httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT)) as c:
         resp = await c.get(HEALTH_URL)
     assert resp.status_code == 200

@@ -1,0 +1,39 @@
+exclude: ^(Origins/|archive/|projects/|runs/|worktrees/)
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        files: ^\.pre-commit-config\.yaml$
+
+  - repo: local
+    hooks:
+      - id: validate-pre-commit-config
+        name: validate pre-commit config
+        entry: .venv/bin/pre-commit validate-config .pre-commit-config.yaml
+        language: system
+        files: ^\.pre-commit-config\.yaml$
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.13.3
+    hooks:
+      - id: ruff
+        name: ruff unused imports
+        types_or: [python, pyi]
+        files: ^(devgodzilla/services/git(_pr)?\.py|devgodzilla/api/routes/(projects|specifications|_project_git|_specification_queries)\.py)$
+        args: ["--select=F401"]
+      - id: ruff
+        name: ruff structural complexity
+        types_or: [python, pyi]
+        files: ^devgodzilla/api/routes/(projects|specifications)\.py$
+        args: ["--select=C901,PLR0911,PLR0912,PLR0915"]
+
+  - repo: local
+    hooks:
+      - id: python-module-size
+        name: python module size
+        entry: .venv/bin/python scripts/ci/check_python_module_size.py --max-lines 1000 --ignore devgodzilla/services/task_cycle.py --ignore devgodzilla/db/database.py --ignore devgodzilla/services/specification.py --ignore devgodzilla/api/routes/projects.py
+        language: system
+        types: [python]
+        files: ^devgodzilla/(api/routes|services|db|cli)/.*\.py$

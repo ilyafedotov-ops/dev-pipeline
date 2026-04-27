@@ -563,6 +563,7 @@ class OrchestratorService(Service):
                     step_run_id=step_run_id,
                 )
                 # Emit run event
+                event_bus = get_event_bus()
                 event_bus.publish(RunStarted(
                     run_id=job_run_id,
                     job_type="run_qa",

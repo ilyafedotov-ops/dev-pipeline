@@ -327,6 +327,13 @@ class DiscoveryAgentService(Service):
                     "cli_execution_id": execution.execution_id,
                 },
             )
+            try:
+                cfg = AgentConfigService(self.context)
+                agent_cfg = cfg.get_agent(engine_id, project_id=project_id)
+                if agent_cfg and isinstance(agent_cfg.reasoning_effort, str) and agent_cfg.reasoning_effort.strip():
+                    req.extra["reasoning_effort"] = agent_cfg.reasoning_effort.strip()
+            except Exception:
+                pass
             engine_result = engine.execute(req)
 
             # Log stage result to tracker

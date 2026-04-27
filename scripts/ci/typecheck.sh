@@ -20,6 +20,10 @@ fi
 
 export PYTHONPATH="${PYTHONPATH:-.}"
 
+if [ -z "${DEVGODZILLA_DB_URL:-}" ] && [ -z "${DEVGODZILLA_DB_PATH:-}" ]; then
+  export DEVGODZILLA_DB_PATH="$(mktemp -t devgodzilla-typecheck-db.XXXXXX.sqlite3)"
+fi
+
 "${PY_BIN}" -m compileall -q devgodzilla windmill scripts
 
 "${PY_BIN}" - <<'PY'

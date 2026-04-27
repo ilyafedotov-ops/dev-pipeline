@@ -12,7 +12,11 @@ from typing import Any, Dict, List, Optional
 import json
 import os
 import re
+import shutil
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 try:
     import yaml
@@ -35,6 +39,7 @@ class AgentConfig:
     command_dir: Optional[str] = None
     endpoint: Optional[str] = None
     default_model: Optional[str] = None
+    reasoning_effort: Optional[str] = None
     sandbox: str = "none"  # none, workspace-write, cloud
     capabilities: List[str] = field(default_factory=list)
     enabled: bool = True
@@ -118,6 +123,361 @@ class AgentConfigService(Service):
         self._db = cli_get_db()
         return self._db
 
+    def _read_codex_model_cache_details(self) -> dict[str, dict[str, Any]]:
+        """Read Codex model metadata from the local CLI cache when available."""
+        cache_path = Path.home() / ".codex" / "models_cache.json"
+        if not cache_path.exists():
+            return {}
+        try:
+            payload = json.loads(cache_path.read_text())
+        except Exception:  # noqa: BLE001
+            return {}
+
+        models = payload.get("models")
+        if not isinstance(models, list):
+            return {}
+
+        details: dict[str, dict[str, Any]] = {}
+        for item in models:
+            if not isinstance(item, dict):
+                continue
+            slug = str(item.get("slug") or "").strip()
+            if not slug or slug in details:
+                continue
+            supported = item.get("supported_reasoning_levels")
+            normalized_levels: list[dict[str, str]] = []
+            if isinstance(supported, list):
+                for raw in supported:
+                    if not isinstance(raw, dict):
+                        continue
+                    effort = str(raw.get("effort") or "").strip()
+                    description = str(raw.get("description") or "").strip()
+                    if not effort:
+                        continue
+                    normalized_levels.append({"effort": effort, "description": description})
+            details[slug] = {
+                "default_reasoning_effort": str(item.get("default_reasoning_level") or "").strip() or None,
+                "supported_reasoning_efforts": normalized_levels,
+            }
+        return details
+
+    def _read_codex_model_cache(self) -> list[str]:
+        """Read Codex model slugs from the local CLI cache when available."""
+        return list(self._read_codex_model_cache_details().keys())
+
+    def _parse_opencode_verbose_models(self, text: str) -> dict[str, dict[str, Any]]:
+        """Parse `opencode models --verbose` output into model metadata."""
+        details: dict[str, dict[str, Any]] = {}
+        lines = text.splitlines()
+        idx = 0
+        while idx < len(lines):
+            slug = lines[idx].strip()
+            if not slug or "/" not in slug:
+                idx += 1
+                continue
+            idx += 1
+            while idx < len(lines) and not lines[idx].strip():
+                idx += 1
+            if idx >= len(lines) or lines[idx].strip() != "{":
+                continue
+
+            json_lines: list[str] = []
+            depth = 0
+            while idx < len(lines):
+                line = lines[idx]
+                json_lines.append(line)
+                depth += line.count("{")
+                depth -= line.count("}")
+                idx += 1
+                if depth <= 0:
+                    break
+
+            try:
+                payload = json.loads("\n".join(json_lines))
+            except Exception:  # noqa: BLE001
+                continue
+
+            variants = payload.get("variants")
+            normalized_levels: list[dict[str, str]] = []
+            if isinstance(variants, dict):
+                for key, raw in variants.items():
+                    effort = str(key or "").strip()
+                    if not effort:
+                        continue
+                    description = ""
+                    if isinstance(raw, dict):
+                        reason_effort = str(raw.get("reasoningEffort") or "").strip()
+                        thinking = raw.get("thinking")
+                        if reason_effort and reason_effort != effort:
+                            description = f"Uses provider reasoning effort {reason_effort}."
+                        elif isinstance(thinking, dict):
+                            budget = thinking.get("budgetTokens")
+                            thinking_type = str(thinking.get("type") or "").strip()
+                            if budget:
+                                description = f"Thinking budget {budget} tokens."
+                            elif thinking_type:
+                                description = f"Thinking mode: {thinking_type}."
+                    normalized_levels.append({"effort": effort, "description": description or effort})
+
+            default_reasoning_effort = None
+            if normalized_levels:
+                preferred = ("medium", "low", "high", "minimal", "max")
+                available = {item["effort"] for item in normalized_levels}
+                default_reasoning_effort = next((name for name in preferred if name in available), normalized_levels[0]["effort"])
+
+            details[slug] = {
+                "default_reasoning_effort": default_reasoning_effort,
+                "supported_reasoning_efforts": normalized_levels,
+                "reasoning_supported": bool(payload.get("capabilities", {}).get("reasoning")),
+            }
+        return details
+
+    def _discover_opencode_models(
+        self,
+        cmd: str,
+        *,
+        refresh: bool = False,
+        timeout: int = 20,
+    ) -> tuple[list[str], dict[str, dict[str, Any]], Optional[str]]:
+        args = [cmd, "models", "--verbose"]
+        if refresh:
+            args.append("--refresh")
+        try:
+            res = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return [], {}, f"Live model discovery failed: {exc}"
+
+        text = ((res.stdout or "") + "\n" + (res.stderr or "")).strip()
+        if res.returncode != 0:
+            warning = text or "OpenCode model discovery failed"
+            return [], {}, warning
+
+        details = self._parse_opencode_verbose_models(text)
+        if not details:
+            return [], {}, "OpenCode returned no parseable models."
+        return list(details.keys()), details, None
+
+    def _detect_gemini_auth(self) -> dict[str, Any]:
+        home = Path.home()
+        oauth_creds = home / ".gemini" / "oauth_creds.json"
+        google_accounts = home / ".gemini" / "google_accounts.json"
+        adc_default = home / ".config" / "gcloud" / "application_default_credentials.json"
+        explicit_adc = Path(os.environ["GOOGLE_APPLICATION_CREDENTIALS"]).expanduser() if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") else None
+        return {
+            "gemini_api_key_present": bool(os.environ.get("GEMINI_API_KEY")),
+            "google_api_key_present": bool(os.environ.get("GOOGLE_API_KEY")),
+            "oauth_creds_present": oauth_creds.exists(),
+            "google_accounts_present": google_accounts.exists(),
+            "google_application_credentials_present": bool(explicit_adc and explicit_adc.exists()),
+            "gcloud_adc_present": adc_default.exists(),
+        }
+
+    def _discover_gemini_api_models(
+        self,
+        *,
+        timeout: int = 20,
+    ) -> tuple[list[str], dict[str, dict[str, Any]], Optional[str]]:
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            return [], {}, "No Gemini API key configured for provider-backed model discovery."
+
+        url = "https://generativelanguage.googleapis.com/v1beta/models?" + urllib.parse.urlencode(
+            {"key": api_key, "pageSize": 200}
+        )
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as response:
+                payload = json.load(response)
+        except urllib.error.URLError as exc:
+            return [], {}, f"Gemini model discovery failed: {exc}"
+        except Exception as exc:  # noqa: BLE001
+            return [], {}, f"Gemini model discovery failed: {exc}"
+
+        models = payload.get("models")
+        if not isinstance(models, list):
+            return [], {}, "Gemini API returned no model list."
+
+        ordered: list[str] = []
+        seen: set[str] = set()
+        details: dict[str, dict[str, Any]] = {}
+        for item in models:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if not name.startswith("models/"):
+                continue
+            slug = name.split("/", 1)[1].strip()
+            if not slug.startswith("gemini-"):
+                continue
+            methods = item.get("supportedGenerationMethods")
+            if isinstance(methods, list) and "generateContent" not in methods:
+                continue
+            if slug in seen:
+                continue
+            seen.add(slug)
+            ordered.append(slug)
+            details[slug] = {
+                "default_reasoning_effort": None,
+                "supported_reasoning_efforts": [],
+                "reasoning_supported": False,
+            }
+        if not ordered:
+            return [], {}, "Gemini API returned no generateContent-capable Gemini models."
+        return ordered, details, None
+
+    def _discover_gemini_bundle_models(
+        self,
+        *,
+        timeout: int = 10,
+    ) -> tuple[list[str], dict[str, dict[str, Any]], Optional[str]]:
+        candidates: list[Path] = []
+        npm_cmd = shutil.which("npm")
+        if npm_cmd:
+            try:
+                res = subprocess.run(
+                    [npm_cmd, "root", "-g"],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                )
+                if res.returncode == 0:
+                    root = Path((res.stdout or "").strip())
+                    if root:
+                        candidates.append(root / "@google" / "gemini-cli")
+            except Exception:
+                pass
+
+        candidates.extend(
+            [
+                Path("/usr/local/lib/node_modules/@google/gemini-cli"),
+                Path("/opt/homebrew/lib/node_modules/@google/gemini-cli"),
+            ]
+        )
+
+        bundle_root = next((path for path in candidates if path.exists()), None)
+        if bundle_root is None:
+            return [], {}, "Gemini CLI bundle not found."
+
+        model_names: set[str] = set()
+        for chunk in sorted((bundle_root / "bundle").glob("chunk-*.js")):
+            try:
+                text = chunk.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            for match in re.finditer(r'"([^"]+)":\s*\{', text):
+                value = match.group(1).strip()
+                if not value:
+                    continue
+                if value in {"auto", "pro", "flash", "flash-lite"}:
+                    model_names.add(value)
+                    continue
+                if not value.startswith("gemini-"):
+                    continue
+                if value.endswith("-base") or "customtools" in value:
+                    continue
+                if re.match(r"^gemini-(?:2\.5|3(?:\.1)?)-(?:pro|flash)(?:-[a-z]+)*(?:-preview)?$", value):
+                    model_names.add(value)
+
+        ordered = sorted(
+            model_names,
+            key=lambda value: (
+                0 if value in {"auto", "pro", "flash", "flash-lite"} else 1,
+                value,
+            ),
+        )
+        if not ordered:
+            return [], {}, "Gemini CLI bundle returned no parseable model aliases."
+
+        details = {
+            model: {
+                "default_reasoning_effort": None,
+                "supported_reasoning_efforts": [],
+                "reasoning_supported": False,
+            }
+            for model in ordered
+        }
+        warning = "Using Gemini CLI bundle-discovered model aliases; account access may vary by auth context."
+        return ordered, details, warning
+
+    def _discover_gemini_models(
+        self,
+        *,
+        timeout: int = 20,
+    ) -> tuple[list[str], str, Optional[str], dict[str, dict[str, Any]]]:
+        models, details, warning = self._discover_gemini_api_models(timeout=timeout)
+        if models:
+            return models, "provider_api", warning, details
+
+        bundle_models, bundle_details, bundle_warning = self._discover_gemini_bundle_models(timeout=timeout)
+        if bundle_models:
+            merged_warning = " ".join(part for part in [warning, bundle_warning] if part)
+            return bundle_models, "bundle", merged_warning or None, bundle_details
+        return [], "static", warning or bundle_warning or "Gemini model discovery failed.", {}
+
+    def _validate_agent_model(self, agent: AgentConfig) -> None:
+        """Validate the configured default model for agents with constrained model sets."""
+        configured_model = (agent.default_model or "").strip()
+        configured_effort = (agent.reasoning_effort or "").strip()
+        if not configured_model:
+            return
+
+        cmd = (agent.command or "").strip()
+        cmd_base = Path(cmd).name if cmd else ""
+
+        if cmd_base == "codex":
+            cache_details = self._read_codex_model_cache_details()
+            cached_models = list(cache_details.keys())
+            if cached_models and configured_model not in cached_models:
+                raise ValueError(
+                    f"Invalid model for codex: {configured_model}. Allowed models come from local Codex cache."
+                )
+            if configured_effort and configured_model in cache_details:
+                allowed = [
+                    str(level.get("effort") or "").strip()
+                    for level in cache_details[configured_model].get("supported_reasoning_efforts", [])
+                    if isinstance(level, dict)
+                ]
+                allowed = [value for value in allowed if value]
+                if allowed and configured_effort not in allowed:
+                    raise ValueError(
+                        f"Invalid reasoning_effort for codex model {configured_model}: {configured_effort}. "
+                        f"Allowed values: {', '.join(allowed)}."
+                    )
+        elif cmd_base == "opencode":
+            models, details, _warning = self._discover_opencode_models(cmd)
+            if models and configured_model not in models:
+                raise ValueError(
+                    f"Invalid model for opencode: {configured_model}. Allowed models come from `opencode models --verbose`."
+                )
+            if configured_effort and configured_model in details:
+                allowed = [
+                    str(level.get("effort") or "").strip()
+                    for level in details[configured_model].get("supported_reasoning_efforts", [])
+                    if isinstance(level, dict)
+                ]
+                allowed = [value for value in allowed if value]
+                if allowed and configured_effort not in allowed:
+                    raise ValueError(
+                        f"Invalid reasoning_effort for opencode model {configured_model}: {configured_effort}. "
+                        f"Allowed values: {', '.join(allowed)}."
+                    )
+        elif cmd_base == "gemini":
+            models, source, _warning, _details = self._discover_gemini_models()
+            if models and configured_model not in models:
+                raise ValueError(
+                    f"Invalid model for gemini: {configured_model}. Allowed models come from Gemini {source} discovery."
+                )
+            if configured_effort:
+                raise ValueError(
+                    "Gemini CLI does not expose configurable reasoning_effort values."
+                )
+
     def _normalize_process_key(self, key: Optional[str]) -> Optional[str]:
         if not key:
             return None
@@ -133,6 +493,7 @@ class AgentConfigService(Service):
             "exec": "execution",
             "execution": "execution",
             "code_gen": "execution",
+            "review": "review",
             "qa": "qa",
             "validation": "qa",
             "validation_qa": "qa",
@@ -212,6 +573,7 @@ class AgentConfigService(Service):
                 "command_dir": base.command_dir,
                 "endpoint": base.endpoint,
                 "default_model": base.default_model,
+                "reasoning_effort": base.reasoning_effort,
                 "sandbox": base.sandbox,
                 "capabilities": list(base.capabilities),
                 "enabled": base.enabled,
@@ -228,6 +590,7 @@ class AgentConfigService(Service):
                 "command_dir": None,
                 "endpoint": None,
                 "default_model": None,
+                "reasoning_effort": None,
                 "sandbox": "none",
                 "capabilities": [],
                 "enabled": True,
@@ -248,6 +611,8 @@ class AgentConfigService(Service):
             values["endpoint"] = agent_data.get("endpoint")
         if "default_model" in agent_data:
             values["default_model"] = agent_data.get("default_model")
+        if "reasoning_effort" in agent_data:
+            values["reasoning_effort"] = agent_data.get("reasoning_effort")
         if "sandbox" in agent_data:
             values["sandbox"] = agent_data.get("sandbox") or values["sandbox"]
         if "capabilities" in agent_data:
@@ -576,6 +941,7 @@ class AgentConfigService(Service):
         mapping = {
             "execution": "exec",
             "planning": "planning",
+            "review": "review",
             "qa": "qa",
             "onboarding_discovery": "discovery",
         }
@@ -873,45 +1239,125 @@ class AgentConfigService(Service):
                 )
             )
 
-            provider = None
             model = (effective.default_model or "").strip()
-            if "/" in model:
-                provider = model.split("/", 1)[0].strip()
-
-            if provider:
-                models_res = _run([cmd, "models", provider], timeout=timeout)
+            models, details, warning = self._discover_opencode_models(cmd, timeout=timeout)
+            if models:
                 checks.append(
                     AgentTestCheckResult(
-                        name="model_provider",
-                        ok=bool(models_res.get("ok")),
-                        error=None if models_res.get("ok") else (models_res.get("stderr") or "Provider check failed"),
-                        details={"provider": provider},
+                        name="model",
+                        ok=(not model) or model in models,
+                        error=(
+                            None
+                            if ((not model) or model in models)
+                            else f"Configured model is not available from OpenCode CLI: {model}"
+                        ),
+                        details={"model": model, "source": "cli"},
                     )
                 )
+            elif warning:
+                checks.append(
+                    AgentTestCheckResult(
+                        name="model",
+                        ok=False,
+                        error=warning,
+                        details={"source": "cli"},
+                    )
+                )
+            configured_effort = (effective.reasoning_effort or "").strip()
+            if configured_effort and model and model in details:
+                supported_levels = [
+                    str(level.get("effort") or "").strip()
+                    for level in details[model].get("supported_reasoning_efforts", [])
+                    if isinstance(level, dict)
+                ]
+                supported_levels = [value for value in supported_levels if value]
+                if supported_levels:
+                    checks.append(
+                        AgentTestCheckResult(
+                            name="reasoning_effort",
+                            ok=configured_effort in supported_levels,
+                            error=(
+                                None
+                                if configured_effort in supported_levels
+                                else (
+                                    f"Configured reasoning_effort is not available for {model}: "
+                                    f"{configured_effort}"
+                                )
+                            ),
+                            details={
+                                "model": model,
+                                "reasoning_effort": configured_effort,
+                                "supported_reasoning_efforts": supported_levels,
+                                "source": "cli",
+                            },
+                        )
+                    )
 
         elif cmd_base == "codex":
-            # Best-effort: validate that auth is present via env var or login status.
+            # Best-effort: validate Codex auth via ChatGPT login, API key, or assume_auth.
             assume = os.environ.get("DEVGODZILLA_ASSUME_AGENT_AUTH", "").lower() in ("1", "true", "yes", "on")
             has_key = bool(os.environ.get("OPENAI_API_KEY"))
-            checks.append(
-                AgentTestCheckResult(
-                    name="openai_api_key",
-                    ok=assume or has_key,
-                    error=None if (assume or has_key) else "OPENAI_API_KEY not set (or set DEVGODZILLA_ASSUME_AGENT_AUTH=true)",
-                    details={"present": has_key, "assume_auth": assume},
-                )
-            )
             status_res = _run([cmd, "login", "status"], timeout=timeout)
             status_text = ((status_res.get("stdout") or "") + "\n" + (status_res.get("stderr") or "")).strip()
             logged_in = bool(status_res.get("ok")) and "not logged in" not in status_text.lower()
             checks.append(
                 AgentTestCheckResult(
-                    name="login_status",
+                    name="auth",
                     ok=logged_in or has_key or assume,
-                    error=None if (logged_in or has_key or assume) else "Codex not logged in (and OPENAI_API_KEY not set)",
-                    details={"logged_in": logged_in},
+                    error=(
+                        None
+                        if (logged_in or has_key or assume)
+                        else "Codex auth not available (sign in with `codex login`, set OPENAI_API_KEY, or set DEVGODZILLA_ASSUME_AGENT_AUTH=true)"
+                    ),
+                    details={"logged_in": logged_in, "openai_api_key_present": has_key, "assume_auth": assume},
                 )
             )
+            configured_model = (effective.default_model or "").strip()
+            configured_effort = (effective.reasoning_effort or "").strip()
+            if configured_model:
+                cache_details = self._read_codex_model_cache_details()
+                cached_models = list(cache_details.keys())
+                if cached_models:
+                    checks.append(
+                        AgentTestCheckResult(
+                            name="model",
+                            ok=configured_model in cached_models,
+                            error=(
+                                None
+                                if configured_model in cached_models
+                                else f"Configured model is not available in local Codex cache: {configured_model}"
+                            ),
+                            details={"model": configured_model, "source": "models_cache"},
+                        )
+                    )
+                if configured_effort and configured_model in cache_details:
+                    supported_levels = [
+                        str(level.get("effort") or "").strip()
+                        for level in cache_details[configured_model].get("supported_reasoning_efforts", [])
+                        if isinstance(level, dict)
+                    ]
+                    supported_levels = [value for value in supported_levels if value]
+                    if supported_levels:
+                        checks.append(
+                            AgentTestCheckResult(
+                                name="reasoning_effort",
+                                ok=configured_effort in supported_levels,
+                                error=(
+                                    None
+                                    if configured_effort in supported_levels
+                                    else (
+                                        f"Configured reasoning_effort is not available for {configured_model}: "
+                                        f"{configured_effort}"
+                                    )
+                                ),
+                                details={
+                                    "model": configured_model,
+                                    "reasoning_effort": configured_effort,
+                                    "supported_reasoning_efforts": supported_levels,
+                                    "source": "models_cache",
+                                },
+                            )
+                        )
 
         elif cmd_base == "claude":
             has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
@@ -933,18 +1379,42 @@ class AgentConfigService(Service):
             )
 
         elif cmd_base == "gemini":
-            has_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+            auth_details = self._detect_gemini_auth()
+            has_auth = any(bool(value) for value in auth_details.values())
             checks.append(
                 AgentTestCheckResult(
-                    name="api_key",
-                    ok=has_key,
-                    error=None if has_key else "GEMINI_API_KEY or GOOGLE_API_KEY not set",
-                    details={
-                        "gemini_api_key_present": bool(os.environ.get("GEMINI_API_KEY")),
-                        "google_api_key_present": bool(os.environ.get("GOOGLE_API_KEY")),
-                    },
+                    name="auth",
+                    ok=has_auth,
+                    error=None if has_auth else "No Gemini credentials detected (API key, cached OAuth, or ADC).",
+                    details=auth_details,
                 )
             )
+            configured_model = (effective.default_model or "").strip()
+            configured_effort = (effective.reasoning_effort or "").strip()
+            if configured_model:
+                discovered_models, source, warning, _details = self._discover_gemini_models(timeout=timeout)
+                if discovered_models:
+                    checks.append(
+                        AgentTestCheckResult(
+                            name="model",
+                            ok=configured_model in discovered_models,
+                            error=None if configured_model in discovered_models else f"Configured model is not available from Gemini {source}: {configured_model}",
+                            details={
+                                "model": configured_model,
+                                "source": source,
+                                "warning": warning,
+                            },
+                        )
+                    )
+            if configured_effort:
+                checks.append(
+                    AgentTestCheckResult(
+                        name="reasoning_effort",
+                        ok=False,
+                        error="Gemini CLI does not expose configurable reasoning_effort values.",
+                        details={"reasoning_effort": configured_effort},
+                    )
+                )
 
         # Overall OK if all checks passed (ignore the informational 'enabled' check if present).
         relevant = [c for c in checks if c.name != "enabled"]
@@ -955,6 +1425,99 @@ class AgentConfigService(Service):
             checks=checks,
             duration_ms=(time.perf_counter() - started) * 1000,
         )
+
+    def list_models(
+        self,
+        agent_id: str,
+        *,
+        project_id: Optional[int | str] = None,
+    ) -> tuple[list[str], str, Optional[str], dict[str, dict[str, Any]]]:
+        """Return available models for an agent using best-effort live discovery."""
+        agent = self.get_agent(agent_id, project_id=project_id)
+        if not agent:
+            raise ValueError("Agent not found")
+
+        configured_default = (agent.default_model or "").strip()
+        cmd = (agent.command or "").strip()
+        cmd_base = Path(cmd).name if cmd else ""
+
+        curated_by_agent: dict[str, list[str]] = {
+            "codex": ["gpt-5", "gpt-5-codex", "gpt-4.1", "o4-mini"],
+            "opencode": ["openai/gpt-5", "openai/gpt-4.1", "anthropic/claude-sonnet-4", "google/gemini-2.5-pro"],
+            "claude": ["claude-sonnet-4-20250514", "claude-opus-4-20250514"],
+            "gemini": ["gemini-2.5-pro", "gemini-2.5-flash"],
+        }
+
+        def _dedupe(items: list[str]) -> list[str]:
+            seen: set[str] = set()
+            ordered: list[str] = []
+            for item in items:
+                value = (item or "").strip()
+                if not value or value in seen:
+                    continue
+                seen.add(value)
+                ordered.append(value)
+            return ordered
+
+        if cmd_base == "opencode":
+            discovered_models, details, warning = self._discover_opencode_models(cmd)
+            if discovered_models:
+                return _dedupe(discovered_models), "cli", warning, details
+            return [], "cli", warning or "OpenCode model discovery failed.", {}
+        if cmd_base == "gemini":
+            discovered_models, source, warning, details = self._discover_gemini_models()
+            if discovered_models:
+                return _dedupe(discovered_models), source, warning, details
+            return [], source, warning or "Gemini model discovery failed.", {}
+
+        warning = None
+        if cmd_base == "codex":
+            cache_details = self._read_codex_model_cache_details()
+            cached_models = list(cache_details.keys())
+            if cached_models:
+                return _dedupe(cached_models), "cache", None, cache_details
+            return [], "cache", "No local Codex model cache found. Sign in with Codex and refresh models.", {}
+        elif agent.kind == "api":
+            warning = "Live model discovery is not implemented for this agent; showing curated models plus the configured default."
+
+        return _dedupe([configured_default, *curated_by_agent.get(cmd_base, [])]), "static", warning, {}
+
+    def refresh_models(
+        self,
+        agent_id: str,
+        *,
+        project_id: Optional[int | str] = None,
+    ) -> tuple[list[str], str, Optional[str], dict[str, dict[str, Any]]]:
+        """
+        Refresh model discovery state for an agent.
+
+        For Codex, the authoritative source is the local CLI cache on disk. Refreshing
+        means re-reading that cache immediately instead of relying on any frontend state.
+        """
+        agent = self.get_agent(agent_id, project_id=project_id)
+        if agent:
+            cmd = (agent.command or "").strip()
+            cmd_base = Path(cmd).name if cmd else ""
+            if cmd_base == "opencode":
+                models, details, warning = self._discover_opencode_models(cmd, refresh=True)
+                if models:
+                    return models, "cli", warning, details
+                fallback_models, fallback_details, fallback_warning = self._discover_opencode_models(cmd)
+                if fallback_models:
+                    merged_warning_parts = [
+                        part
+                        for part in [
+                            warning or "OpenCode model refresh returned no models.",
+                            "Showing the current CLI-discovered model list instead.",
+                            fallback_warning,
+                        ]
+                        if part
+                    ]
+                    return fallback_models, "cli", " ".join(merged_warning_parts), fallback_details
+                return [], "cli", warning or fallback_warning or "OpenCode model refresh returned no models.", {}
+            if cmd_base == "gemini":
+                return self._discover_gemini_models()
+        return self.list_models(agent_id, project_id=project_id)
     
     def check_all_health(self) -> List[HealthCheckResult]:
         """Check health of all enabled agents."""
@@ -970,6 +1533,7 @@ class AgentConfigService(Service):
         *,
         enabled: Optional[bool] = None,
         default_model: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
         capabilities: Optional[List[str]] = None,
         command_dir: Optional[str] = None,
         name: Optional[str] = None,
@@ -993,6 +1557,8 @@ class AgentConfigService(Service):
             update_data["enabled"] = enabled
         if default_model is not None:
             update_data["default_model"] = default_model
+        if reasoning_effort is not None:
+            update_data["reasoning_effort"] = reasoning_effort
         if capabilities is not None:
             update_data["capabilities"] = capabilities
         if command_dir is not None:
@@ -1019,6 +1585,12 @@ class AgentConfigService(Service):
             if not agent:
                 raise ValueError(f"Agent {agent_id} not found")
             return agent
+
+        base_agent = self.get_agent(agent_id, project_id=project_id)
+        if not base_agent:
+            raise ValueError(f"Agent {agent_id} not found")
+        candidate_agent = replace(base_agent, **update_data)
+        self._validate_agent_model(candidate_agent)
 
         try:
             if project_id is not None:
@@ -1062,6 +1634,7 @@ class AgentConfigService(Service):
             "planning": "planning",
             "exec": "execution",
             "code_gen": "execution",
+            "review": "review",
             "qa": "qa",
             "discovery": "onboarding_discovery",
         }

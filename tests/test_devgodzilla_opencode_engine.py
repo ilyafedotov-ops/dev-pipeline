@@ -72,6 +72,42 @@ def test_opencode_engine_invokes_opencode_run(monkeypatch: pytest.MonkeyPatch, t
     assert captured.get("tracker_execution_id") == "exec-123"
 
 
+def test_opencode_engine_passes_reasoning_variant(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_run_cli_command(cmd, **kwargs):  # noqa: ANN001
+        captured["cmd"] = cmd
+        return EngineResult(
+            success=True,
+            stdout="ok\n",
+            stderr="",
+            exit_code=0,
+            duration_seconds=0.01,
+            metadata={"cmd": cmd[0]},
+        )
+
+    monkeypatch.setattr("devgodzilla.engines.opencode.run_cli_command", fake_run_cli_command)
+
+    engine = OpenCodeEngine(default_model="openai/gpt-5-nano")
+    req = EngineRequest(
+        project_id=0,
+        protocol_run_id=0,
+        step_run_id=1,
+        model="openai/gpt-5-nano",
+        prompt_text="Do the thing.",
+        prompt_files=[],
+        working_dir=str(tmp_path),
+        sandbox=SandboxMode.WORKSPACE_WRITE,
+        timeout=10,
+        extra={"reasoning_effort": "high"},
+    )
+    result = engine.execute(req)
+    assert result.success is True
+    cmd = captured["cmd"]
+    assert "--variant" in cmd
+    assert cmd[cmd.index("--variant") + 1] == "high"
+
+
 def test_bootstrap_prefers_opencode_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("devgodzilla.engines.opencode.OpenCodeEngine.check_availability", lambda _self: True)
     monkeypatch.setattr("devgodzilla.engines.codex.CodexEngine.check_availability", lambda _self: False)
