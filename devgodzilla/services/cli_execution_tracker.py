@@ -142,24 +142,76 @@ def _parse_metadata(value: Any) -> Dict[str, Any]:
     return {}
 
 
+def _row_value(row: Any, key: str, default: Any = None) -> Any:
+    if row is None:
+        return default
+    if isinstance(row, dict):
+        return row.get(key, default)
+    try:
+        return row[key]
+    except Exception:
+        return default
+
+
 def _row_to_execution(row: Dict[str, Any]) -> CLIExecution:
     """Build a CLIExecution from a database row dict."""
     return CLIExecution(
-        execution_id=row["execution_id"],
-        execution_type=row["execution_type"],
-        engine_id=row["engine_id"],
-        project_id=row.get("project_id"),
-        status=ExecutionStatus(row.get("status", "running")),
-        started_at=_parse_ts(row.get("started_at")),
-        finished_at=_parse_ts(row.get("finished_at")),
-        command=row.get("command"),
-        working_dir=row.get("working_dir"),
-        pid=row.get("pid"),
-        exit_code=row.get("exit_code"),
-        error=row.get("error"),
-        metadata=_parse_metadata(row.get("metadata")),
+        execution_id=_row_value(row, "execution_id"),
+        execution_type=_row_value(row, "execution_type"),
+        engine_id=_row_value(row, "engine_id"),
+        project_id=_row_value(row, "project_id"),
+        status=ExecutionStatus(_row_value(row, "status", "running")),
+        started_at=_parse_ts(_row_value(row, "started_at")),
+        finished_at=_parse_ts(_row_value(row, "finished_at")),
+        command=_row_value(row, "command"),
+        working_dir=_row_value(row, "working_dir"),
+        pid=_row_value(row, "pid"),
+        exit_code=_row_value(row, "exit_code"),
+        error=_row_value(row, "error"),
+        metadata=_parse_metadata(_row_value(row, "metadata")),
         logs=deque(maxlen=10000),
     )
+
+
+def _is_sqlite_db(db: Any) -> bool:
+    return db.__class__.__name__ == "SQLiteDatabase"
+
+
+def _adapt_query(db: Any, query: str) -> str:
+    if _is_sqlite_db(db):
+        return query.replace("%s", "?")
+    return query
+
+
+def _execute_write(db: Any, query: str, params: tuple[Any, ...]) -> None:
+    adapted_query = _adapt_query(db, query)
+    with db._transaction() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(adapted_query, params)
+        finally:
+            close = getattr(cursor, "close", None)
+            if callable(close):
+                close()
+
+
+def _fetchone_db(db: Any, query: str, params: tuple[Any, ...]) -> Any:
+    return db._fetchone(_adapt_query(db, query), params)
+
+
+def _fetchall_db(db: Any, query: str, params: tuple[Any, ...]) -> list[Any]:
+    return db._fetchall(_adapt_query(db, query), params)
+
+
+def _execution_status_in_db(db: Any, execution_id: str) -> Optional[str]:
+    row = _fetchone_db(
+        db,
+        "SELECT status FROM cli_executions WHERE execution_id = %s",
+        (execution_id,),
+    )
+    if not row:
+        return None
+    return _row_value(row, "status")
 
 
 class CLIExecutionTracker:
@@ -229,27 +281,26 @@ class CLIExecutionTracker:
         # Persist to database
         try:
             db = self._get_db()
-            with db._transaction() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO cli_executions
-                            (execution_id, execution_type, engine_id, project_id,
-                             status, started_at, command, working_dir, metadata)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            execution_id,
-                            execution_type,
-                            engine_id,
-                            project_id,
-                            ExecutionStatus.RUNNING.value,
-                            now,
-                            command,
-                            working_dir,
-                            json.dumps(meta),
-                        ),
-                    )
+            _execute_write(
+                db,
+                """
+                INSERT INTO cli_executions
+                    (execution_id, execution_type, engine_id, project_id,
+                     status, started_at, command, working_dir, metadata)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    execution_id,
+                    execution_type,
+                    engine_id,
+                    project_id,
+                    ExecutionStatus.RUNNING.value,
+                    now,
+                    command,
+                    working_dir,
+                    json.dumps(meta),
+                ),
+            )
         except Exception as exc:
             logger.warning(
                 "cli_execution_db_insert_failed",
@@ -308,12 +359,11 @@ class CLIExecutionTracker:
         # Persist pid update
         try:
             db = self._get_db()
-            with db._transaction() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "UPDATE cli_executions SET pid = %s WHERE execution_id = %s",
-                        (pid, execution_id),
-                    )
+            _execute_write(
+                db,
+                "UPDATE cli_executions SET pid = %s WHERE execution_id = %s",
+                (pid, execution_id),
+            )
         except Exception as exc:
             logger.warning(
                 "cli_execution_db_update_pid_failed",
@@ -333,8 +383,15 @@ class CLIExecutionTracker:
         with self._execution_lock:
             execution = self._executions.get(execution_id)
             if not execution:
-                # Execution not in memory; just update DB
-                self._complete_in_db(execution_id, success, exit_code, error, now)
+                # Execution not in memory; preserve cancellation if it already happened.
+                override_status = None
+                try:
+                    db = self._get_db()
+                    if _execution_status_in_db(db, execution_id) == ExecutionStatus.CANCELLED.value:
+                        override_status = ExecutionStatus.CANCELLED.value
+                except Exception:
+                    override_status = None
+                self._complete_in_db(execution_id, success, exit_code, error, now, override_status=override_status)
                 return
             if execution.status == ExecutionStatus.CANCELLED:
                 # Preserve user-initiated cancellation if the process exits later.
@@ -395,17 +452,16 @@ class CLIExecutionTracker:
         status = override_status or (ExecutionStatus.SUCCEEDED.value if success else ExecutionStatus.FAILED.value)
         try:
             db = self._get_db()
-            with db._transaction() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        UPDATE cli_executions
-                        SET status = %s, finished_at = %s, exit_code = %s, error = %s,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE execution_id = %s
-                        """,
-                        (status, finished_at, exit_code, error, execution_id),
-                    )
+            _execute_write(
+                db,
+                """
+                UPDATE cli_executions
+                SET status = %s, finished_at = %s, exit_code = %s, error = %s,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE execution_id = %s
+                """,
+                (status, finished_at, exit_code, error, execution_id),
+            )
         except Exception as exc:
             logger.warning(
                 "cli_execution_db_complete_failed",
@@ -426,16 +482,15 @@ class CLIExecutionTracker:
         # Update DB
         try:
             db = self._get_db()
-            with db._transaction() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        UPDATE cli_executions
-                        SET status = %s, finished_at = %s, updated_at = CURRENT_TIMESTAMP
-                        WHERE execution_id = %s
-                        """,
-                        (ExecutionStatus.CANCELLED.value, now, execution_id),
-                    )
+            _execute_write(
+                db,
+                """
+                UPDATE cli_executions
+                SET status = %s, finished_at = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE execution_id = %s
+                """,
+                (ExecutionStatus.CANCELLED.value, now, execution_id),
+            )
         except Exception as exc:
             logger.warning(
                 "cli_execution_db_cancel_failed",
@@ -457,7 +512,8 @@ class CLIExecutionTracker:
         # Not in memory — query DB
         try:
             db = self._get_db()
-            row = db._fetchone(
+            row = _fetchone_db(
+                db,
                 "SELECT * FROM cli_executions WHERE execution_id = %s",
                 (execution_id,),
             )
@@ -505,7 +561,7 @@ class CLIExecutionTracker:
         
         try:
             db = self._get_db()
-            rows = db._fetchall(query, params)
+            rows = _fetchall_db(db, query, tuple(params))
             return [_row_to_execution(row) for row in rows]
         except Exception as exc:
             logger.warning(
